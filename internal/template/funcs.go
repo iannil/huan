@@ -167,6 +167,13 @@ func stripTags(s string) string {
 	return re.ReplaceAllString(s, "")
 }
 
+// collapseWhitespace replaces runs of whitespace (spaces, tabs, newlines) with
+// a single space, matching Hugo's plainify behavior.
+func collapseWhitespace(s string) string {
+	wsRe := regexp.MustCompile(`\s+`)
+	return wsRe.ReplaceAllString(s, " ")
+}
+
 // toString converts any value to a string for template functions that expect strings.
 func toString(v interface{}) string {
 	switch val := v.(type) {

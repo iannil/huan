@@ -535,8 +535,8 @@ func cloneContextForPagination(homeCtx *tmpl.Context, allItems tmpl.PageSlice, p
 }
 // truncateHTMLByWords truncates HTML content to approximately N "words"
 // (CJK chars count as 1 word each, ASCII words split by whitespace).
-// It walks the HTML tracking word count and cuts at the next </p> boundary
-// after reaching N words, matching Hugo's summary behavior.
+// When N words are reached, it immediately cuts and closes any open tags.
+// This matches Hugo's summary behavior (truncates mid-paragraph at word boundary).
 func truncateHTMLByWords(htmlStr string, n int) string {
 	if n <= 0 {
 		return htmlStr
@@ -544,6 +544,8 @@ func truncateHTMLByWords(htmlStr string, n int) string {
 	count := 0
 	inTag := false
 	inWord := false
+	var openTags []string
+
 	for i := 0; i < len(htmlStr); i++ {
 		c := htmlStr[i]
 		if inTag {
@@ -555,11 +557,30 @@ func truncateHTMLByWords(htmlStr string, n int) string {
 		if c == '<' {
 			inTag = true
 			inWord = false
+			// Track open/close tags for proper closing
+			tagEnd := strings.IndexByte(htmlStr[i:], '>')
+			if tagEnd > 0 {
+				tagContent := htmlStr[i+1 : i+tagEnd]
+				if len(tagContent) > 0 && tagContent[0] == '/' {
+					// Closing tag
+					if len(openTags) > 0 {
+						openTags = openTags[:len(openTags)-1]
+					}
+				} else if tagContent != "br" && tagContent != "hr" &&
+					!strings.HasPrefix(tagContent, "br/") &&
+					!strings.HasPrefix(tagContent, "img") &&
+					!strings.HasPrefix(tagContent, "hr/") {
+					// Opening tag - extract name
+					name := tagContent
+					if idx := strings.IndexAny(name, " /"); idx > 0 {
+						name = name[:idx]
+					}
+					openTags = append(openTags, name)
+				}
+			}
 			continue
 		}
-		// ASCII byte check
 		if c >= 0x80 {
-			// CJK / multi-byte char: count as 1 word
 			if c&0xC0 != 0x80 {
 				count++
 				inWord = false
@@ -575,13 +596,12 @@ func truncateHTMLByWords(htmlStr string, n int) string {
 			}
 		}
 		if count >= n {
-			// Find next </p> and cut there
-			rest := htmlStr[i+1:]
-			closeIdx := strings.Index(rest, "</p>")
-			if closeIdx >= 0 {
-				return htmlStr[:i+1+closeIdx+len("</p>")]
+			// Cut here, close any open tags
+			result := htmlStr[:i+1]
+			for j := len(openTags) - 1; j >= 0; j-- {
+				result += "</" + openTags[j] + ">"
 			}
-			return htmlStr[:i+1]
+			return result
 		}
 	}
 	return htmlStr

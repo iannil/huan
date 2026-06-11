@@ -687,9 +687,9 @@ encoding/json                           # JSON 处理
 | huan 总文件数 | 2036 |
 | 共有文件数 | 2028 |
 | 仅 Hugo（缺失）| 0 |
-| 仅 huan（多余）| 8（categories/tags index.xml 等 RSS）|
-| 完全一致 | 744 |
-| 内容差异 | 1285 |
+| 仅 huan（多余）| 8 |
+| 完全一致 | 905 |
+| 内容差异 | 1124 |
 
 ### 8.3 已修复的核心问题
 
@@ -732,9 +732,10 @@ encoding/json                           # JSON 处理
 | 类别 | 说明 | 影响 |
 |------|------|------|
 | 字数统计精度 | Hugo 用 specialized CJK word segmenter（基于 dictionary），与 huan 简单字符计数有 ~25% 差距 | 列表页 |
-| RSS items 顺序 | Hugo 内部多字段排序，与 huan 不同 | RSS 文件 |
+| RSS items 顺序 | Hugo 内部多字段排序（date desc → LinkTitle asc → path asc），date 相同时顺序不稳定 | RSS 文件 |
 | RSS item description | Hugo summary 在 word 边界截断，huan 在 `</p>` 边界截断 | RSS 文件 |
-| 部分 page summary | 个别 long post summary 截断位置略不同 | home pagination |
+| products page description | summary 中 block-level 换行（`</h2>\n<p>`）Hugo 转为空格，huan 保留换行 | products 页面 |
+| general page summary | summary 截断位置略不同 | general 页面 |
 
 ### 8.5 验证检查清单
 

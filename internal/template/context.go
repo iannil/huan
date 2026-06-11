@@ -334,8 +334,8 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		Content:         p.Content,
 		Summary:         p.Summary,
 		Plain:           p.Plain,
-		RelPermalink:    p.URL,
-		Permalink:       cfg.BaseURL + strings.TrimPrefix(p.URL, "/"),
+		RelPermalink:    permalinkEncode(p.URL),
+		Permalink:       permalinkEncode(cfg.BaseURL + strings.TrimPrefix(p.URL, "/")),
 		Params:          pageParams(p),
 		Access:          p.Access,
 		EncryptGroup:    p.EncryptGroup,
@@ -588,6 +588,28 @@ func FormatDate(layout string, t time.Time) string {
 		return ""
 	}
 	return t.Format(layout)
+}
+
+// permalinkEncode percent-encodes non-ASCII characters in a URL using uppercase
+// hex, matching Hugo's Permalink output. ASCII characters (including / : . - _ ~)
+// are preserved.
+func permalinkEncode(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r < 128 {
+			// ASCII: keep as-is (URL-safe ASCII chars)
+			b.WriteRune(r)
+			continue
+		}
+		// Non-ASCII: percent-encode UTF-8 bytes with uppercase hex
+		for _, c := range []byte(string(r)) {
+			const hex = "0123456789ABCDEF"
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0xF])
+		}
+	}
+	return b.String()
 }
 
 // pageType returns the effective type for a page.
