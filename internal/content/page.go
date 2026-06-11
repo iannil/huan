@@ -54,9 +54,11 @@ type Page struct {
 	RawContent   string
 
 	// Tree structure
-	Parent       *Page
-	Pages        []*Page
-	RegularPages []*Page
+	Parent               *Page
+	Pages                []*Page
+	RegularPages         []*Page
+	RegularPagesRecursive []*Page // all descendant regular pages, recursively
+	Sections             []*Page  // immediate child section pages
 }
 
 // IsHome returns true for the root index page.

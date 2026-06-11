@@ -23,6 +23,9 @@ func Load(sourceDir string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	// Keep Services.RSS in sync with the top-level RSS config (Hugo compat)
+	cfg.Services.RSS = cfg.RSS
+
 	cfg.BaseURLTemplate = template.URL(cfg.BaseURL)
 
 	return cfg, nil

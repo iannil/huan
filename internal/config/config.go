@@ -28,6 +28,18 @@ type Config struct {
 
 	// Computed (not from YAML)
 	BaseURLTemplate template.URL
+	Services        ServicesConfig
+}
+
+// ServicesConfig mirrors Hugo's [services] section for template compatibility.
+type ServicesConfig struct {
+	RSS RSSConfig
+	Disqus DisqusConfig
+}
+
+// DisqusConfig placeholder for Hugo compatibility.
+type DisqusConfig struct {
+	Shortname string
 }
 
 type AuthorConfig struct {
@@ -120,7 +132,9 @@ type CascadeConfig struct {
 
 // SitemapPageConfig for per-page sitemap control.
 type SitemapPageConfig struct {
-	Disable bool `yaml:"disable"`
+	Disable    bool    `yaml:"disable"`
+	ChangeFreq string  `yaml:"changefreq"`
+	Priority   float64 `yaml:"priority"`
 }
 
 // Defaults returns a Config with sensible defaults.
@@ -145,6 +159,9 @@ func Defaults() *Config {
 			Priority:   0.5,
 		},
 		RSS: RSSConfig{Limit: 20},
+		Services: ServicesConfig{
+			RSS: RSSConfig{Limit: 20},
+		},
 		Outputs: OutputsConfig{
 			Home:     []string{"HTML", "RSS", "SearchIndex"},
 			Page:     []string{"HTML"},

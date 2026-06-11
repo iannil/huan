@@ -80,6 +80,27 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 			if p.Kind == "page" {
 				p.Parent.RegularPages = append(p.Parent.RegularPages, p)
 			}
+			if p.Kind == "section" {
+				p.Parent.Sections = append(p.Parent.Sections, p)
+			}
+		}
+	}
+
+	// Sort each section's Pages by Date descending (Hugo default order)
+	for _, p := range pages {
+		if len(p.Pages) > 1 {
+			sortPagesByDateDesc(p.Pages)
+		}
+		if len(p.RegularPages) > 1 {
+			sortPagesByDateDesc(p.RegularPages)
+		}
+	}
+
+	// Fill RegularPagesRecursive for every section (depth-first).
+	// Done in a second pass so all direct children are populated first.
+	for _, p := range pages {
+		if p.Kind == "section" || p.Kind == "home" {
+			p.RegularPagesRecursive = collectRegularPagesRecursive(p)
 		}
 	}
 
@@ -89,6 +110,10 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		if p.Kind == "page" {
 			site.RegularPages = append(site.RegularPages, p)
 		}
+	}
+	// Sort site.RegularPages by Date descending (Hugo default)
+	if len(site.RegularPages) > 1 {
+		sortPagesByDateDesc(site.RegularPages)
 	}
 
 	// Build section map
@@ -101,6 +126,36 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 	}
 
 	return site, nil
+}
+
+// collectRegularPagesRecursive walks a section's descendants and returns all
+// regular pages beneath it, in document order (matches Hugo's RegularPagesRecursive).
+func collectRegularPagesRecursive(section *Page) []*Page {
+	var result []*Page
+	// Direct regular pages first
+	for _, p := range section.RegularPages {
+		if !p.Draft {
+			result = append(result, p)
+		}
+	}
+	// Recurse into sub-sections
+	for _, sub := range section.Sections {
+		result = append(result, collectRegularPagesRecursive(sub)...)
+	}
+	return result
+}
+
+// sortPagesByDateDesc sorts pages by Date descending (newest first).
+func sortPagesByDateDesc(pages []*Page) {
+	for i := 1; i < len(pages); i++ {
+		for j := i; j > 0; j-- {
+			if pages[j].DateParsed.After(pages[j-1].DateParsed) {
+				pages[j], pages[j-1] = pages[j-1], pages[j]
+			} else {
+				break
+			}
+		}
+	}
 }
 
 // computePageMeta sets Kind, URL, Section from the file path.
