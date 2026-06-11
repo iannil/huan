@@ -171,7 +171,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	// 9. Render pages
 	renderer := tmpl.NewRenderer(tmpls, tmpl.FuncMap(cfg.BaseURL))
-	writer := output.NewWriter(filepath.Join(sourceDir, cfg.PublishDir))
+	var writer *output.Writer
+	if cfg.Minify {
+		writer = output.NewWriterWithMinify(filepath.Join(sourceDir, cfg.PublishDir))
+	} else {
+		writer = output.NewWriter(filepath.Join(sourceDir, cfg.PublishDir))
+	}
 
 	// Build shared site context and page→context lookup
 	siteCtx := tmpl.NewSiteContext(site, cfg)
@@ -234,6 +239,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 					if err := writer.Write(rssPath, rssHTML); err != nil {
 						fmt.Printf("  WARN: write RSS %s: %v\n", p.URL, err)
 					}
+				} else {
+					fmt.Printf("  WARN: render RSS %s: %v\n", p.URL, err)
 				}
 			}
 		}
@@ -251,7 +258,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Generate search.json from home page context
 	if homeCtx := findHomeContext(lookup, site); homeCtx != nil {
 		if html, err := renderer.Render("_default/index.searchindex.json", homeCtx); err == nil {
-			writer.Write("search.json", html)
+			if werr := writer.Write("search.json", html); werr != nil {
+				fmt.Printf("  WARN: write search.json: %v\n", werr)
+			}
 		} else {
 			fmt.Printf("  WARN: search: %v\n", err)
 		}

@@ -85,7 +85,7 @@ type FileInfo struct {
 type SiteContext struct {
 	Title        string
 	BaseURL      string
-	Language     string
+	Language     *LanguageContext
 	Params       map[string]interface{}
 	Menus        map[string][]config.MenuItem
 	Pages        PageSlice
@@ -106,6 +106,13 @@ type SiteContext struct {
 	pagesByPath map[string]*Context
 }
 
+// LanguageContext mirrors Hugo's .Site.Language object.
+type LanguageContext struct {
+	LanguageCode string
+	LanguageName string
+	LanguageDirection string
+}
+
 // GetPage mirrors Hugo's .Site.GetPage - finds a page by ref/path.
 // Usage: {{ .Site.GetPage "/posts/foo" }} or {{ .Site.GetPage "section" "name" }}
 func (s *SiteContext) GetPage(args ...string) *Context {
@@ -117,7 +124,11 @@ func (s *SiteContext) GetPage(args ...string) *Context {
 	ref = strings.TrimPrefix(ref, "/")
 	ref = strings.TrimSuffix(ref, "/")
 
-	for _, p := range s.Pages {
+	for _, item := range s.Pages {
+		p := asCtx(item)
+		if p == nil {
+			continue
+		}
 		if strings.TrimSuffix(strings.TrimPrefix(p.RelPermalink, "/"), "/") == ref {
 			return p
 		}
@@ -295,7 +306,7 @@ func NewSiteContext(site *content.Site, cfg *config.Config) *SiteContext {
 	return &SiteContext{
 		Title:        site.Title,
 		BaseURL:      site.BaseURL,
-		Language:     site.Language,
+		Language:     &LanguageContext{LanguageCode: cfg.LanguageCode},
 		LanguageCode: cfg.LanguageCode,
 		Params:       site.Params,
 		Menus:        site.Menus,
@@ -391,7 +402,10 @@ func (c *Context) Paginate(args ...interface{}) *PaginatorContext {
 		case PageSlice:
 			pages = v
 		case []*Context:
-			pages = PageSlice(v)
+			pages = make(PageSlice, len(v))
+			for i, c := range v {
+				pages[i] = c
+			}
 		case []interface{}:
 			for _, item := range v {
 				if ctx, ok := item.(*Context); ok {

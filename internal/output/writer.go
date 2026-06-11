@@ -13,13 +13,19 @@ import (
 // Writer writes files to the publish directory.
 type Writer struct {
 	publishDir string
+	minifier   *Minifier
 	written    int
 	bytes      int64
 }
 
-// NewWriter creates a new Writer targeting publishDir.
+// NewWriter creates a new Writer targeting publishDir without minification.
 func NewWriter(publishDir string) *Writer {
 	return &Writer{publishDir: publishDir}
+}
+
+// NewWriterWithMinify creates a Writer that minifies output before writing.
+func NewWriterWithMinify(publishDir string) *Writer {
+	return &Writer{publishDir: publishDir, minifier: NewMinifier()}
 }
 
 // URLToFilePath converts a URL path to an output file path under publishDir.
@@ -43,8 +49,13 @@ func PathToFilePath(path, publishDir string) string {
 }
 
 // Write writes content to a file path under publishDir.
-// Creates parent directories as needed.
+// Creates parent directories as needed. If a minifier is set, content is
+// minified according to the file's media type before writing.
 func (w *Writer) Write(relPath, content string) error {
+	if w.minifier != nil {
+		content = w.minifier.Minify(relPath, content)
+	}
+
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -61,7 +72,12 @@ func (w *Writer) Write(relPath, content string) error {
 }
 
 // WriteBytes writes raw bytes to a file path under publishDir.
+// Minification is applied if a minifier is set.
 func (w *Writer) WriteBytes(relPath string, data []byte) error {
+	if w.minifier != nil {
+		data = w.minifier.MinifyBytes(relPath, data)
+	}
+
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {

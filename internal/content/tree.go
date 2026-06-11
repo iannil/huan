@@ -116,6 +116,34 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		sortPagesByDateDesc(site.RegularPages)
 	}
 
+	// Ensure a home page exists. Hugo creates a virtual home page even when
+	// content/_index.md is missing, so templates that range over .Site.Pages
+	// or that need a home context (e.g., for search.json) still work.
+	homeExists := false
+	for _, p := range site.Pages {
+		if p.Kind == "home" {
+			homeExists = true
+			break
+		}
+	}
+	if !homeExists {
+		homePage := &Page{
+			Title:  site.Title,
+			Kind:   "home",
+			URL:    "/",
+			RelPath: "_index.md",
+		}
+		homePage.RegularPages = site.RegularPages
+		// Home's Pages include all sections + regular pages
+		homePage.Pages = append(homePage.Pages, site.RegularPages...)
+		for _, sp := range site.Sections {
+			homePage.Pages = append(homePage.Pages, sp)
+			sp.Parent = homePage
+		}
+		homePage.RegularPagesRecursive = site.RegularPages
+		site.Pages = append([]*Page{homePage}, site.Pages...)
+	}
+
 	// Build section map
 	for dir, p := range sectionMap {
 		if dir == "." {

@@ -130,7 +130,7 @@ func FuncMap(baseURL string) template.FuncMap {
 		// Hugo reflect / transform / lang (dotted, replaced at load time)
 		"reflect_IsMap":           reflectIsMap,
 		"reflect_IsSlice":         reflectIsSlice,
-		"transform_XMLEscape":     xmlEscapeFunc,
+		"transform_XMLEscape":     func(v interface{}) string { return xmlEscapeFunc(toString(v)) },
 		"lang_FormatNumberCustom": langFormatNumberCustom,
 		"uniq":                    uniqFunc,
 		"apply":                   func(fn interface{}, args ...interface{}) interface{} { return nil },
@@ -339,22 +339,30 @@ func condFunc(cond bool, a, b interface{}) interface{} {
 	return b
 }
 
-func sliceFunc(args ...interface{}) []interface{} {
-	return args
+func sliceFunc(args ...interface{}) PageSlice {
+	// Return PageSlice so Go-template variables initialized via `slice` remain
+	// chainable with .ByDate/.ByLastmod/.Reverse after later reassignment.
+	return PageSlice(args)
 }
 
-func appendSliceFunc(args ...interface{}) ([]interface{}, error) {
+func appendSliceFunc(args ...interface{}) (interface{}, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("append requires at least 2 arguments")
 	}
 
-	// Find which arg is the slice. Hugo's `append` accepts (slice, items...) or,
-	// in pipe form `slice | append item`, where the piped slice is the LAST arg.
+	// Find which arg is the slice. Accept []interface{} or PageSlice (named type).
 	var slice []interface{}
+	var isPageSlice bool
 	var sliceIdx int
 	for i, a := range args {
 		if s, ok := a.([]interface{}); ok {
 			slice = s
+			sliceIdx = i
+			break
+		}
+		if ps, ok := a.(PageSlice); ok {
+			slice = []interface{}(ps)
+			isPageSlice = true
 			sliceIdx = i
 			break
 		}
@@ -363,7 +371,6 @@ func appendSliceFunc(args ...interface{}) ([]interface{}, error) {
 		return nil, fmt.Errorf("no slice argument found")
 	}
 
-	// Append all other args to the slice
 	result := append([]interface{}{}, slice...)
 	for i, a := range args {
 		if i == sliceIdx {
@@ -371,13 +378,20 @@ func appendSliceFunc(args ...interface{}) ([]interface{}, error) {
 		}
 		result = append(result, a)
 	}
+
+	if isPageSlice {
+		return PageSlice(result), nil
+	}
 	return result, nil
 }
 
-func firstFunc(n int, s interface{}) ([]interface{}, error) {
+func firstFunc(n int, s interface{}) (interface{}, error) {
 	slice := toSlice(s)
 	if n > len(slice) {
 		n = len(slice)
+	}
+	if _, ok := s.(PageSlice); ok {
+		return PageSlice(slice[:n]), nil
 	}
 	return slice[:n], nil
 }

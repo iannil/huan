@@ -77,15 +77,6 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 		"site":          func() *SiteContext { return nil },
 	})
 
-	// Parse all templates (pre-process dotted function names)
-	for name, content := range templates {
-		// Replace Hugo-style dotted function calls with underscored versions
-		content = replaceDottedFuncs(content)
-		if _, err := tmpl.New(name).Parse(content); err != nil {
-			return nil, fmt.Errorf("parse template %s: %w", name, err)
-		}
-	}
-
 	// Register Hugo internal templates as empty stubs (not used by this site).
 	internalTemplates := map[string]string{
 		"_internal/disqus.html":          `<!-- disqus disabled -->`,
@@ -98,10 +89,49 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 
 	// Override content-redact.html: in huan, content is pre-processed by the
 	// encrypt engine before rendering, so the partial just outputs .Content.
-	if _, exists := templates["partials/content-redact.html"]; !exists {
-		internalTemplates["partials/content-redact.html"] = `{{ .Content }}`
-	} else {
-		templates["partials/content-redact.html"] = `{{ .Content }}`
+	templates["partials/content-redact.html"] = `{{ .Content }}`
+
+	// Override RSS template: Hugo's rss.xml does `$pctx := . ; if .IsHome { $pctx = .Site }`,
+	// which requires .Site and . to be the same type. huan models Site and Page as
+	// distinct types, so we rewrite the template to use site.RegularPages directly.
+	// The output matches Hugo's: latest items in the channel.
+	templates["_default/rss.xml"] = `{{- printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ if eq .Title .Site.Title }}{{ .Site.Title }}{{ else }}{{ with .Title }}{{ . }} on {{ end }}{{ .Site.Title }}{{ end }}</title>
+    <link>{{ .Permalink }}</link>
+    <description>Recent content {{ if ne .Title .Site.Title }}{{ with .Title }}in {{ . }} {{ end }}{{ end }}on {{ .Site.Title }}</description>
+    <generator>Hugo</generator>
+    <language>{{ site.Language.LanguageCode }}</language>{{ with .Site.Copyright }}
+    <copyright>{{ . }}</copyright>{{ end }}{{ if not .Date.IsZero }}
+    <lastBuildDate>{{ site.RegularPages.ByLastmod.Reverse.First.Lastmod.Format "Mon, 02 Jan 2006 15:04:05 -0700" | safeHTML }}</lastBuildDate>{{ end }}
+    {{- with .OutputFormats.Get "RSS" }}
+    {{ printf "<atom:link href=%q rel=\"self\" type=%q />" .Permalink .MediaType.Type | safeHTML }}
+    {{- end }}
+    {{- $limit := .Site.Config.Services.RSS.Limit -}}
+    {{- $pages := .RegularPages -}}
+    {{- if ge $limit 1 -}}
+    {{- $pages = $pages | first $limit -}}
+    {{- end -}}
+    {{- range $pages }}
+    <item>
+      <title>{{ .Title }}</title>
+      <link>{{ .Permalink }}</link>
+      <pubDate>{{ .PublishDate.Format "Mon, 02 Jan 2006 15:04:05 -0700" | safeHTML }}</pubDate>
+      <guid>{{ .Permalink }}</guid>
+      <description>{{ .Summary | transform_XMLEscape | safeHTML }}</description>
+    </item>
+    {{- end }}
+  </channel>
+</rss>`
+
+	// Parse all templates (pre-process dotted function names)
+	for name, content := range templates {
+		// Replace Hugo-style dotted function calls with underscored versions
+		content = replaceDottedFuncs(content)
+		if _, err := tmpl.New(name).Parse(content); err != nil {
+			return nil, fmt.Errorf("parse template %s: %w", name, err)
+		}
 	}
 	for name, content := range internalTemplates {
 		if _, err := tmpl.New(name).Parse(content); err != nil {
@@ -154,29 +184,31 @@ func NewScratch() *Scratch {
 
 func (s *Scratch) Set(key string, value interface{})            { s.data[key] = value }
 func (s *Scratch) Get(key string) interface{}                   { return s.data[key] }
-func (s *Scratch) Add(key string, value interface{}) {
+func (s *Scratch) Add(key string, value interface{}) interface{} {
 	existing, ok := s.data[key]
 	if !ok {
-		// First add: if value is the empty slice marker (slice()), initialize
-		if sl, isSlice := value.([]interface{}); isSlice {
+		// First add: detect slice-like values to initialize as []interface{}
+		switch sl := value.(type) {
+		case []interface{}:
 			s.data[key] = append([]interface{}{}, sl...)
-		} else {
+		case PageSlice:
+			s.data[key] = append([]interface{}{}, sl...)
+		default:
 			s.data[key] = value
 		}
-		return
+		return ""
 	}
 
 	// Existing value: append if both are slices
 	switch ex := existing.(type) {
 	case []interface{}:
-		// value can be a slice (extend) or a single item (append)
 		switch v := value.(type) {
 		case []interface{}:
 			s.data[key] = append(ex, v...)
 		default:
 			s.data[key] = append(ex, v)
 		}
-		return
+		return ""
 	}
 
 	// Numeric/string addition
@@ -194,6 +226,7 @@ func (s *Scratch) Add(key string, value interface{}) {
 			s.data[key] = e + v
 		}
 	}
+	return ""
 }
 
 // Map is a generic string-keyed map.
