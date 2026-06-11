@@ -1,0 +1,105 @@
+baseURL: "https://zhurongshuo.com/"
+title: "祝融说。"
+languageCode: "zh-cn"
+publishDir: "docs"
+paginate: 10
+minify: true
+hasCJKLanguage: true
+summaryLength: 120
+enableEmoji: true
+
+author:
+  name: "祝融"
+
+params:
+  subTitle: "法不净空，觉无性也。"
+  footerSlogan: "法不净空，觉无性也。"
+  keywords: ["祝融", "祝融说"]
+  description: "祝融说：法不净空，觉无性也。"
+  copyrights: "Copyright © 2010-2026 祝融说 zhurongshuo.com All Rights Reserved."
+  enableMathJax: true
+  enableSummary: true
+  mainSections: ["posts", "post"]
+  googleAnalytics: "G-KKJ5ZEG1NB"
+  cdnURL: "https://r2.zhurongshuo.com"
+
+  encryptGroups:
+    default:
+      hint: "受保护内容"
+      mode: "full"
+    teach:
+      hint: "私人课内容"
+      mode: "full"
+    kachuai:
+      hint: "卡揣内容"
+      mode: "random"
+      ratio: 50
+
+  author:
+    name: "祝融"
+
+menu:
+  main:
+    - name: "首页"
+      weight: 10
+      identifier: "home"
+      url: "/"
+    - name: "开始"
+      weight: 20
+      identifier: "start"
+      url: "/start/"
+    - name: "总纲"
+      weight: 25
+      identifier: "general"
+      url: "/general/"
+    - name: "归档"
+      weight: 30
+      identifier: "archive"
+      url: "/posts/"
+    - name: "标签"
+      weight: 40
+      identifier: "tags"
+      url: "/tags/"
+    - name: "关于"
+      weight: 50
+      identifier: "about"
+      url: "/about/"
+
+social:
+  - name: "book-open"
+    url: "/books/"
+    weight: 10
+  - name: "trophy"
+    url: "/practices/"
+    weight: 20
+  - name: "github"
+    url: "/products/"
+    weight: 25
+  - name: "gallery"
+    url: "/gallery/"
+    weight: 30
+  - name: "game"
+    url: "/about/"
+    weight: 40
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+    extensions:
+      typographer: false
+
+sitemap:
+  changefreq: "weekly"
+  filename: "sitemap.xml"
+  priority: 0.5
+
+rss:
+  limit: 20
+
+outputs:
+  home: ["HTML", "RSS", "SearchIndex"]
+  page: ["HTML"]
+  section: ["HTML", "RSS"]
+  taxonomy: ["HTML", "RSS"]
+  term: ["HTML", "RSS"]
