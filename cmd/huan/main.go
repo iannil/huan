@@ -9,6 +9,7 @@ import (
 
 	neturl "net/url"
 
+	"github.com/novel_ttl/huan/internal/build"
 	"github.com/novel_ttl/huan/internal/config"
 	"github.com/novel_ttl/huan/internal/content"
 	"github.com/novel_ttl/huan/internal/encrypt"
@@ -104,9 +105,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 		// Compute Plain and WordCount from rendered HTML (matches Hugo's
 		// behavior of counting words in plainified HTML).
-		plain := stripHTMLTagsForSummary(html)
+		plain := build.StripHTMLTagsForSummary(html)
 		p.Plain = plain
-		p.WordCount = countWordsInPlain(plain)
+		p.WordCount = build.CountWordsInPlain(plain)
 
 		// Compute Summary from rendered HTML: content up to <!--more-->, else
 		// the first ~120 words (Hugo's default summaryLength).
@@ -118,7 +119,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			content := string(p.Content)
-			p.Summary = template.HTML(truncateHTMLByWords(content, 120))
+			p.Summary = template.HTML(build.TruncateHTMLByWords(content, 120))
 		}
 	}
 
@@ -532,119 +533,6 @@ func cloneContextForPagination(homeCtx *tmpl.Context, allItems tmpl.PageSlice, p
 	}
 	tmpl.SetPaginator(&ctx, pager)
 	return &ctx
-}
-// truncateHTMLByWords truncates HTML content to approximately N "words"
-// (CJK chars count as 1 word each, ASCII words split by whitespace).
-// When N words are reached, it immediately cuts and closes any open tags.
-// This matches Hugo's summary behavior (truncates mid-paragraph at word boundary).
-func truncateHTMLByWords(htmlStr string, n int) string {
-	if n <= 0 {
-		return htmlStr
-	}
-	count := 0
-	inTag := false
-	inWord := false
-	var openTags []string
-
-	for i := 0; i < len(htmlStr); i++ {
-		c := htmlStr[i]
-		if inTag {
-			if c == '>' {
-				inTag = false
-			}
-			continue
-		}
-		if c == '<' {
-			inTag = true
-			inWord = false
-			// Track open/close tags for proper closing
-			tagEnd := strings.IndexByte(htmlStr[i:], '>')
-			if tagEnd > 0 {
-				tagContent := htmlStr[i+1 : i+tagEnd]
-				if len(tagContent) > 0 && tagContent[0] == '/' {
-					// Closing tag
-					if len(openTags) > 0 {
-						openTags = openTags[:len(openTags)-1]
-					}
-				} else if tagContent != "br" && tagContent != "hr" &&
-					!strings.HasPrefix(tagContent, "br/") &&
-					!strings.HasPrefix(tagContent, "img") &&
-					!strings.HasPrefix(tagContent, "hr/") {
-					// Opening tag - extract name
-					name := tagContent
-					if idx := strings.IndexAny(name, " /"); idx > 0 {
-						name = name[:idx]
-					}
-					openTags = append(openTags, name)
-				}
-			}
-			continue
-		}
-		if c >= 0x80 {
-			if c&0xC0 != 0x80 {
-				count++
-				inWord = false
-			}
-			continue
-		}
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-			inWord = false
-		} else {
-			if !inWord {
-				count++
-				inWord = true
-			}
-		}
-		if count >= n {
-			// Cut here, close any open tags
-			result := htmlStr[:i+1]
-			for j := len(openTags) - 1; j >= 0; j-- {
-				result += "</" + openTags[j] + ">"
-			}
-			return result
-		}
-	}
-	return htmlStr
-}
-
-// stripHTMLTagsForSummary strips HTML tags for plain text summary.
-func stripHTMLTagsForSummary(s string) string {
-	var sb strings.Builder
-	inTag := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		case !inTag:
-			sb.WriteRune(r)
-		}
-	}
-	return sb.String()
-}
-
-// countWordsInPlain counts words in plain text using Hugo's algorithm:
-// each CJK character counts as 1 word; ASCII words (split by whitespace) count as 1.
-func countWordsInPlain(s string) int {
-	count := 0
-	inWord := false
-	for _, r := range s {
-		if r >= 0x4E00 && r <= 0x9FFF {
-			count++
-			inWord = false
-			continue
-		}
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			inWord = false
-			continue
-		}
-		if !inWord {
-			count++
-			inWord = true
-		}
-	}
-	return count
 }
 
 func detectThemeName(sourceDir string) string {
