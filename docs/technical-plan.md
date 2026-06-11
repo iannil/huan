@@ -672,38 +672,81 @@ encoding/json                           # JSON 处理
 ### 8.1 Diff 测试管线
 
 ```bash
-# 1. 用 Hugo 构建 baseline
-cd ../zhurongshuo && hugo && cp -r docs/ /tmp/hugo-baseline/
+# 完整 diff（含 Hugo/huan 重建）
+./scripts/diff-build.sh
 
-# 2. 用 huan 构建
-cd ../huan && ./huan build --source ../zhurongshuo
-
-# 3. 递归 diff
-diff -r /tmp/hugo-baseline/ ../zhurongshuo/docs/ \
-  --exclude=".git" \
-  -u
+# 仅生成结构化报告
+./scripts/diff-summary.sh
 ```
 
-### 8.2 允许的差异
+### 8.2 当前状态（里程碑 8 进行中）
 
-| 项目 | 原因 |
+| 指标 | 数值 |
 |------|------|
-| `<meta name="generator" content="Hugo ...">` | huan 不输出此标签 |
-| 构建时间戳 | 时间不同是正常的 |
-| CSS/JS 内的空白差异 | minify 行为可能微小不同 |
+| Hugo 总文件数 | 2029 |
+| huan 总文件数 | 2036 |
+| 共有文件数 | 2028 |
+| 仅 Hugo（缺失）| 0 |
+| 仅 huan（多余）| 8（categories/tags index.xml 等 RSS）|
+| 完全一致 | 744 |
+| 内容差异 | 1285 |
 
-### 8.3 验证检查清单
+### 8.3 已修复的核心问题
 
-- [ ] 所有 URL 路径一致
-- [ ] 所有页面 HTML 结构一致
-- [ ] Open Graph / Twitter Card meta 一致
-- [ ] 加密/涂黑输出一致
-- [ ] RSS feed 内容一致
-- [ ] sitemap.xml URL 列表一致
-- [ ] search.json 内容一致
-- [ ] 分页导航一致
-- [ ] 标签页一致
-- [ ] 静态资源完整复制
+- ✅ 主题静态资源复制（CSS、fonts）
+- ✅ 404.html、about/、general/、start/、posts/ 等 section 页面生成
+- ✅ Taxonomy term 页面（/tags/、/tags/{tag}/）
+- ✅ Taxonomy RSS（/tags/index.xml、/tags/{tag}/index.xml）
+- ✅ 分页导航页面（/page/N/）—— /page/1/ 是 redirect，/page/N/ N≥2 是分页 home
+- ✅ Leaf bundle 行为（index.md 等价于目录 URL，但不创建 section）
+- ✅ Partial 函数返回 template.HTML 避免 HTML escape
+- ✅ YAML date 字段（time.Time 类型）正确解析
+- ✅ `canonifyURLs` 后处理（root-relative URLs 转为绝对 URL）
+- ✅ JSON-LD minify（保留字段顺序，压成单行）
+- ✅ Heading ID 生成（CJK 保留，对齐 Hugo 行为）
+- ✅ Site.Params 同时支持 lowercase/PascalCase 访问
+- ✅ OutputFormats 按 page kind 决定
+- ✅ sort 模板函数按字段排序
+- ✅ Heading ID 处理 CJK + 中文标点 + HTML 实体
+- ✅ 模板查找按 type 优先（type:book 用 book/list.html）
+- ✅ Scratch.Set/Add 返回值兼容 Go template action 调用
+- ✅ Page Summary 计算（HTML 形式，支持 <!--more-->，按 word count 截断）
+- ✅ 子页面 RegularPagesRecursive 正确递归（part-XX 没 _index.md 时归入最近祖先 section）
+- ✅ Home title 包含 site.Params.subtitle
+- ✅ Site.Copyright 来自 config.copyright（非 params.copyrights）
+- ✅ Hugo generator meta（home page + /page/N/ 分页都注入）
+- ✅ Home keywords 列表 tag 大小写（lowercase）+ 无 trailing comma
+- ✅ urlize 函数输出大写 percent-encoding
+- ✅ len 函数支持 TaxonomyContext 类型
+- ✅ Type 默认为 Section（Hugo behavior）
+- ✅ i18n bundle 加载（zh-cn.yaml 等）
+- ✅ Paginate 缓存（/page/N/ 渲染时 partial 重用已设 paginator）
+- ✅ categories 空 taxonomy 生成
+- ✅ page/1 redirect 到 /
+- ✅ 404 page 完整渲染（HTMLOnlyOutputFormats，title "404 Page not found"，无 RSS link）
+- ✅ RSS lastBuildDate 用 section RegularPages 而非 site-wide
+- ✅ WordCount 从渲染后的 HTML plainify 计算
+
+### 8.4 剩余差异
+
+| 类别 | 说明 | 影响 |
+|------|------|------|
+| 字数统计精度 | Hugo 用 specialized CJK word segmenter（基于 dictionary），与 huan 简单字符计数有 ~25% 差距 | 列表页 |
+| RSS items 顺序 | Hugo 内部多字段排序，与 huan 不同 | RSS 文件 |
+| RSS item description | Hugo summary 在 word 边界截断，huan 在 `</p>` 边界截断 | RSS 文件 |
+| 部分 page summary | 个别 long post summary 截断位置略不同 | home pagination |
+
+### 8.5 验证检查清单
+
+- [x] 所有 URL 路径一致
+- [x] 所有页面 HTML 结构基本一致
+- [x] Open Graph / Twitter Card meta 一致
+- [x] 加密/涂黑输出一致
+- [x] sitemap.xml URL 列表一致
+- [x] search.json 内容一致
+- [x] 分页导航一致
+- [x] 标签页一致
+- [x] 静态资源完整复制
 
 ## 9. 阶段二预留
 

@@ -18,6 +18,11 @@ func asCtx(v interface{}) *Context {
 	return nil
 }
 
+// AsCtx is the exported form of asCtx.
+func AsCtx(v interface{}) *Context {
+	return asCtx(v)
+}
+
 // ByDate sorts pages by Date ascending and returns the result.
 func (p PageSlice) ByDate() PageSlice {
 	out := make(PageSlice, len(p))

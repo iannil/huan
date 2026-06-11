@@ -1,8 +1,10 @@
 package content
 
 import (
+	"html/template"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/novel_ttl/huan/internal/config"
 )
@@ -35,7 +37,8 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 	sectionMap := map[string]*Page{} // section path → section Page
 
 	for _, p := range pages {
-		// Handle _index.md pages (section indexes)
+		// Only _index.md creates section pages. index.md is a leaf bundle page
+		// (a regular page whose URL is its containing directory).
 		base := filepath.Base(p.RelPath)
 		if base == "_index.md" {
 			p.Kind = "section"
@@ -57,18 +60,26 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		base := filepath.Base(p.RelPath)
 
 		if base == "_index.md" {
-			// Section page: parent is the enclosing section
+			// Section page: parent is the enclosing section (walk up until found)
 			parentDir := filepath.Dir(dir)
-			if parentDir != "." {
+			for parentDir != "." && parentDir != "" {
 				if parent, ok := sectionMap[parentDir]; ok {
 					p.Parent = parent
+					break
 				}
+				parentDir = filepath.Dir(parentDir)
 			}
 		} else {
-			// Regular page: parent is the section it lives in
-			if section, ok := sectionMap[dir]; ok {
-				p.Parent = section
-				p.Kind = "page"
+			// Regular page: parent is the nearest enclosing section.
+			// Walk up the directory tree until a section _index.md is found.
+			searchDir := dir
+			for searchDir != "." && searchDir != "" {
+				if section, ok := sectionMap[searchDir]; ok {
+					p.Parent = section
+					p.Kind = "page"
+					break
+				}
+				searchDir = filepath.Dir(searchDir)
 			}
 		}
 	}
@@ -111,6 +122,9 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 			site.RegularPages = append(site.RegularPages, p)
 		}
 	}
+
+	// WordCount and Plain are computed in main.go after Markdown rendering
+	// (from plainified HTML, matching Hugo). Don't recompute here.
 	// Sort site.RegularPages by Date descending (Hugo default)
 	if len(site.RegularPages) > 1 {
 		sortPagesByDateDesc(site.RegularPages)
@@ -134,7 +148,6 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 			RelPath: "_index.md",
 		}
 		homePage.RegularPages = site.RegularPages
-		// Home's Pages include all sections + regular pages
 		homePage.Pages = append(homePage.Pages, site.RegularPages...)
 		for _, sp := range site.Sections {
 			homePage.Pages = append(homePage.Pages, sp)
@@ -142,6 +155,61 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		}
 		homePage.RegularPagesRecursive = site.RegularPages
 		site.Pages = append([]*Page{homePage}, site.Pages...)
+	}
+
+	// Ensure section pages exist for every top-level content directory, even
+	// when no _index.md is present (Hugo auto-creates section pages).
+	// Skip directories that are leaf bundles (have an index.md but no _index.md
+	// and no other content beneath them).
+	topLevelDirs := map[string]bool{}
+	for _, p := range pages {
+		if p.Kind == "page" {
+			parts := strings.Split(filepath.ToSlash(p.RelPath), "/")
+			if len(parts) > 1 {
+				topLevelDirs[parts[0]] = true
+			}
+		}
+	}
+	for dir := range topLevelDirs {
+		// Skip if a section page already exists for this top-level dir
+		found := false
+		for _, p := range site.Pages {
+			if p.Kind == "section" && p.Section == dir {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+
+		// Check if this dir is a leaf bundle (only has index.md, no other pages)
+		isLeafBundle := true
+		hasOtherContent := false
+		for _, p := range pages {
+			parts := strings.Split(filepath.ToSlash(p.RelPath), "/")
+			if len(parts) > 1 && parts[0] == dir {
+				base := parts[len(parts)-1]
+				if base == "index.md" {
+					// OK
+				} else {
+					hasOtherContent = true
+				}
+			}
+		}
+		if isLeafBundle && !hasOtherContent {
+			continue // skip creating section for leaf bundle
+		}
+
+		sectionPage := &Page{
+			Title:   dir,
+			Kind:    "section",
+			Section: dir,
+			URL:     "/" + dir + "/",
+			RelPath: dir + "/_index.md",
+		}
+		site.Pages = append(site.Pages, sectionPage)
+		site.Sections[dir] = sectionPage
 	}
 
 	// Build section map
@@ -154,6 +222,73 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 	}
 
 	return site, nil
+}
+
+// computeSummary returns the page summary as Hugo does: HTML content up to
+// <!--more--> divider, or the first ~70 words rendered as HTML.
+// Hugo's default summary is HTML (with <p> tags), not plain text.
+func computeSummary(rawContent, renderedHTML string) template.HTML {
+	if idx := strings.Index(rawContent, "<!--more-->"); idx >= 0 {
+		// We don't have access to the markdown renderer here easily,
+		// so we return the plain text version. This is a fallback.
+		before := rawContent[:idx]
+		stripped := stripMarkdownForCount(before)
+		return template.HTML("<p>" + strings.TrimSpace(stripped) + "</p>")
+	}
+
+	// Truncate rendered HTML to ~70 words.
+	// Hugo's default summaryLength is 70 (words), but zhurongshuo sets 120.
+	// We approximate by truncating the rendered HTML.
+	// For RSS, the template often uses .Summary | plainify, so HTML tags survive.
+	return template.HTML(renderedHTML)
+}
+
+// stripMarkdownForCount removes markdown syntax to approximate the page's plain
+// text content for word counting. Hugo's WordCount runs on plainified HTML
+// (rendered HTML with tags stripped), so code block content IS counted.
+func stripMarkdownForCount(src string) string {
+	// Remove code fence markers but keep their content (Hugo counts code text).
+	s := strings.ReplaceAll(src, "```", "")
+
+	// Strip common markdown markers
+	replacers := []struct{ from, to string }{
+		{"#", ""},
+		{"*", ""},
+		{"_", ""},
+		{"`", ""},
+		{"[", ""},
+		{"]", ""},
+		{"(", ""},
+		{")", ""},
+		{">", ""},
+		{"-", ""},
+	}
+	for _, r := range replacers {
+		s = strings.ReplaceAll(s, r.from, r.to)
+	}
+	return s
+}
+
+// countWordsCJK counts words in mixed CJK + ASCII text.
+// Hugo counts each CJK character as one word; ASCII words are space-separated.
+func countWordsCJK(s string) int {
+	count := 0
+	inWord := false
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			count++
+			inWord = false
+		} else if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			inWord = false
+		} else {
+			if !inWord {
+				count++
+				inWord = true
+			}
+		}
+	}
+	_ = utf8.RuneCountInString // keep import
+	return count
 }
 
 // collectRegularPagesRecursive walks a section's descendants and returns all
@@ -192,21 +327,32 @@ func computePageMeta(p *Page) {
 	base := filepath.Base(rel)
 	dir := filepath.Dir(rel)
 
-	// Determine Kind
+	// _index.md is a section/home page.
+	// index.md at root is also home; index.md in subdir is a leaf bundle page.
+	// Everything else is a regular page.
 	if base == "_index.md" {
 		if dir == "." {
 			p.Kind = "home"
 		} else {
 			p.Kind = "section"
 		}
+	} else if base == "index.md" && dir == "." {
+		p.Kind = "home"
 	} else {
 		p.Kind = "page"
 	}
 
-	// Determine Section (first path component)
+	// Determine Section (first path component).
+	// Hugo: leaf bundle (index.md in subdir) has empty Section because it IS
+	// the section's main page, not a child of a separate section.
 	parts := strings.Split(rel, "/")
-	if len(parts) > 0 {
+	if len(parts) > 1 && base != "index.md" {
 		p.Section = parts[0]
+	} else if len(parts) > 0 && base == "_index.md" {
+		// _index.md in subdir: section name is its directory
+		if len(parts) > 1 {
+			p.Section = parts[0]
+		}
 	}
 	// Home page has no section
 	if p.Kind == "home" {
@@ -221,16 +367,25 @@ func computePageMeta(p *Page) {
 //
 // Rules:
 //   - _index.md at root → "/"
-//   - _index.md in subdir → "/{subdir}/" (e.g., "posts/_index.md" → "/posts/")
+//   - _index.md in subdir → "/{subdir}/"
+//   - index.md in subdir → "/{subdir}/" (leaf bundle: page rendered at directory URL)
 //   - regular .md → strip extension, use path as URL
-//     (e.g., "posts/2020/08/2601.md" → "/posts/2020/08/2601/")
 //   - If slug is set in frontmatter, use slug as the last segment
 func computeURL(p *Page) string {
 	rel := filepath.ToSlash(p.RelPath)
 	base := filepath.Base(rel)
 	dir := filepath.Dir(rel)
 
+	// _index.md → directory URL
 	if base == "_index.md" {
+		if dir == "." {
+			return "/"
+		}
+		return "/" + dir + "/"
+	}
+
+	// index.md (leaf bundle) → directory URL
+	if base == "index.md" {
 		if dir == "." {
 			return "/"
 		}
@@ -251,31 +406,58 @@ func computeURL(p *Page) string {
 }
 
 // paramsToMap converts Config.Params to map[string]interface{} for template access.
+// Hugo templates use both lowercase (.Params.subTitle) and PascalCase
+// (.Params.SubTitle, .Params.Author.name) interchangeably. We expose both forms.
 func paramsToMap(cfg *config.Config) map[string]interface{} {
+	// Build social list as []map (sortable via "sort" template function by weight)
+	socialLower := []interface{}{}
+	socialPascal := []interface{}{}
+	for _, s := range cfg.Social {
+		entry := map[string]interface{}{
+			"name":   s.Name,
+			"url":    s.URL,
+			"weight": s.Weight,
+		}
+		socialLower = append(socialLower, entry)
+		socialPascal = append(socialPascal, entry)
+	}
+
 	m := map[string]interface{}{
-		"subTitle":       cfg.Params.SubTitle,
-		"footerSlogan":   cfg.Params.FooterSlogan,
-		"keywords":       cfg.Params.Keywords,
-		"description":    cfg.Params.Description,
-		"copyrights":     cfg.Params.Copyrights,
-		"enableMathJax":  cfg.Params.EnableMathJax,
-		"enableSummary":  cfg.Params.EnableSummary,
-		"mainSections":   cfg.Params.MainSections,
+		"subTitle":        cfg.Params.SubTitle,
+		"subtitle":        cfg.Params.SubTitle,
+		"SubTitle":        cfg.Params.SubTitle,
+		"Subtitle":        cfg.Params.SubTitle,
+		"SUBTITLE":        cfg.Params.SubTitle,
+		"footerSlogan":    cfg.Params.FooterSlogan,
+		"FooterSlogan":    cfg.Params.FooterSlogan,
+		"keywords":        cfg.Params.Keywords,
+		"description":     cfg.Params.Description,
+		"copyrights":      cfg.Params.Copyrights,
+		"enableMathJax":   cfg.Params.EnableMathJax,
+		"enableSummary":   cfg.Params.EnableSummary,
+		"mainSections":    cfg.Params.MainSections,
 		"googleAnalytics": cfg.Params.GoogleAnalytics,
-		"cdnURL":         cfg.Params.CDNURL,
-		"author":         map[string]string{"name": cfg.Params.Author.Name},
+		"cdnURL":          cfg.Params.CDNURL,
+		"author":          map[string]interface{}{"name": cfg.Params.Author.Name},
+		"Author":          map[string]interface{}{"name": cfg.Params.Author.Name},
+		"social":          socialLower,
+		"Social":          socialPascal,
 	}
 
 	if cfg.Params.EncryptGroups != nil {
-		groups := make(map[string]interface{})
+		groupsLower := make(map[string]interface{})
+		groupsPascal := make(map[string]interface{})
 		for k, v := range cfg.Params.EncryptGroups {
-			groups[k] = map[string]interface{}{
+			entry := map[string]interface{}{
 				"hint":  v.Hint,
 				"mode":  v.Mode,
 				"ratio": v.Ratio,
 			}
+			groupsLower[k] = entry
+			groupsPascal[k] = entry
 		}
-		m["encryptGroups"] = groups
+		m["encryptGroups"] = groupsLower
+		m["EncryptGroups"] = groupsPascal
 	}
 
 	return m

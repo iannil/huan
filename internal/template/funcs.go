@@ -295,8 +295,11 @@ func timeParseFunc(args ...interface{}) (*TimeResult, error) {
 	return nil, fmt.Errorf("cannot parse time: %s", s)
 }
 
-// i18nFunc returns the translation key as-is (no i18n setup yet).
+// i18nFunc returns the translated string for the key, or the key itself.
 func i18nFunc(key string, args ...interface{}) string {
+	if b := currentI18nBundle(); b != nil {
+		return b.Translate(key, args...)
+	}
 	return key
 }
 
@@ -544,8 +547,32 @@ func readField(item interface{}, name string) interface{} {
 }
 
 func sortFunc(slice interface{}, args ...string) ([]interface{}, error) {
-	// Basic sort - return as-is for now, detailed sort later
-	return toSlice(slice), nil
+	items := toSlice(slice)
+	if len(items) <= 1 {
+		return items, nil
+	}
+	// Make a copy to avoid mutating input
+	result := make([]interface{}, len(items))
+	copy(result, items)
+
+	// If a field name is provided as the first arg, sort by that field.
+	if len(args) > 0 && args[0] != "" {
+		field := args[0]
+		// Sort ascending by the field, using stable order.
+		// Use Sprintf-based comparison so numbers and strings work.
+		for i := 1; i < len(result); i++ {
+			for j := i; j > 0; j-- {
+				a := extractField(result[j], field)
+				b := extractField(result[j-1], field)
+				if compare(a, b) < 0 {
+					result[j], result[j-1] = result[j-1], result[j]
+				} else {
+					break
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 func indexFunc(m interface{}, keys ...string) (interface{}, error) {
@@ -614,7 +641,17 @@ func lenFunc(v interface{}) int {
 		return len(val)
 	case map[string]interface{}:
 		return len(val)
+	case TaxonomyContext:
+		return len(val)
+	case int:
+		return val
 	default:
+		// Reflection fallback for typed slices/maps
+		rv := reflect.ValueOf(v)
+		switch rv.Kind() {
+		case reflect.Slice, reflect.Array, reflect.Map, reflect.String:
+			return rv.Len()
+		}
 		return 0
 	}
 }

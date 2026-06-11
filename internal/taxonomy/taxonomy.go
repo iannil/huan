@@ -21,6 +21,7 @@ type TermEntry struct {
 }
 
 // Build constructs a taxonomy map from pages, keyed by the given frontmatter field.
+// Hugo's taxonomy keys are urlize-form (lowercase ASCII, CJK preserved).
 // e.g., Build(pages, "tags") builds the tags taxonomy.
 func Build(pages []*content.Page, field string) Taxonomy {
 	tax := Taxonomy{}
@@ -28,10 +29,6 @@ func Build(pages []*content.Page, field string) Taxonomy {
 	for _, p := range pages {
 		if p.Draft {
 			continue
-		}
-		if p.Build.List == "never" && p.Kind != "taxonomy" && p.Kind != "term" {
-			// Pages excluded from listings shouldn't appear in taxonomy
-			// But protected pages should still be tagged
 		}
 
 		var terms []string
@@ -44,7 +41,13 @@ func Build(pages []*content.Page, field string) Taxonomy {
 		}
 
 		for _, term := range terms {
-			tax[term] = append(tax[term], p)
+			if term == "" {
+				continue
+			}
+			// Hugo stores taxonomy terms in urlized form (lowercase ASCII,
+			// CJK preserved) so .Site.Taxonomies.tags keys match the URL path.
+			key := hugoUrlize(term)
+			tax[key] = append(tax[key], p)
 		}
 	}
 
@@ -97,4 +100,23 @@ func (t Taxonomy) Alphabetical() []TermEntry {
 // Count returns the number of unique terms.
 func (t Taxonomy) Count() int {
 	return len(t)
+}
+
+// hugoUrlize mirrors Hugo's urlize for taxonomy keys:
+// lowercase ASCII, preserve CJK and other Unicode, replace whitespace with -.
+func hugoUrlize(s string) string {
+	var b []rune
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			b = append(b, r+32)
+		case r == ' ' || r == '\t' || r == '\n':
+			b = append(b, '-')
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_':
+			b = append(b, r)
+		default:
+			b = append(b, r)
+		}
+	}
+	return string(b)
 }

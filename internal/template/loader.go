@@ -58,7 +58,7 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 
 	// partialFunc uses the package-level tmplRef, which Renderer sets to the
 	// current clone before each Execute.
-	partialFunc := func(name string, ctx interface{}) (string, error) {
+	partialFunc := func(name string, ctx interface{}) (template.HTML, error) {
 		t := tmplRef.Lookup("partials/" + name)
 		if t == nil {
 			return "", fmt.Errorf("partial not found: %s", name)
@@ -67,13 +67,13 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 		if err := t.Execute(&buf, ctx); err != nil {
 			return "", err
 		}
-		return buf.String(), nil
+		return template.HTML(buf.String()), nil
 	}
 
 	// Add the partial function to funcMap
 	tmpl.Funcs(template.FuncMap{
 		"partial":       partialFunc,
-		"partialCached": func(name string, ctx interface{}) (string, error) { return partialFunc(name, ctx) },
+		"partialCached": func(name string, ctx interface{}) (template.HTML, error) { return partialFunc(name, ctx) },
 		"site":          func() *SiteContext { return nil },
 	})
 
@@ -103,8 +103,8 @@ func (l *Loader) LoadAll() (*template.Template, error) {
     <description>Recent content {{ if ne .Title .Site.Title }}{{ with .Title }}in {{ . }} {{ end }}{{ end }}on {{ .Site.Title }}</description>
     <generator>Hugo</generator>
     <language>{{ site.Language.LanguageCode }}</language>{{ with .Site.Copyright }}
-    <copyright>{{ . }}</copyright>{{ end }}{{ if not .Date.IsZero }}
-    <lastBuildDate>{{ site.RegularPages.ByLastmod.Reverse.First.Lastmod.Format "Mon, 02 Jan 2006 15:04:05 -0700" | safeHTML }}</lastBuildDate>{{ end }}
+    <copyright>{{ . }}</copyright>{{ end }}
+    <lastBuildDate>{{ .RegularPages.ByLastmod.Reverse.First.Lastmod.Format "Mon, 02 Jan 2006 15:04:05 -0700" | safeHTML }}</lastBuildDate>
     {{- with .OutputFormats.Get "RSS" }}
     {{ printf "<atom:link href=%q rel=\"self\" type=%q />" .Permalink .MediaType.Type | safeHTML }}
     {{- end }}
@@ -124,6 +124,23 @@ func (l *Loader) LoadAll() (*template.Template, error) {
     {{- end }}
   </channel>
 </rss>`
+
+	// Override sitemap.xml: Hugo's template iterates .Pages with sitemap filtering.
+	// huan's SiteContext.Pages is a PageSlice that the template can range over.
+	templates["_default/sitemap.xml"] = `{{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  {{ range where .Pages "Sitemap.Disable" "ne" true }}
+    {{- if .Permalink -}}
+  <url>
+    <loc>{{ .Permalink }}</loc>{{ if not .Lastmod.IsZero }}
+    <lastmod>{{ safeHTML ( .Lastmod.Format "2006-01-02T15:04:05-07:00" ) }}</lastmod>{{ end }}{{ with .Sitemap.ChangeFreq }}
+    <changefreq>{{ . }}</changefreq>{{ end }}{{ if ge .Sitemap.Priority 0.0 }}
+    <priority>{{ .Sitemap.Priority }}</priority>{{ end }}
+  </url>
+    {{- end -}}
+  {{ end }}
+</urlset>`
 
 	// Parse all templates (pre-process dotted function names)
 	for name, content := range templates {
@@ -182,8 +199,8 @@ func NewScratch() *Scratch {
 	return &Scratch{data: make(map[string]interface{})}
 }
 
-func (s *Scratch) Set(key string, value interface{})            { s.data[key] = value }
-func (s *Scratch) Get(key string) interface{}                   { return s.data[key] }
+func (s *Scratch) Set(key string, value interface{}) interface{} { s.data[key] = value; return "" }
+func (s *Scratch) Get(key string) interface{}                    { return s.data[key] }
 func (s *Scratch) Add(key string, value interface{}) interface{} {
 	existing, ok := s.data[key]
 	if !ok {
@@ -232,11 +249,38 @@ func (s *Scratch) Add(key string, value interface{}) interface{} {
 // Map is a generic string-keyed map.
 type Map map[string]interface{}
 
-// ToURLize converts a string to a URL-safe slug.
+// ToURLize mirrors Hugo's urlize behavior:
+//   - lowercase ASCII letters
+//   - spaces become "-"
+//   - CJK and other Unicode characters are URL-encoded with UPPERCASE hex
+//     (matching Hugo's urlize output, e.g. 书稿 → %E4%B9%A6%E7%A8%BF)
+//   - other special chars (parens, etc.) are URL-encoded with UPPERCASE hex
+// Note: this differs from html/template's auto-URL-escaping (lowercase hex)
+// used when templates emit raw CJK in href/src attributes.
 func ToURLize(s string) string {
 	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == ' ':
+			b.WriteByte('-')
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
+			r == '-' || r == '_' || r == '.' || r == '/':
+			b.WriteRune(r)
+		default:
+			// URL-encode all other characters (CJK, punctuation) with uppercase hex
+			for _, c := range []byte(string(r)) {
+				b.WriteString(percentEncode(c))
+			}
+		}
+	}
+	return b.String()
+}
+
+// percentEncode returns %XX for a byte, using uppercase hex.
+func percentEncode(b byte) string {
+	const hex = "0123456789ABCDEF"
+	return string([]byte{'%', hex[b>>4], hex[b&0xF]})
 }
 
 // replaceDottedFuncs converts Hugo's dotted function calls to Go template compatible names.

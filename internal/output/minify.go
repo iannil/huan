@@ -81,7 +81,6 @@ func (mi *Minifier) Minify(relPath, content string) string {
 
 	out, err := mi.m.String(mediaType, content)
 	if err != nil {
-		// Fall back to original on error; minification is best-effort
 		return content
 	}
 	return out

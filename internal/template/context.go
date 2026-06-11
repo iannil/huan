@@ -64,11 +64,15 @@ type Context struct {
 	// Output formats
 	OutputFormats   *PageOutputFormats
 
-	// Data from data files
-	Data           map[string]interface{}
+	// Data from data files (or a DataAccessor for taxonomy pages)
+	Data           interface{}
 
 	// Scratch for template-scoped variables
 	Scratch        *Scratch
+
+	// Taxonomy data: term listing (for /tags/) and current term info (for /tags/X/)
+	DataTerms     []TermSummaryExternal
+	DataPlural    string
 
 	// For taxonomy pages
 	Data_          *TaxonomyDataContext
@@ -111,6 +115,53 @@ type LanguageContext struct {
 	LanguageCode string
 	LanguageName string
 	LanguageDirection string
+}
+
+// TermSummaryExternal is a taxonomy term with its pages, exposed to templates.
+// Used by /tags/ term listing via .Data.Terms.ByCount.
+type TermSummaryExternal struct {
+	Name  string
+	Pages PageSlice
+	Count int
+}
+
+// TermsList is a sortable list of terms for template use.
+type TermsList []TermSummaryExternal
+
+// ByCount sorts terms by count descending.
+func (t TermsList) ByCount() TermsList {
+	out := make(TermsList, len(t))
+	copy(out, t)
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0; j-- {
+			if out[j].Count > out[j-1].Count {
+				out[j], out[j-1] = out[j-1], out[j]
+			} else {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// DataAccessor wraps DataTerms for `.Data.Terms.ByCount` template access.
+type DataAccessor struct {
+	Terms  TermsList
+	Plural string
+	Pages  PageSlice
+}
+
+// GroupByDate on DataAccessor.Pages mirrors PageSlice.GroupByDate.
+func (d *DataAccessor) GroupByDate(layout string) []DateGroup {
+	return d.Pages.GroupByDate(layout)
+}
+
+// TermsData returns a DataAccessor for the templates' `.Data.Terms` access.
+func (c *Context) TermsData() *DataAccessor {
+	return &DataAccessor{
+		Terms:  TermsList(c.DataTerms),
+		Plural: c.DataPlural,
+	}
 }
 
 // GetPage mirrors Hugo's .Site.GetPage - finds a page by ref/path.
@@ -239,6 +290,16 @@ type MediaType struct {
 	Type string
 }
 
+// HTMLOnlyOutputFormats returns output formats with just HTML (no RSS).
+// Used for pages like 404 that shouldn't have an RSS feed.
+func HTMLOnlyOutputFormats(permalink, relPermalink string) *PageOutputFormats {
+	return &PageOutputFormats{
+		formats: []PageOutputFormat{
+			{Name: "HTML", Rel: "alternate", MediaType: MediaType{Type: "text/html"}, Permalink: permalink, RelPermalink: relPermalink},
+		},
+	}
+}
+
 // DefaultPageOutputFormats returns a reasonable default for an HTML page.
 func DefaultPageOutputFormats(permalink, relPermalink string) *PageOutputFormats {
 	return &PageOutputFormats{
@@ -258,7 +319,7 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		Lastmod:         p.LastmodParsed,
 		Draft:           p.Draft,
 		Hidden:          p.Hidden,
-		Type:            p.Type,
+		Type:            pageType(p),
 		Slug:            p.Slug,
 		Tags:            p.Tags,
 		Keywords:        p.Keywords,
@@ -269,6 +330,7 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		Section:         p.Section,
 		Kind:            p.Kind,
 		Weight:          p.Weight,
+		WordCount:       p.WordCount,
 		Content:         p.Content,
 		Summary:         p.Summary,
 		Plain:           p.Plain,
@@ -295,8 +357,18 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		}
 	}
 
-	// Initialize OutputFormats
-	ctx.OutputFormats = DefaultPageOutputFormats(ctx.Permalink, ctx.RelPermalink)
+	// Initialize OutputFormats based on page kind.
+	// Hugo's default outputs: home/section/taxonomy/term include RSS, page doesn't.
+	switch p.Kind {
+	case "home", "section", "taxonomy", "term":
+		ctx.OutputFormats = DefaultPageOutputFormats(ctx.Permalink, ctx.RelPermalink)
+	default:
+		ctx.OutputFormats = &PageOutputFormats{
+			formats: []PageOutputFormat{
+				{Name: "HTML", Rel: "alternate", MediaType: MediaType{Type: "text/html"}, Permalink: ctx.Permalink, RelPermalink: ctx.RelPermalink},
+			},
+		}
+	}
 
 	return ctx
 }
@@ -312,7 +384,10 @@ func NewSiteContext(site *content.Site, cfg *config.Config) *SiteContext {
 		Menus:        site.Menus,
 		Data:         site.Data,
 		Config:       cfg,
-		Copyright:    cfg.Params.Copyrights,
+		// Copyright: Hugo's .Site.Copyright comes from the top-level `copyright`
+		// config field, not params. zhurongshuo doesn't set it, so leave empty
+		// to match Hugo's behavior (RSS template's `{{ with .Site.Copyright }}`
+		// then skips the <copyright> element).
 		Author:       &AuthorContext{Name: cfg.Author.Name},
 		Taxonomies:   buildTaxonomyContexts(site.Taxonomies),
 		OutputFormats: &OutputFormatsContext{},
@@ -382,9 +457,19 @@ func (c *Context) Paginator() *PaginatorContext {
 	c.paginatorCache = c.Paginate(c.RegularPages)
 	return c.paginatorCache
 }
+
+// SetPaginator overrides the cached paginator (used by pagination page generation).
+func SetPaginator(c *Context, p *PaginatorContext) {
+	c.paginatorCache = p
+}
 // pages of cfg.Paginate size and returns the first pager as PaginatorContext.
-// Hugo variadic: .Paginate, .Paginate pages, .Paginate pages size
+// Hugo variadic: .Paginate, .Paginate pages, .Paginate pages size.
+// If a paginator is already cached (e.g., for /page/N/ rendering), returns it.
 func (c *Context) Paginate(args ...interface{}) *PaginatorContext {
+	if c.paginatorCache != nil {
+		return c.paginatorCache
+	}
+
 	var pages PageSlice
 	size := 10
 	if c.Site != nil && c.Site.Config != nil {
@@ -505,6 +590,15 @@ func FormatDate(layout string, t time.Time) string {
 	return t.Format(layout)
 }
 
+// pageType returns the effective type for a page.
+// Hugo: if frontmatter doesn't set `type`, it defaults to the section name.
+func pageType(p *content.Page) string {
+	if p.Type != "" {
+		return p.Type
+	}
+	return p.Section
+}
+
 // pageParams converts page fields to a map for .Params access.
 func pageParams(p *content.Page) map[string]interface{} {
 	m := map[string]interface{}{
@@ -521,9 +615,13 @@ func pageParams(p *content.Page) map[string]interface{} {
 		"encryptGroup":   p.EncryptGroup,
 		"encryptMode":    p.EncryptMode,
 		"encryptRatio":   p.EncryptRatio,
-		"author":         p.Author,
 		"image":          p.Image,
 		"featured_image": p.FeaturedImage,
+	}
+	// Only include author if it's actually set in frontmatter (so templates
+	// can use `if .Params.author` to detect its presence).
+	if p.Author != "" {
+		m["author"] = p.Author
 	}
 	return m
 }

@@ -173,6 +173,9 @@ func strField(m map[string]interface{}, key string) string {
 	switch val := v.(type) {
 	case string:
 		return val
+	case time.Time:
+		// YAML may parse dates into time.Time; format as RFC3339 for re-parsing
+		return val.Format("2006-01-02T15:04:05Z07:00")
 	default:
 		return fmt.Sprintf("%v", val)
 	}

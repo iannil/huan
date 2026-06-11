@@ -14,6 +14,7 @@ import (
 type Writer struct {
 	publishDir string
 	minifier   *Minifier
+	canonOpts  *CanonifyOptions
 	written    int
 	bytes      int64
 }
@@ -26,6 +27,11 @@ func NewWriter(publishDir string) *Writer {
 // NewWriterWithMinify creates a Writer that minifies output before writing.
 func NewWriterWithMinify(publishDir string) *Writer {
 	return &Writer{publishDir: publishDir, minifier: NewMinifier()}
+}
+
+// SetCanonify enables root-relative URL canonification with the given options.
+func (w *Writer) SetCanonify(opts CanonifyOptions) {
+	w.canonOpts = &opts
 }
 
 // URLToFilePath converts a URL path to an output file path under publishDir.
@@ -50,10 +56,17 @@ func PathToFilePath(path, publishDir string) string {
 
 // Write writes content to a file path under publishDir.
 // Creates parent directories as needed. If a minifier is set, content is
-// minified according to the file's media type before writing.
+// minified according to the file's media type before writing. If canonify
+// is set, root-relative URLs in HTML are rewritten to absolute URLs.
 func (w *Writer) Write(relPath, content string) error {
 	if w.minifier != nil {
 		content = w.minifier.Minify(relPath, content)
+	}
+	if w.canonOpts != nil && mediaTypeForExt(relPath) == "text/html" {
+		opts := *w.canonOpts
+		// Home page (top-level index.html) gets the Hugo generator meta tag.
+		opts.IsHome = isHomePath(relPath)
+		content = Canonify(content, opts)
 	}
 
 	fullPath := PathToFilePath(relPath, w.publishDir)
@@ -68,6 +81,35 @@ func (w *Writer) Write(relPath, content string) error {
 
 	w.written++
 	w.bytes += int64(len(content))
+	return nil
+}
+
+// isHomePath returns true if relPath is the site's home page output or one of
+// its paginated aliases (/page/N/index.html). Hugo injects the generator meta
+// into all of these.
+func isHomePath(relPath string) bool {
+	if relPath == "index.html" {
+		return true
+	}
+	if strings.HasPrefix(relPath, "page/") && strings.HasSuffix(relPath, "/index.html") {
+		return true
+	}
+	return false
+}
+
+// WriteBytesPath writes raw bytes WITHOUT applying minify/canonify.
+// Use for pre-formatted content that should be emitted verbatim.
+func (w *Writer) WriteBytesPath(relPath string, data []byte) error {
+	fullPath := PathToFilePath(relPath, w.publishDir)
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		return fmt.Errorf("write %s: %w", fullPath, err)
+	}
+	w.written++
+	w.bytes += int64(len(data))
 	return nil
 }
 
