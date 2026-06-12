@@ -2,7 +2,7 @@ package build
 
 import (
 	"strings"
-	"unicode"
+	"unicode/utf8"
 )
 
 // TruncateHTMLByWords truncates HTML content to approximately N "words"
@@ -96,37 +96,39 @@ func StripHTMLTagsForSummary(s string) string {
 	return sb.String()
 }
 
-// CountWordsInPlain counts words in plain text using Hugo's algorithm.
+// CountWordsInPlain counts words in plain text using Hugo's actual algorithm
+// for sites with hasCJKLanguage=true (zhurongshuo sets this).
 //
-// Hugo's algorithm:
-//   - Each CJK ideograph (Han), Hiragana, Katakana, or Hangul character
-//     counts as 1 word.
-//   - Other characters are grouped by whitespace; each non-empty run
-//     counts as 1 word.
-//   - The ideographic space (U+3000) and Unicode White_Space are treated
-//     as word separators.
+// Source: hugolib/page__content.go (Hugo master):
 //
-// This matches Hugo 0.x behavior including all CJK extension blocks.
+//	result.plain = StripHTML(rendered.content)
+//	result.plainWords = strings.Fields(result.plain)
+//	if isCJKLanguage {
+//	    for _, word := range result.plainWords {
+//	        runeCount := utf8.RuneCountInString(word)
+//	        if len(word) == runeCount {  // all-ASCII
+//	            result.wordCount++
+//	        } else {                     // contains multi-byte (CJK etc.)
+//	            result.wordCount += runeCount
+//	        }
+//	    }
+//	}
+//
+// Effectively: split by whitespace (unicode.IsSpace, which includes the
+// ideographic space U+3000); each whitespace-separated field is 1 word if
+// pure ASCII, otherwise contributes its rune count. Punctuation inside a
+// field is counted as a rune — this matches Hugo's behavior exactly.
 func CountWordsInPlain(s string) int {
+	words := strings.Fields(s)
 	count := 0
-	inWord := false
-	for _, r := range s {
-		if unicode.Is(unicode.Han, r) ||
-			unicode.Is(unicode.Hiragana, r) ||
-			unicode.Is(unicode.Katakana, r) ||
-			unicode.Is(unicode.Hangul, r) {
+	for _, w := range words {
+		runeCount := utf8.RuneCountInString(w)
+		if len(w) == runeCount {
+			// All-ASCII field: counts as 1 word.
 			count++
-			inWord = false
-			continue
-		}
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '　' ||
-			unicode.Is(unicode.White_Space, r) {
-			inWord = false
-			continue
-		}
-		if !inWord {
-			count++
-			inWord = true
+		} else {
+			// Contains multi-byte (CJK etc.): count every rune.
+			count += runeCount
 		}
 	}
 	return count
