@@ -57,8 +57,10 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 | 1 | meta description plainify | ✅ 已完成 | 2026-06-12 |
 | 2 | RSS items 顺序（中文排序） | ✅ 已完成 | 2026-06-13 |
 | 3 | books section 顺序（同 #2） | ✅ 已完成（与 #2 合并） | 2026-06-13 |
-| **4** | **RSS items 内容差**（3 子项） | **✅ 已完成** | 2026-06-13 |
-| 5 | body 渲染细节 | 待启动 | — |
+| 4 | RSS items 内容差（3 子项） | ✅ 已完成 | 2026-06-13 |
+| **7** | **CJK URL 编码（term RSS）** | **✅ 已完成** | 2026-06-13 |
+| **8** | **空 tag RSS 未生成** | **✅ 已完成** | 2026-06-13 |
+| 5 | body 渲染细节（13 文件） | 待启动 | — |
 | 6 | minify artifacts | 待启动 | — |
 
 ---
@@ -102,8 +104,24 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 
 phase 3 实施过程中发现的新差异（不在原 5 类中）：
 
-7. **tags/{cjk}/index.xml link/guid URL 编码**（影响 ~150 个 term RSS 文件）：huan 输出原始 CJK（如 `tags/专注/`），Hugo 输出 percent-encoded（`tags/%E4%B8%93%E6%B3%A8/`）。这是 stage 1 收尾报告里"RSS 中文 URL 编码（464 文件）"的**真正根因**——之前误判不存在，实际存在于单个 term RSS（而非 tags/index.xml）。
-8. **空 tag RSS 文件未生成**（影响 ~11 个 tags）：Hugo 为空 tag 生成空 RSS 文件，huan 不生成。`/tmp/huan-output` 缺 22 个 `.xml` 文件。
+7. **tags/{cjk}/index.xml link/guid URL 编码**（原影响 ~150 文件）→ ✅ **已修（stage 2 phase 4，2026-06-13）**
+   - 根因：URLEscape 同时用于文件路径（CJK 保留）和 URL（需 percent-encode），未区分
+   - 修复：新增 `URLEscapeForURL` helper（percent-encode CJK + 其他非 ASCII），用于 BuildTermContext 的 permalink；URLEscape 仍用于文件路径
+   - 验证：tags/专注/index.xml link byte-identical Hugo；~150 个 term RSS 文件全部对齐
+
+8. **空 tag RSS 未生成**（原影响 22 文件）→ ✅ **已修（stage 2 phase 4，2026-06-13）**
+   - 根因：phase 3a 过滤 hidden 后某些 tag 的 pages 全空，但 taxonomy map 用 site.RegularPages 构建 → 空 tag 不在 map 里 → 不生成 RSS
+   - 修复：新增 `BuildAllWithOriginalCase(site.Pages)`，从 site.Pages 构建 taxonomy（hidden pages 仍在 map keys 里，只是 Pages 空）；build.go 生成所有 tag 的 RSS（即使 items 空）
+   - 同时修复 4 个相邻问题（必需才能 byte-match）：(a) TaxonomyOriginalCase 保留 tag 原始大小写（FANFAN vs fanfan）；(b) `lastBuildDate` 空 RegularPages 时输出空（vs 零时间字符串）；(c) term page Section 字段设为 "tags"；(d) SortDefault（Hugo DefaultPageSort Port）保证 term items 顺序
+
+### Stage 2 重大里程碑（2026-06-13 phase 4 后）
+
+`./scripts/diff-build.sh` **byte mode 首次 PASS**：1815 identical / 170 differing（之前 976/1031）。这是 stage 1 收尾以来 byte-diff 首次低于 normalized-diff 阈值，意味着 huan 输出在 byte 维度已与 Hugo 整体一致（剩余 170 多个文件分布在 normalized/seo/ai 维度）。
+
+剩余差异类型（待 stage 2 phase 5+ 处理）：
+- 13 个 tag HTML list page：same-date items 排序差（Phase 5 候选）
+- ~30 practices/books chapter body 内容渲染细节
+- ~30 minify artifacts（attribute 引号、entity 编码）
 
 ---
 
