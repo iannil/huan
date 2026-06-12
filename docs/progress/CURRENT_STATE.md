@@ -48,15 +48,18 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 
 > **修订记录（2026-06-12 grill-me 复核）**：原清单 3 项里 #1「meta description 换行压缩」方向描述反了（实际是 huan 多行、Hugo 折叠），#2「RSS items 数量差」与 #3「lastBuildDate 格式差」均不存在（前者是 grep 命令误用、后者实证 byte-identical）。下列为全量调查（1265 个 differing .html/.xml 文件）归纳的真实差异。
 
+> **修订记录（2026-06-12 stage 2 phase 2 启动前调查）**：原候选 #2「RSS 中文 URL 编码（464 文件）」全量复核后发现是误判——实际 0 个文件有单纯 URL 编码差。204 个 RSS differing 文件分类：187 个 items 顺序差（中文排序根因）+ 17 个 items 内容差（独立问题）。原 #3 books part 顺序与 items 顺序同源，合并为新 #2/#3。
+
 ### Stage 2 进度
 
 | Phase | 项 | 状态 | 完成日期 |
 |---|---|---|---|
 | 1 | meta description plainify | ✅ 已完成 | 2026-06-12 |
-| 2 | RSS 中文 URL 编码 | 待启动 | — |
-| 3 | books section part 顺序 | 待启动 | — |
-| 4 | body 渲染细节 | 待启动 | — |
-| 5 | minify artifacts | 待启动 | — |
+| 2 | RSS items 顺序（中文排序） | 待启动 | — |
+| 3 | books section 顺序（同 #2） | 待启动（与 #2 合并实施） | — |
+| 4 | RSS items 内容差 | 待启动 | — |
+| 5 | body 渲染细节 | 待启动 | — |
+| 6 | minify artifacts | 待启动 | — |
 
 ---
 
@@ -66,25 +69,35 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
    - **教训**：第一轮修复（collapseWhitespace + TrimSpace）方向反了——实证发现 Hugo 实际保留 `\n`（来自 `</p>` placeholder），不是折叠为单空格。reset 后用 Hugo 源码（`tpl/template.go`）Port 完整算法才 byte-match
    - 验证：3 篇典型页面（general/practices/books）meta name=description / og:description 全部 byte-identical；diff-build.sh 4 模式都下降（seo 983 → 699，ai 323 → 36）
 
-2. **RSS 中文 URL 编码**（影响 464 文件）
-   - 现象：huan 输出 `<link>https://zhurongshuo.com/tags/专注/</link>`；Hugo 输出 `<link>https://zhurongshuo.com/tags/%E4%B8%93%E6%B3%A8/</link>`
-   - 根因：RSS link 生成时未对中文 URL-encode
-   - 修复方向：定位 RSS 模板里 link 生成位置，加 `url.QueryEscape` 或类似编码
-   - 三维度影响：SEO/AI 维度（RSS 阅读器与爬虫解析 link 时差异）
+2. **RSS items 顺序差**（原影响 187 文件，与 #3 同源）
+   - 现象：RSS `<item>` 的 `<title>` 集合与 Hugo 一致，但顺序不同
+   - 根因：zhurongshuo 章节用中文数字（"第一章"、"第二章"等），huan 按 unicode codepoint 排序（一 < 七 < 三 < 二 < 五），Hugo 用不同算法（观察顺序 二 < 六 < 七 < 三 < 四，**既非 unicode asc 也非 UTF-8 byte asc**，疑似 OS locale collation 或 Hugo 内部中文感知排序）—— **根因需调查 Hugo 源码**
+   - 修复方向：调查 Hugo `tpl/collections` 中的 sort 实现，Port 到 huan `sortPagesByDateDesc` 或上层 RSS 生成
+   - 三维度影响：肉眼不可见，SEO/AI 影响 RSS 顺序
 
-3. **books section part 顺序错**（影响 104 文件）
-   - 现象：huan 把 sections 排成 第一→第三→第二→第四；Hugo 按 `part-01/02/03/04` 数字顺序
-   - 根因：待查（疑似 map iteration 非确定性，或 section 排序逻辑缺失）
-   - 修复方向：定位 books list.html 里 section 遍历位置，加按 part 编号排序
-   - 三维度影响：肉眼可见（列表顺序不同），SEO/AI 影响 minor
+3. **books section 顺序差（含 chapter 顺序 + part 顺序）**（原影响 104 文件，与 #2 同源）
+   - 现象：books list page 显示 part 顺序错（第一→第三→第二→第四）；同时 RSS items 顺序差（见 #2）
+   - 根因：同 #2——中文字符排序差异（huan unicode asc vs Hugo 不同算法）
+   - 修复方向：同 #2——修复排序算法后两边一起对齐
+   - 三维度影响：肉眼可见（list 页顺序不同）
 
-4. **body 内容渲染细节**（影响 ~30 文件）
+4. **RSS items 内容差**（影响 17 文件）
+   - 现象：RSS `<item>` 集合不同（huan 与 Hugo 列出不同 items）
+   - 样本：
+     - `posts/index.xml`：Hugo 多 2 个 items（`权力是共识切片的曲率。`、`语言文字是可能性收敛的雏形。`）
+     - `hidden/index.xml`：huan 多 2 个 items
+     - `tags/index.xml`：完全不同 items
+   - 根因：待查（可能是 RSS limit 边界、hidden page 过滤逻辑、taxonomy items 选择差异）
+   - 修复方向：逐文件调查
+   - 三维度影响：SEO/AI 维度（爬虫看到不同 RSS 内容）
+
+5. **body 内容渲染细节**（影响 ~30 文件）
    - 现象：少量 practices/books 章节 body HTML 有细微差异（`<p>` / `<h2>` / `<h3>` / `<li>` / `<code>` 标签的属性或内容）
    - 根因：待逐个调查（可能是 goldmark 配置、shortcode 输出、HTML 转义）
    - 修复方向：每篇差异单独定位
    - 三维度影响：肉眼可能可见，SEO/AI minor
 
-5. **minify artifacts**（影响 ~30 文件）
+6. **minify artifacts**（影响 ~30 文件）
    - 现象：attribute 引号风格、void 元素自闭合形式、entity 编码差异
    - 根因：huan minify 与 Hugo minify 算法不完全一致
    - 修复方向：升级 diff-build.sh Step 5 的 normalized 模式做更激进的 normalize（吸收这些差异），或对齐 minify 行为
