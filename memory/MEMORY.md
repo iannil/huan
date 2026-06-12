@@ -36,7 +36,9 @@
 
 ## 经验教训
 
-（待积累 —— 出现踩坑、回归、用户纠正时记到这里）
+- **huan build 非确定性**（2026-06-12 发现）：连续两次跑相同代码的 `./huan build`，输出有约 75 个文件不同（占 3.7%）。来源未确认——可能涉及 map iteration、文件扫描顺序、或时间戳。**含义**：单次 diff-build.sh 的 same/diff 计数有 ±75 噪声。判断"改动让 diff 增/减 N 个"时，N 在 75 以内**不可信**——必须用同一份 huan-baseline 跟新 huan-output 直接对比，而不是依赖绝对数字。
+- **Go template + Scratch 引用语义 bug**（2026-06-12 撞墙，未解）：模板 `{{ $x := sort ($scratch.Get "key") }}{{ range $x }}` 中，`range $x` 实际遍历的是 `$scratch.data["key"]` 的**原始 slice**，不是 sort 返回值。证据：把 sort 改成 in-place mutate input slice 也不能改变 HTML 输出。试图给 `internal/template/funcs.go` 的 `sortFunc` 加 PageSlice/[]interface{} mutation 都失败。**含义**：补 Hugo 兼容排序的"在 sortFunc 里动手脚"路径走不通。下次尝试应该从 **Scratch.Add/Set 的 slice 共享** 或 **Go template 变量赋值在 pipe + variadic + 多返回值场景下的实际行为** 入手，并配合最小复现单元测试。
+- **grill 实证必须 fresh build**（2026-06-12 教训）：早期基于 `/tmp/huan-output`（几天前的旧 build）做实证，误判 huan 有"effective-constraints 缺 15 章"的 bug。重新 build 后该 bug 消失——是旧输出造成的假象。**含义**：任何关于 huan 输出的实证，必须**当场重新跑** `./huan build`，不能信任 `/tmp` 里已有的输出。
 
 ## 文档与导航
 

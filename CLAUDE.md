@@ -10,6 +10,7 @@ huan 是一个用 Go 编写的静态站点生成器，用于替代 Hugo 构建 z
 
 - **zhurongshuo**（祝融说）—— 当前使用 Hugo 的内容站点，代码路径：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`）
 - 阶段一目标：huan 生成的站点输出必须与 Hugo 的输出 100% 一致
+- hugo的源码路径：`/Users/rong.zhu/Downloads/hugo-master`
 
 ## 项目指南
 
