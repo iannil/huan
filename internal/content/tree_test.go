@@ -289,3 +289,51 @@ func TestBuildTree_NestedSectionAutoCreatedRecursive(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildTree_AutoCreatedSectionTitleIsTitleCase verifies that an
+// auto-created section page (no _index.md present) gets a title-cased
+// version of the directory name, matching Hugo's behavior. Hugo emits
+// "Posts on <site>" for the posts/ section RSS channel title; without
+// title-casing huan would emit "posts on <site>".
+func TestBuildTree_AutoCreatedSectionTitleIsTitleCase(t *testing.T) {
+	now := time.Now()
+	pages := []*Page{
+		{Title: "Post A", RelPath: "posts/2026/05/2601.md", Kind: "page", Section: "posts", DateParsed: now},
+	}
+	cfg := &config.Config{LanguageCode: "en"}
+	site, err := BuildTree(pages, cfg, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sec, ok := site.Sections["posts"]
+	if !ok {
+		t.Fatal("posts section not auto-created")
+	}
+	if got, want := sec.Title, "Posts"; got != want {
+		t.Errorf("auto-created section title: got %q, want %q", got, want)
+	}
+}
+
+// TestBuildTree_AutoCreatedSectionTitleMultiWord verifies that hyphenated
+// or multi-word directory names also get title-cased (hyphen → space, then
+// title-case each word), matching Hugo's MakeTitle behavior.
+func TestBuildTree_AutoCreatedSectionTitleMultiWord(t *testing.T) {
+	now := time.Now()
+	pages := []*Page{
+		{Title: "Item", RelPath: "my-notes/2026/05/2601.md", Kind: "page", Section: "my-notes", DateParsed: now},
+	}
+	cfg := &config.Config{LanguageCode: "en"}
+	site, err := BuildTree(pages, cfg, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sec, ok := site.Sections["my-notes"]
+	if !ok {
+		t.Fatal("my-notes section not auto-created")
+	}
+	if got, want := sec.Title, "My Notes"; got != want {
+		t.Errorf("auto-created multi-word section title: got %q, want %q", got, want)
+	}
+}

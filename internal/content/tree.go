@@ -7,7 +7,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"golang.org/x/text/cases"
 	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/i18n"
@@ -92,8 +94,12 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		if !hasOtherContent {
 			continue // skip creating section for leaf bundle
 		}
+		// Hugo title-cases the directory name when auto-creating a section
+		// page (no _index.md present). Hyphens become spaces first, then
+		// each word is title-cased: "posts" → "Posts", "my-notes" → "My Notes".
+		sectionTitle := makeSectionTitle(dir)
 		sectionPage := &Page{
-			Title:   dir,
+			Title:   sectionTitle,
 			Kind:    "section",
 			Section: dir,
 			URL:     "/" + dir + "/",
@@ -359,6 +365,22 @@ func collectRegularPagesRecursive(section *Page) []*Page {
 		result = append(result, collectRegularPagesRecursive(sub)...)
 	}
 	return result
+}
+
+// makeSectionTitle produces a Hugo-compatible display title from a section
+// directory name when no _index.md is present. Hugo replaces hyphens with
+// spaces and title-cases each word: "posts" → "Posts", "my-notes" → "My Notes".
+// Underscores are also treated as word separators to match Hugo's path
+// sanitization. The caser uses the English locale by default (Hugo's default
+// for title-casing auto-generated section titles).
+func makeSectionTitle(dir string) string {
+	if dir == "" {
+		return dir
+	}
+	// Replace path separators with spaces.
+	name := strings.NewReplacer("-", " ", "_", " ").Replace(dir)
+	caser := cases.Title(language.English)
+	return caser.String(name)
 }
 
 // sortPagesDefault sorts pages using Hugo's DefaultPageSort algorithm

@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
+	"github.com/iannil/huan/internal/i18n"
 	tmpl "github.com/iannil/huan/internal/template"
 )
 
@@ -209,6 +211,78 @@ func BuildTaxonomyContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*t
 		})
 	}
 
+	// Build term-stub contexts for the taxonomy-list RSS. Hugo's /tags/index.xml
+	// iterates .Pages (= .RegularPages for the taxonomy-list page), where each
+	// item is a *term page* (one per term), not a regular content page.
+	// Each stub carries: Kind=term, Title=term name, Permalink=/tags/{encoded}/,
+	// and Date/Lastmod = the most recent page's date under that term. Hugo sorts
+	// these by DefaultPageSort: Weight → Date desc → LinkTitle (site collator)
+	// → Path. We mirror this for byte-exact RSS output.
+	termStubs := make(tmpl.PageSlice, 0, len(entries))
+	for _, e := range entries {
+		// Hugo percent-encodes the term name in the permalink (e.g. 共识 →
+		// %E5%85%B1%E8%AF%86) for XML/URL output, while keeping the raw
+		// CJK in filesystem paths.
+		encoded := url.PathEscape(e.Name)
+		relURL := "/tags/" + encoded + "/"
+		permURL := siteCtx.BaseURL + "tags/" + encoded + "/"
+		// Effective date = newest Lastmod/Date among the term's pages
+		var effective time.Time
+		for _, item := range e.Pages {
+			c := tmpl.AsCtx(item)
+			if c == nil {
+				continue
+			}
+			if c.Lastmod.After(effective) {
+				effective = c.Lastmod
+			}
+			if c.Date.After(effective) {
+				effective = c.Date
+			}
+		}
+		stub := &tmpl.Context{
+			Kind:         "term",
+			Title:        e.Name,
+			Date:         effective,
+			Lastmod:      effective,
+			RelPermalink: relURL,
+			Permalink:    permURL,
+			Site:         siteCtx,
+		}
+		termStubs = append(termStubs, stub)
+	}
+	// Sort stubs to mirror Hugo's DefaultPageSort:
+	//   Weight (all 0 here) → Date desc → LinkTitle (collator asc) → Path asc
+	// We use the site collator for the LinkTitle tiebreak.
+	coll := i18n.BuildCollator(cfg.LanguageCode)
+	sortedStubs := make(tmpl.PageSlice, len(termStubs))
+	copy(sortedStubs, termStubs)
+	for i := 1; i < len(sortedStubs); i++ {
+		for j := i; j > 0; j-- {
+			a := tmpl.AsCtx(sortedStubs[j])
+			b := tmpl.AsCtx(sortedStubs[j-1])
+			if a == nil || b == nil {
+				break
+			}
+			// Date desc: newer sorts earlier
+			if !a.Date.Equal(b.Date) {
+				if a.Date.After(b.Date) {
+					sortedStubs[j], sortedStubs[j-1] = sortedStubs[j-1], sortedStubs[j]
+				}
+				continue
+			}
+			// Date tie: LinkTitle collator asc
+			if c := coll.CompareString(a.Title, b.Title); c < 0 {
+				sortedStubs[j], sortedStubs[j-1] = sortedStubs[j-1], sortedStubs[j]
+			}
+		}
+	}
+
+	// Channel-level permalink for the taxonomy listing. siteCtx.BaseURL ends
+	// with "/", so we concatenate without an extra slash to avoid "//".
+	taxRelURL := "/tags/"
+	taxPermURL := siteCtx.BaseURL + "tags/"
+
 	return &tmpl.Context{
 		Kind:        "taxonomy",
 		Title:       "Tags",
@@ -219,8 +293,11 @@ func BuildTaxonomyContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*t
 		},
 		Scratch:       tmpl.NewScratch(),
 		DataTerms:     dataTerms,
-		RegularPages:  siteCtx.RegularPages,
-		OutputFormats: tmpl.DefaultPageOutputFormats(siteCtx.BaseURL+"/tags/", "/tags/"),
+		RegularPages:  sortedStubs,
+		Pages:         sortedStubs,
+		RelPermalink:  taxRelURL,
+		Permalink:     taxPermURL,
+		OutputFormats: tmpl.DefaultPageOutputFormats(taxPermURL, taxRelURL),
 	}
 }
 
