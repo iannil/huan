@@ -29,14 +29,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
 
+	disableLR, _ := cmd.Flags().GetBool("disableLiveReload")
+	lrURL := ""
+	injectLR := false
+	if !disableLR {
+		injectLR = true
+		lrURL = "ws://" + bind + ":" + port + "/livereload"
+	}
+
 	fmt.Printf("Building site: %s\n", cfg.Title)
 	fmt.Printf("  Source:      %s\n", sourceDir)
 	fmt.Printf("  Output:      %s\n", tmpDir)
 
 	if _, err := build.BuildSite(build.Options{
-		SourceDir:     sourceDir,
-		OutputDir:     tmpDir,
-		IncludeDrafts: includeDrafts,
+		SourceDir:        sourceDir,
+		OutputDir:        tmpDir,
+		IncludeDrafts:    includeDrafts,
+		InjectLiveReload: injectLR,
+		LiveReloadURL:    lrURL,
 	}); err != nil {
 		return err
 	}

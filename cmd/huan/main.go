@@ -37,6 +37,7 @@ func main() {
 	serveCmd.Flags().String("port", "1313", "port to serve on")
 	serveCmd.Flags().String("bind", "127.0.0.1", "interface to bind")
 	serveCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
+	serveCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
 
 	rootCmd.AddCommand(buildCmd, serveCmd)
 
