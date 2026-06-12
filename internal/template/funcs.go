@@ -121,7 +121,7 @@ func FuncMap(baseURL string) template.FuncMap {
 		"print":        fmt.Sprint,
 		"println":      fmt.Sprintln,
 		"split":        strings.Split,
-		"replace":      func(old, new, src string) string { return strings.ReplaceAll(src, old, new) },
+		"replace":      func(src, old, new string) string { return strings.ReplaceAll(src, old, new) },
 		"trim":         strings.TrimSpace,
 		"trimPrefix":   func(prefix, s string) string { return strings.TrimPrefix(s, prefix) },
 		"trimSuffix":   func(suffix, s string) string { return strings.TrimSuffix(s, suffix) },
@@ -582,27 +582,69 @@ func sortFunc(slice interface{}, args ...string) ([]interface{}, error) {
 	return result, nil
 }
 
-func indexFunc(m interface{}, keys ...string) (interface{}, error) {
+func indexFunc(m interface{}, keys ...interface{}) (interface{}, error) {
 	current := m
 	for _, key := range keys {
 		switch v := current.(type) {
 		case map[string]interface{}:
+			k := fmt.Sprintf("%v", key)
 			var ok bool
-			current, ok = v[key]
+			current, ok = v[k]
 			if !ok {
 				return nil, nil
 			}
 		case map[interface{}]interface{}:
 			var ok bool
+			// Try direct key match first (handles non-string keys in yaml maps).
 			current, ok = v[key]
+			if !ok {
+				// Fall back to stringified key.
+				current, ok = v[fmt.Sprintf("%v", key)]
+			}
 			if !ok {
 				return nil, nil
 			}
+		case []interface{}:
+			idx, ok := toIntOK(key)
+			if !ok || idx < 0 || idx >= len(v) {
+				return nil, nil
+			}
+			current = v[idx]
+		case []string:
+			idx, ok := toIntOK(key)
+			if !ok || idx < 0 || idx >= len(v) {
+				return nil, nil
+			}
+			current = v[idx]
+		case PageSlice:
+			idx, ok := toIntOK(key)
+			if !ok || idx < 0 || idx >= len(v) {
+				return nil, nil
+			}
+			current = v[idx]
 		default:
 			return nil, nil
 		}
 	}
 	return current, nil
+}
+
+// toIntOK tries to convert v to int. Returns (int, true) on success.
+func toIntOK(v interface{}) (int, bool) {
+	switch x := v.(type) {
+	case int:
+		return x, true
+	case int64:
+		return int(x), true
+	case float64:
+		return int(x), true
+	case string:
+		var i int
+		if n, err := fmt.Sscanf(x, "%d", &i); n == 1 && err == nil {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 func issetFunc(m interface{}, key string) bool {

@@ -222,8 +222,20 @@ func (s *Scratch) Add(key string, value interface{}) interface{} {
 		switch v := value.(type) {
 		case []interface{}:
 			s.data[key] = append(ex, v...)
+		case PageSlice:
+			s.data[key] = append(ex, v...)
 		default:
 			s.data[key] = append(ex, v)
+		}
+		return ""
+	case PageSlice:
+		switch v := value.(type) {
+		case []interface{}:
+			s.data[key] = append([]interface{}(ex), v...)
+		case PageSlice:
+			s.data[key] = append([]interface{}(ex), v...)
+		default:
+			s.data[key] = append([]interface{}(ex), v)
 		}
 		return ""
 	}
