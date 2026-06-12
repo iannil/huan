@@ -4,7 +4,7 @@
 
 ## 一句话定位
 
-**huan** 是用 Go 编写的静态站点生成器。阶段一目标：替代 Hugo 构建 [zhurongshuo.com](https://zhurongshuo.com)，生成的站点输出与 Hugo 100% 一致。
+**huan** 是用 Go 编写的静态站点生成器。阶段一目标：替代 Hugo 构建 [zhurongshuo.com](https://zhurongshuo.com)，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`standards/equivalence.md`](standards/equivalence.md)。
 
 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前仍由 Hugo 构建。
 
@@ -17,6 +17,9 @@
 | [`../CLAUDE.md`](../CLAUDE.md) | 项目根指南（语言/发布/记忆/可观测性约定） | 永久 |
 | [`technical-plan.md`](technical-plan.md) | **项目蓝图总图** — 架构决策、模块设计、实施里程碑、Hugo 兼容现状 | 已落地 |
 | [`progress/CURRENT_STATE.md`](progress/CURRENT_STATE.md) | **当前实际进展** — 阶段一进度、剩余差异、stage 2 待办 | 持续更新 |
+| [`adr/0001-redefine-equivalence.md`](adr/0001-redefine-equivalence.md) | **ADR 0001：重新界定「100% 还原」为三维度等价** | Accepted |
+| [`standards/equivalence.md`](standards/equivalence.md) | **三维度等价标准** — 肉眼 / SEO / AI 三维度无差异 | 永久 |
+| [`superpowers/plans/2026-06-12-redefine-equivalence.md`](superpowers/plans/2026-06-12-redefine-equivalence.md) | 三维度等价标准实施 plan（2026-06-12） | 进行中 |
 | [`standards/documentation.md`](standards/documentation.md) | 文档规范 — 目录用途、命名、归档时机 | 永久 |
 | [`templates/progress-template.md`](templates/progress-template.md) | 进行中工作模板 | 引用 |
 | [`templates/report-template.md`](templates/report-template.md) | 完成报告模板 | 引用 |
