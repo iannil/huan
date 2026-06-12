@@ -43,6 +43,8 @@
 - **CURRENT_STATE.md 的「5 类差异」描述部分过期**（2026-06-12 更新）：第 2 类「Hugo date 相同时顺序不稳定」是错的——实证发现 Hugo 有稳定 tiebreaker（推断为 `Date desc → lower(Title) asc → RelPath asc`）。stage 1 收尾后所有 5 类差异已按三维度尺子重新归类，详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) §4 与 §5。
 - **Hugo CJK WordCount 的真实算法**（2026-06-12，Phase 3 确认）：不是 `unicode.Is(unicode.Han, r)` 之类的 Unicode 属性分类，而是 `strings.Fields(plain)` + 每个 field 若 `len==runeCount` 算 1 词（纯 ASCII），否则算 `runeCount`（含 CJK）。源码在 `hugolib/page__content.go`（Hugo master）。**含义**：CJK 段落里没有空格分隔的标点也按 rune 计入（如 `"巧合"` 算 4 词，不是 2 词）。huan 的实现见 `internal/build/summary.go::CountWordsInPlain`。
 - **huan `div` 模板函数只支持 int**（2026-06-12，Phase 3 暴露）：`internal/template/funcs.go:67` 的 `div` 签名是 `func(a, b int) int`。当模板写 `div $x 10000.0`（含浮点字面量）时，huan 会强转 int 做整数除法，而 Hugo 的 `div` 支持浮点。这导致 `约 {{ lang.FormatNumberCustom 1 (div $totalWords 10000.0) }} 万字` 在 huan 里显示「15.0 万字」、Hugo 显示「15.5 万字」。**含义**：WordCount 算法修对了仍有 0.x 的小数位显示差异，根因在 `div`，留给后续 phase 修。
+- **Hugo summary 用块边界，不是定长截断**（2026-06-12，Phase 5.5 确认）：`summaryLength=120` 是**下限**。Hugo 找到第 N 词位置后，**forward-scan 到包含该词的 block 元素的 close tag**（`</p>` / `</h1>`~`</h6>` / `</li>` / `</blockquote>` 等）才截断。所以长文章 summary 通常**远多于 N 词**——是包含第 N 词的整个第一/二段。GitHub issue #11863 是入口。huan 的实现是 `internal/build/summary.go::TruncateHTMLToBlockBoundary`（包装 `TruncateHTMLByWords` + `commonPrefixLen` trick + 26 种 block close tag forward-scan）。
+- **`commonPrefixLen` trick**（2026-06-12，Phase 5.5 总结）：要在不破坏已有函数接口的前提下，拿到「带合成 close tag 的截断结果」在原输入中的真实切点 byte offset——比较原输入与截断结果的最长公共前缀即可。第一个分歧 byte 就是切点。比让原函数暴露内部状态干净。
 
 
 ## 文档与导航
