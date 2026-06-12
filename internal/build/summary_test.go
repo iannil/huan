@@ -37,3 +37,49 @@ func TestCountWordsInPlain_CoversAllCJKRanges(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateHTMLByWords_WordBoundary(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		n    int
+		want string
+	}{
+		{
+			name: "truncate after complete ascii word",
+			in:   "<p>alpha beta gamma delta</p>",
+			n:    2,
+			want: "<p>alpha beta</p>",
+		},
+		{
+			name: "preserve open tags at cutoff",
+			in:   "<p>alpha <strong>beta gamma</strong> delta</p>",
+			n:    2,
+			want: "<p>alpha <strong>beta</strong></p>",
+		},
+		{
+			name: "CJK counts each rune as 1 word",
+			in:   "<p>你好世界你好世界</p>",
+			n:    4,
+			want: "<p>你好世界</p>",
+		},
+		{
+			name: "zero or negative returns input",
+			in:   "<p>x</p>",
+			n:    0,
+			want: "<p>x</p>",
+		},
+		{
+			name: "truncate before first word boundary if N=1",
+			in:   "<p>alpha beta</p>",
+			n:    1,
+			want: "<p>alpha</p>",
+		},
+	}
+	for _, c := range cases {
+		got := TruncateHTMLByWords(c.in, c.n)
+		if got != c.want {
+			t.Errorf("%s: TruncateHTMLByWords(%q, %d) = %q, want %q", c.name, c.in, c.n, got, c.want)
+		}
+	}
+}
