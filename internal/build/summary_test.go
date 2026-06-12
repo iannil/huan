@@ -83,3 +83,36 @@ func TestTruncateHTMLByWords_WordBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateHTMLByWords_BlockBoundaryExtension(t *testing.T) {
+	// 5 short words inside one <p>, then a second <p>. summaryLength=3.
+	// Hugo semantics: find 3rd word ("gamma"), then extend to end of enclosing <p>.
+	in := "<p>alpha beta gamma delta epsilon</p><p>second paragraph</p>"
+	got := TruncateHTMLToBlockBoundary(in, 3)
+	want := "<p>alpha beta gamma delta epsilon</p>"
+	if got != want {
+		t.Errorf("TruncateHTMLToBlockBoundary(<p>alpha beta gamma delta epsilon</p><p>...</p>, 3):\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestTruncateHTMLByWords_BlockBoundaryAcrossNestedTags(t *testing.T) {
+	// Word 3 is inside <strong>; enclosing block is the outer <p>.
+	// Extend should close <strong> AND <p> at the end of <p>'s content.
+	in := "<p>alpha <strong>beta gamma</strong> delta</p><p>second</p>"
+	got := TruncateHTMLToBlockBoundary(in, 3)
+	want := "<p>alpha <strong>beta gamma</strong> delta</p>"
+	if got != want {
+		t.Errorf("nested case:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestTruncateHTMLByWords_BlockBoundaryShortContentNoExtend(t *testing.T) {
+	// Short content (< 120 words) should NOT extend — TruncateHTMLByWords already returns full content.
+	// TruncateHTMLToBlockBoundary should behave identically for short content.
+	in := "<p>short content</p>"
+	got := TruncateHTMLToBlockBoundary(in, 120)
+	want := "<p>short content</p>"
+	if got != want {
+		t.Errorf("short content should not extend:\n  got:  %q\n  want: %q", got, want)
+	}
+}
