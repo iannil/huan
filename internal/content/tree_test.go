@@ -169,12 +169,16 @@ func TestSortPagesDefault_RealWorldZhurongshuoChapters(t *testing.T) {
 
 func TestBuildTree_FiltersBuildListNever(t *testing.T) {
 	// Pages with Build.List == "never" should NOT appear in site.RegularPages.
+	// Use distinct dates so sort order is deterministic regardless of collator.
 	now := time.Now()
 	pages := []*Page{
-		{Title: "Visible", RelPath: "posts/a.md", Kind: "page", DateParsed: now, Section: "posts"},
-		{Title: "Hidden", RelPath: "posts/b.md", Kind: "page", DateParsed: now, Section: "posts",
+		{Title: "First", RelPath: "posts/a.md", Kind: "page",
+			DateParsed: now.Add(2 * time.Hour), Section: "posts"},
+		{Title: "Hidden", RelPath: "posts/b.md", Kind: "page",
+			DateParsed: now.Add(1 * time.Hour), Section: "posts",
 			Build: config.BuildConfig{List: "never"}},
-		{Title: "Also Visible", RelPath: "posts/c.md", Kind: "page", DateParsed: now, Section: "posts"},
+		{Title: "Second", RelPath: "posts/c.md", Kind: "page",
+			DateParsed: now, Section: "posts"},
 	}
 	cfg := &config.Config{LanguageCode: "en"}
 	site, err := BuildTree(pages, cfg, "/test")
@@ -182,7 +186,7 @@ func TestBuildTree_FiltersBuildListNever(t *testing.T) {
 		t.Fatal(err)
 	}
 	titles := pageTitles(site.RegularPages)
-	want := []string{"Visible", "Also Visible"}
+	want := []string{"First", "Second"}
 	if len(titles) != len(want) {
 		t.Fatalf("expected %d regular pages, got %d: %v", len(want), len(titles), titles)
 	}
@@ -190,6 +194,12 @@ func TestBuildTree_FiltersBuildListNever(t *testing.T) {
 		if i >= len(titles) || titles[i] != w {
 			t.Errorf("pos %d: got %v, want %v", i, titles, want)
 			break
+		}
+	}
+	// Sanity: "Hidden" must not appear anywhere in site.RegularPages.
+	for _, title := range titles {
+		if title == "Hidden" {
+			t.Errorf("Hidden page leaked into site.RegularPages: %v", titles)
 		}
 	}
 }

@@ -88,9 +88,57 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		}
 	}
 
+	// Apply Hugo-style cascade inheritance: a section's _index.md may declare
+	// `cascade.build.list: never` to exclude all descendant pages from lists
+	// (RSS, sitemap, listings). Each page inherits its parent section's
+	// Cascade.Build.List unless the page explicitly sets its own Build.List.
+	// Walk up the parent chain so nested sections inherit from ancestors too.
+	{
+		// Index section pages by RelPath dir for cascade lookups.
+		sectionByDir := map[string]*Page{} // e.g. "hidden" -> *_index.md page
+		for _, p := range pages {
+			if p.Kind == "section" {
+				dir := filepath.Dir(p.RelPath)
+				sectionByDir[dir] = p
+			}
+		}
+		for _, p := range pages {
+			if p.Kind != "page" {
+				continue
+			}
+			if p.Build.List != "" {
+				continue // page explicitly sets Build.List — don't inherit
+			}
+			// Walk up the page's directory chain looking for ancestor section
+			// _index.md with a non-empty Cascade.Build.List.
+			searchDir := filepath.Dir(p.RelPath)
+			for searchDir != "." && searchDir != "" {
+				if sec, ok := sectionByDir[searchDir]; ok {
+					if sec.Cascade.Build.List != "" {
+						p.Build.List = sec.Cascade.Build.List
+						break
+					}
+				}
+				searchDir = filepath.Dir(searchDir)
+			}
+		}
+	}
+
 	// Build section.Pages and section.RegularPages
+	// Hugo's build.list=never directive: exclude from all lists (RSS, sitemap,
+	// section listings, etc.). Pages inherit the directive via cascade above,
+	// so we filter at the source — every list collection below then naturally
+	// excludes them.
+	isListed := func(p *Page) bool {
+		return p.Build.List != "never"
+	}
 	for _, p := range pages {
 		if p.Parent != nil {
+			if p.Kind == "page" && !isListed(p) {
+				// Excluded from lists: still link via tree (Parent), but skip
+				// adding to any *Pages / RegularPages collection.
+				continue
+			}
 			p.Parent.Pages = append(p.Parent.Pages, p)
 			if p.Kind == "page" {
 				p.Parent.RegularPages = append(p.Parent.RegularPages, p)
@@ -123,10 +171,12 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		}
 	}
 
-	// Collect all pages and regular pages for the site
+	// Collect all pages and regular pages for the site.
+	// Apply build.list=never filter: never-listed pages are excluded from
+	// site.RegularPages (and thus RSS, sitemap, related content).
 	for _, p := range pages {
 		site.Pages = append(site.Pages, p)
-		if p.Kind == "page" {
+		if p.Kind == "page" && p.Build.List != "never" {
 			site.RegularPages = append(site.RegularPages, p)
 		}
 	}
