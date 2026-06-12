@@ -1,6 +1,9 @@
 package build
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // TruncateHTMLByWords truncates HTML content to approximately N "words"
 // (CJK chars count as 1 word each, ASCII words split by whitespace).
@@ -93,18 +96,31 @@ func StripHTMLTagsForSummary(s string) string {
 	return sb.String()
 }
 
-// CountWordsInPlain counts words in plain text using Hugo's algorithm:
-// each CJK character counts as 1 word; ASCII words (split by whitespace) count as 1.
+// CountWordsInPlain counts words in plain text using Hugo's algorithm.
+//
+// Hugo's algorithm:
+//   - Each CJK ideograph (Han), Hiragana, Katakana, or Hangul character
+//     counts as 1 word.
+//   - Other characters are grouped by whitespace; each non-empty run
+//     counts as 1 word.
+//   - The ideographic space (U+3000) and Unicode White_Space are treated
+//     as word separators.
+//
+// This matches Hugo 0.x behavior including all CJK extension blocks.
 func CountWordsInPlain(s string) int {
 	count := 0
 	inWord := false
 	for _, r := range s {
-		if r >= 0x4E00 && r <= 0x9FFF {
+		if unicode.Is(unicode.Han, r) ||
+			unicode.Is(unicode.Hiragana, r) ||
+			unicode.Is(unicode.Katakana, r) ||
+			unicode.Is(unicode.Hangul, r) {
 			count++
 			inWord = false
 			continue
 		}
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '　' ||
+			unicode.Is(unicode.White_Space, r) {
 			inWord = false
 			continue
 		}
