@@ -4,7 +4,7 @@ import (
 	"html/template"
 	"time"
 
-	"github.com/novel_ttl/huan/internal/config"
+	"github.com/iannil/huan/internal/config"
 )
 
 // Page represents a single content page.

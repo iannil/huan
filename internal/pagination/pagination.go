@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/novel_ttl/huan/internal/content"
+	"github.com/iannil/huan/internal/content"
 )
 
 // Pager represents a single page of paginated results.

@@ -1,4 +1,4 @@
-module github.com/novel_ttl/huan
+module github.com/iannil/huan
 
 go 1.26.2
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/novel_ttl/huan/internal/config"
+	"github.com/iannil/huan/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

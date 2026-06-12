@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/novel_ttl/huan/internal/config"
-	"github.com/novel_ttl/huan/internal/content"
+	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/content"
 )
 
 // Context is the data object passed to every template.

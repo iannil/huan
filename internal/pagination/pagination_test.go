@@ -3,7 +3,7 @@ package pagination
 import (
 	"testing"
 
-	"github.com/novel_ttl/huan/internal/content"
+	"github.com/iannil/huan/internal/content"
 )
 
 func TestPaginate(t *testing.T) {

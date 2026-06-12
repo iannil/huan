@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/novel_ttl/huan/internal/config"
-	"github.com/novel_ttl/huan/internal/content"
-	tmpl "github.com/novel_ttl/huan/internal/template"
+	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/content"
+	tmpl "github.com/iannil/huan/internal/template"
 )
 
 // ResolveRSSOutput returns the RSS template name for a section/home page.

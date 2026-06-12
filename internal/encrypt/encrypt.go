@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/novel_ttl/huan/internal/content"
-	"github.com/novel_ttl/huan/internal/shortcode"
+	"github.com/iannil/huan/internal/content"
+	"github.com/iannil/huan/internal/shortcode"
 )
 
 // EncryptedEntry is a single entry from data/encrypted/content.json.

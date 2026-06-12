@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/novel_ttl/huan/internal/config"
-	"github.com/novel_ttl/huan/internal/content"
-	"github.com/novel_ttl/huan/internal/encrypt"
-	"github.com/novel_ttl/huan/internal/i18n"
-	"github.com/novel_ttl/huan/internal/markdown"
-	"github.com/novel_ttl/huan/internal/output"
-	"github.com/novel_ttl/huan/internal/shortcode"
-	"github.com/novel_ttl/huan/internal/taxonomy"
-	tmpl "github.com/novel_ttl/huan/internal/template"
+	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/content"
+	"github.com/iannil/huan/internal/encrypt"
+	"github.com/iannil/huan/internal/i18n"
+	"github.com/iannil/huan/internal/markdown"
+	"github.com/iannil/huan/internal/output"
+	"github.com/iannil/huan/internal/shortcode"
+	"github.com/iannil/huan/internal/taxonomy"
+	tmpl "github.com/iannil/huan/internal/template"
 )
 
 // Options controls a single BuildSite invocation.

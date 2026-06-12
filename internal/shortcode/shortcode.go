@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/novel_ttl/huan/internal/content"
+	"github.com/iannil/huan/internal/content"
 )
 
 // Context is what a shortcode handler receives.

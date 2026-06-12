@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/novel_ttl/huan/internal/build"
-	"github.com/novel_ttl/huan/internal/serve"
+	"github.com/iannil/huan/internal/build"
+	"github.com/iannil/huan/internal/serve"
 	"github.com/spf13/cobra"
 )
 

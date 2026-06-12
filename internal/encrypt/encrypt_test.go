@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/novel_ttl/huan/internal/content"
+	"github.com/iannil/huan/internal/content"
 )
 
 func TestRenderPublic(t *testing.T) {

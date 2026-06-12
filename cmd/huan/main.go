@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/novel_ttl/huan/internal/build"
-	"github.com/novel_ttl/huan/internal/config"
+	"github.com/iannil/huan/internal/build"
+	"github.com/iannil/huan/internal/config"
 	"github.com/spf13/cobra"
 )
 

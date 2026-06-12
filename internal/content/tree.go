@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/novel_ttl/huan/internal/config"
+	"github.com/iannil/huan/internal/config"
 )
 
 // BuildTree takes raw pages and assembles the content tree:

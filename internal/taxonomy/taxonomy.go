@@ -4,7 +4,7 @@ package taxonomy
 import (
 	"sort"
 
-	"github.com/novel_ttl/huan/internal/content"
+	"github.com/iannil/huan/internal/content"
 )
 
 // Taxonomy maps a term (e.g., tag name) to the pages tagged with it.
