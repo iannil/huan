@@ -100,6 +100,86 @@ func TruncateHTMLByWords(htmlStr string, n int) string {
 	return htmlStr
 }
 
+// TruncateHTMLToBlockBoundary truncates HTML to at least N words, then extends
+// forward to the closing tag of the enclosing block-level element. This matches
+// Hugo's actual summary behavior: summaryLength is a minimum, and Hugo scans
+// forward to a block boundary (</p>, </h2>, </li>, etc.) to produce a
+// well-formed summary that doesn't end mid-paragraph.
+//
+// See https://github.com/gohugoio/hugo/issues/11863 for Hugo's behavior.
+//
+// Algorithm:
+//  1. Run TruncateHTMLByWords to get the word-boundary truncation (with open
+//     tags closed).
+//  2. If the input was shorter than N words, TruncateHTMLByWords returns the
+//     input unchanged — short content needs no extension.
+//  3. Otherwise, find the byte offset where the original input diverges from
+//     the truncated result (common prefix length). The truncated result may
+//     have appended synthetic close tags (e.g. `</strong></p>`) that are not
+//     in the original at that position — the first divergence point is the
+//     right boundary.
+//  4. From that divergence point, scan forward in the original HTML for the
+//     next block-level closing tag and truncate just after it. Hugo assumes
+//     well-formed input; all tags up to that point are balanced.
+//  5. If no block boundary is found after the cut point (rare edge case),
+//     fall back to the word-boundary truncation result.
+func TruncateHTMLToBlockBoundary(htmlStr string, n int) string {
+	truncated := TruncateHTMLByWords(htmlStr, n)
+	if truncated == htmlStr {
+		// Content was shorter than N words; no truncation needed.
+		return htmlStr
+	}
+
+	// Find the byte position where TruncateHTMLByWords cut. The truncated
+	// string is a prefix of htmlStr up to some point, plus closing tags that
+	// were added. The common prefix ends at the first differing byte, which
+	// is the true cut point in the original HTML.
+	cutLen := commonPrefixLen(htmlStr, truncated)
+
+	// Scan forward from cutLen to find the next block-level closing tag.
+	blockCloseTags := []string{
+		"</p>", "</h1>", "</h2>", "</h3>", "</h4>", "</h5>", "</h6>",
+		"</div>", "</li>", "</ul>", "</ol>", "</blockquote>", "</pre>",
+		"</table>", "</tr>", "</td>", "</th>", "</section>", "</article>",
+		"</header>", "</footer>", "</aside>", "</nav>", "</main>",
+		"</figure>", "</figcaption>",
+	}
+
+	earliest := -1
+	lower := strings.ToLower(htmlStr)
+	for _, tag := range blockCloseTags {
+		if idx := strings.Index(lower[cutLen:], strings.ToLower(tag)); idx >= 0 {
+			absIdx := cutLen + idx + len(tag)
+			if earliest == -1 || absIdx < earliest {
+				earliest = absIdx
+			}
+		}
+	}
+
+	if earliest == -1 {
+		// No block boundary found; fall back to word-boundary truncation.
+		return truncated
+	}
+
+	// Truncate at the block boundary. All tags up to this point should be
+	// properly balanced (Hugo assumes well-formed input HTML).
+	return htmlStr[:earliest]
+}
+
+// commonPrefixLen returns the length of the longest common byte prefix of a and b.
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
+}
+
 // finalizeTruncated closes any open tags after a truncation point.
 func finalizeTruncated(s string, openTags []string) string {
 	var b strings.Builder
