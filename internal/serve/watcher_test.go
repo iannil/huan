@@ -122,6 +122,52 @@ func TestWatcherIgnoresHiddenFiles(t *testing.T) {
 	}
 }
 
+func TestWatcherIgnoresEditorArtifacts(t *testing.T) {
+	dir, err := os.MkdirTemp("", "huan-watch-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	var calls int32
+	w, err := NewWatcher(WatcherOptions{
+		SourceDir: dir,
+		Debounce:  50 * time.Millisecond,
+		OnChange: func() {
+			atomic.AddInt32(&calls, 1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx) //nolint:errcheck
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Editor temp/swap/backup files — all should be ignored
+	artifacts := []string{
+		"post.md.swp",   // vim swap
+		"post.md.swo",   // vim swap (overflow)
+		"post.md~",      // vim/emacs backup
+		"post.md.orig",  // merge backup
+		"4913",          // vim's write-test probe
+		".#post.md",     // emacs lock (also caught by dotfile rule)
+		"#post.md#",     // emacs auto-save
+	}
+	for _, name := range artifacts {
+		_ = os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Errorf("OnChange called %d times for editor artifacts, want 0", got)
+	}
+}
+
 func TestWatcherAddsNewSubdirectories(t *testing.T) {
 	dir, err := os.MkdirTemp("", "huan-watch-test-*")
 	if err != nil {

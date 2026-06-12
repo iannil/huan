@@ -3,6 +3,7 @@ package build
 import (
 	"fmt"
 	"html/template"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -451,27 +452,17 @@ func InjectLiveReload(html, wsURL string) string {
 }
 
 func portFromURL(wsURL string) string {
-	rest := strings.TrimPrefix(strings.TrimPrefix(wsURL, "ws://"), "wss://")
-	rest = strings.TrimPrefix(rest, "//")
-	host := rest
-	if idx := strings.IndexByte(rest, '/'); idx >= 0 {
-		host = rest[:idx]
+	u, err := url.Parse(wsURL)
+	if err != nil || u.Port() == "" {
+		return "1313"
 	}
-	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
-		return host[idx+1:]
-	}
-	return "1313"
+	return u.Port()
 }
 
 func hostFromURL(wsURL string) string {
-	rest := strings.TrimPrefix(strings.TrimPrefix(wsURL, "ws://"), "wss://")
-	rest = strings.TrimPrefix(rest, "//")
-	host := rest
-	if idx := strings.IndexByte(rest, '/'); idx >= 0 {
-		host = rest[:idx]
+	u, err := url.Parse(wsURL)
+	if err != nil || u.Hostname() == "" {
+		return "localhost"
 	}
-	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
-		host = host[:idx]
-	}
-	return host
+	return u.Hostname()
 }

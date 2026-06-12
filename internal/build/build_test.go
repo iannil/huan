@@ -53,6 +53,9 @@ func TestPortFromURL(t *testing.T) {
 		{"ws://127.0.0.1:8080/livereload", "8080"},
 		{"ws://example.com/livereload", "1313"}, // no port → default
 		{"wss://secure.example.com:443/lr", "443"},
+		{"ws://[::1]:1313/livereload", "1313"},        // IPv6 loopback
+		{"ws://[2001:db8::1]:8080/lr", "8080"},        // IPv6 with port
+		{"ws://[::1]/livereload", "1313"},             // IPv6 no port → default
 	}
 	for _, c := range cases {
 		got := portFromURL(c.in)
@@ -71,6 +74,9 @@ func TestHostFromURL(t *testing.T) {
 		{"ws://127.0.0.1:8080/livereload", "127.0.0.1"},
 		{"ws://example.com/livereload", "example.com"},
 		{"wss://secure.example.com:443/lr", "secure.example.com"},
+		{"ws://[::1]:1313/livereload", "::1"},                // IPv6 loopback, brackets stripped
+		{"ws://[2001:db8::1]:8080/lr", "2001:db8::1"},        // IPv6 with port
+		{"ws://[::1]/livereload", "::1"},                     // IPv6 no port
 	}
 	for _, c := range cases {
 		got := hostFromURL(c.in)

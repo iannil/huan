@@ -72,15 +72,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// if a build is in flight, set rebuildPending so we do one trailing rebuild
 	// after the current one finishes — coalescing any burst of edits.
 	//
-	// Note: we deliberately do NOT clear OutputDir between rebuilds. Doing so
-	// would 404 every request during the multi-second rebuild window, which
-	// is worse than the rare stale-page-on-delete case we're trading away.
-	// Restart `huan serve` if you delete a lot of files and want them gone
-	// from the dev mirror.
+	// Rebuilds build into a sibling staging dir (tmpDir + ".next"), then
+	// atomically swap it into tmpDir. This serves the OLD content during the
+	// multi-second rebuild window (no 404s), and atomically replaces with the
+	// new content on success — so deleted source files don't linger as stale
+	// pages. On rebuild failure we leave tmpDir untouched.
 	var (
 		rebuildBusy   atomic.Bool
 		rebuildPended atomic.Bool
 	)
+	nextDir := tmpDir + ".next"
 	doRebuild := func() {
 		if !rebuildBusy.CompareAndSwap(false, true) {
 			// Already building; mark pending and let the in-flight build pick it up.
@@ -90,13 +91,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		for {
 			fmt.Println("[watch] change detected, rebuilding...")
 			start := time.Now()
+			_ = os.RemoveAll(nextDir) // clear any leftover from previous failed rebuild
+			buildOpts.OutputDir = nextDir
 			if _, err := build.BuildSite(buildOpts); err != nil {
+				_ = os.RemoveAll(nextDir)
+				buildOpts.OutputDir = tmpDir // restore so next iteration re-stages correctly
 				fmt.Printf("[watch] rebuild error: %v\n", err)
 				if hub != nil {
 					hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", err))
 				}
 				break
 			}
+			if err := build.SwapBuildDir(tmpDir, nextDir); err != nil {
+				// Extremely unlikely (rename failure on same filesystem).
+				// Fall back to keeping the new build in nextDir and serving old.
+				_ = os.RemoveAll(nextDir)
+				buildOpts.OutputDir = tmpDir
+				fmt.Printf("[watch] swap failed, kept old build: %v\n", err)
+			}
+			buildOpts.OutputDir = tmpDir
 			fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
 			if hub != nil {
 				hub.BroadcastReload()

@@ -63,9 +63,30 @@ func (w *Watcher) addRecursive(root string) error {
 	})
 }
 
+// isIgnored returns true for editor artifacts and dotfiles that should not
+// trigger a rebuild. Covers vim swap/backup, emacs lock/auto-save, merge
+// leftovers, and vim's "4913" write-test probe.
 func (w *Watcher) isIgnored(path string) bool {
 	base := filepath.Base(path)
 	if strings.HasPrefix(base, ".") {
+		return true
+	}
+	switch base {
+	case "4913": // vim's write-permission probe
+		return true
+	}
+	switch {
+	case strings.HasSuffix(base, ".swp"), // vim swap
+		strings.HasSuffix(base, ".swo"), // vim swap (overflow)
+		strings.HasSuffix(base, ".swn"), // vim swap (overflow)
+		strings.HasSuffix(base, "~"),    // vim/emacs backup
+		strings.HasSuffix(base, ".orig"), // merge backup
+		strings.HasSuffix(base, ".rej"),  // merge reject
+		strings.HasSuffix(base, ".bak"):  // generic backup
+		return true
+	case strings.HasPrefix(base, "#") && strings.HasSuffix(base, "#"): // emacs auto-save
+		return true
+	case strings.HasPrefix(base, ".#"): // emacs lock
 		return true
 	}
 	return false
