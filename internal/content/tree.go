@@ -7,7 +7,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"golang.org/x/text/collate"
+
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/i18n"
 )
 
 // BuildTree takes raw pages and assembles the content tree:
@@ -98,13 +101,17 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		}
 	}
 
-	// Sort each section's Pages by Date descending (Hugo default order)
+	// Build the locale-aware collator once per build (construction is
+	// expensive). Used by sortPagesDefault for the Title tie-break layer.
+	coll := i18n.BuildCollator(cfg.LanguageCode)
+
+	// Sort each section's Pages by Hugo's DefaultPageSort (weight → date → title → path)
 	for _, p := range pages {
 		if len(p.Pages) > 1 {
-			sortPagesByDateDesc(p.Pages)
+			sortPagesDefault(p.Pages, coll)
 		}
 		if len(p.RegularPages) > 1 {
-			sortPagesByDateDesc(p.RegularPages)
+			sortPagesDefault(p.RegularPages, coll)
 		}
 	}
 
@@ -126,9 +133,9 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 
 	// WordCount and Plain are computed in main.go after Markdown rendering
 	// (from plainified HTML, matching Hugo). Don't recompute here.
-	// Sort site.RegularPages by Date descending (Hugo default)
+	// Sort site.RegularPages by Hugo's DefaultPageSort (weight → date → title → path)
 	if len(site.RegularPages) > 1 {
-		sortPagesByDateDesc(site.RegularPages)
+		sortPagesDefault(site.RegularPages, coll)
 	}
 
 	// Ensure a home page exists. Hugo creates a virtual home page even when
@@ -309,24 +316,49 @@ func collectRegularPagesRecursive(section *Page) []*Page {
 	return result
 }
 
-// sortPagesByDateDesc sorts pages by Date descending (newest first), with a
-// stable tiebreaker that matches Hugo's default ordering:
+// sortPagesDefault sorts pages using Hugo's DefaultPageSort algorithm
+// (resources/page/pages_sort.go:DefaultPageSort). The tie-break chain is:
 //
-//	1. DateParsed descending
-//	2. lower(Title) ascending (zhurongshuo has no linkTitle, so Title is used)
-//	3. RelPath ascending
+//  1. Weight ascending — but weight 0 sorts last (Hugo's "unweighted goes last" rule)
+//  2. DateParsed descending
+//  3. Collator on Title ascending (Hugo uses LinkTitle with Title fallback;
+//     zhurongshuo has no LinkTitle so Title is used directly). Language-aware
+//     (zh-cn → pinyin order, en → alphabetical, etc.)
+//  4. RelPath ascending (byte-level, NOT through collator)
 //
-// This ensures deterministic output when dates are equal.
-func sortPagesByDateDesc(pages []*Page) {
+// Note: Hugo also has Ordinal and Weight0 (taxonomy term weight) layers
+// earlier in the chain, but huan doesn't model those concepts. zhurongshuo
+// pages have no Ordinal / Weight0 set, so omitting those layers is safe.
+//
+// The Collator must be built by the caller (typically once per build via
+// i18n.BuildCollator(site.LanguageCode)) and reused — collator construction
+// is expensive.
+func sortPagesDefault(pages []*Page, coll *collate.Collator) {
 	sort.SliceStable(pages, func(i, j int) bool {
 		a, b := pages[i], pages[j]
+
+		// Layer 1: Weight (0 sorts last; otherwise ascending)
+		if a.Weight == 0 && b.Weight != 0 {
+			return false // a sorts after b
+		}
+		if a.Weight != 0 && b.Weight == 0 {
+			return true // a sorts before b
+		}
+		if a.Weight != b.Weight {
+			return a.Weight < b.Weight
+		}
+
+		// Layer 2: Date desc
 		if !a.DateParsed.Equal(b.DateParsed) {
 			return a.DateParsed.After(b.DateParsed)
 		}
-		la, lb := strings.ToLower(a.Title), strings.ToLower(b.Title)
-		if la != lb {
-			return la < lb
+
+		// Layer 3: Collator on Title asc
+		if c := coll.CompareString(a.Title, b.Title); c != 0 {
+			return c < 0
 		}
+
+		// Layer 4: RelPath asc (byte-level)
 		return a.RelPath < b.RelPath
 	})
 }
