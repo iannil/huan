@@ -76,3 +76,46 @@ func TestServerServesStaticFiles(t *testing.T) {
 		t.Errorf("body = %q, want contains 'post foo'", string(body2))
 	}
 }
+
+func TestServerServesLivereloadJS(t *testing.T) {
+	tmp, err := os.MkdirTemp("", "huan-serve-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	srv := New(ServerOptions{
+		OutputDir: tmp,
+		Bind:      "127.0.0.1",
+		Port:      "0",
+	})
+	addrCh := make(chan string, 1)
+	srv.addrCh = addrCh
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Run(ctx) //nolint:errcheck
+
+	var addr string
+	select {
+	case addr = <-addrCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not start within 2s")
+	}
+
+	resp, err := http.Get("http://" + addr + "/livereload.js")
+	if err != nil {
+		t.Fatalf("get /livereload.js: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/javascript" {
+		t.Errorf("Content-Type = %q, want application/javascript", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "LiveReload") {
+		t.Errorf("body does not look like livereload.js (no 'LiveReload' substring, len=%d)", len(body))
+	}
+}
