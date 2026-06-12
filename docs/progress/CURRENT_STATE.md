@@ -26,37 +26,42 @@
 
 ## 当前活跃工作
 
-三维度等价标准落地（ADR 0001）：详见 [`docs/superpowers/plans/2026-06-12-redefine-equivalence.md`](../superpowers/plans/2026-06-12-redefine-equivalence.md)。
+无。**stage 1 已于 2026-06-12 完成**——三维度等价标准（[ADR 0001](../adr/0001-redefine-equivalence.md)）落地，4 项必修/应修差异（#1 WordCount / #2 RSS items 顺序 / #3 RSS description 截断 / #5 general summary 截断）全部解决，#4 products 换行接受为永久差异。三维度验证管线（`./scripts/diff-build.sh`）建立并 gate 通过。stage 2 待启动（详见下方）。
 
 ---
 
-## 待办 — 剩余差异（按三维度归类，2026-06-12 重新评估）
+## 已完成 — 原 5 类差异处理结果（2026-06-12 收尾）
 
-详见 [ADR 0001](../adr/0001-redefine-equivalence.md) 与 [`docs/standards/equivalence.md`](../standards/equivalence.md)。
+5 类差异已按三维度标准全部处理：
 
-1. **字数统计精度** → **必修**（books/practices 列表页「约 X 万字」肉眼可见，huan 12.0 vs Hugo 15.5）
-   - 处理：Port Hugo WordCount 算法（覆盖 `unicode.Is(unicode.Han/Hiragana/Katakana/Hangul)` + 全角符号）
-   - 影响：`internal/build/summary.go:CountWordsInPlain`
-
-2. **RSS items 顺序** → **应修**
-   - 处理：`sortPagesByDateDesc` 加 tiebreaker（date desc → lower(title) asc → relpath asc）
-   - 影响：`internal/content/tree.go:311`
-
-3. **RSS item description 截断** → **应修**
-   - 处理：`TruncateHTMLByWords` 改为 word-boundary 截断
-   - 影响：`internal/build/summary.go:9`
-
-4. **products page description 换行** → **接受**为永久差异
-   - 原因：`</h2>\n<p>` 与 `</h2> <p>` 浏览器渲染等价
-   - 已登记于 `docs/standards/equivalence.md` §4
-
-5. **general page summary 截断位置** → **应修**
-   - 处理：与 (3) 在 `TruncateHTMLByWords` 统一
-   - 影响：`internal/build/summary.go:9`
+1. 字数统计精度 → ✅ 已修（Phase 3 Port Hugo WordCount + Phase 3.5 div float64）
+2. RSS items 顺序 → ✅ 已修（Phase 4 sortPagesByDateDesc tiebreaker）
+3. RSS description 截断 → ✅ 已修（Phase 5 TruncateHTMLByWords word-boundary + Phase 5.5 TruncateHTMLToBlockBoundary）
+4. products summary 换行 → ✅ 接受为永久差异（详见 equivalence.md §4）
+5. general summary 截断 → ✅ 已修（同 #3）
 
 ---
 
-## Stage 2 待新增（当前为空）
+## Stage 2 候选工作清单（2026-06-12 stage 1 收尾时发现）
+
+stage 1 收尾跑 diff-build.sh 时发现的、超出原 5 类的差异。优先级排序：
+
+1. **meta description / og:description / JSON-LD 多段落 summary 换行压缩**（中优先级，影响 SEO 维度）
+   - 现象：huan 把 summary 压成单行，Hugo 保留段落换行
+   - 影响：影响约 N 个文件的 SEO 字段对比
+   - 方向：在 summary 后处理时保留块级换行
+2. **RSS items 数量差**（低优先级，影响 normalized 维度）
+   - 现象：huan home RSS 多 1 个 item（11 vs Hugo 10）
+   - 方向：检查 RSS limit 边界处理
+3. **`lastBuildDate` 格式差**（低优先级）
+   - 现象：空日期时 huan 渲染 `0001-01-01`，Hugo 渲染空字符串
+   - 方向：在 RSS 模板对零值日期做特殊处理
+
+---
+
+## Stage 2 待新增（架构层）
+
+下列目录与能力属于 stage 2 范围，stage 1 期间**未保留任何占位代码**（避免空目录垃圾）。启动 stage 2 时按 `docs/technical-plan.md` 第 4.11 节定义从零创建。
 
 下列目录与能力属于 stage 2 范围，stage 1 期间**未保留任何占位代码**（避免空目录垃圾）。启动 stage 2 时按 `docs/technical-plan.md` 第 4.11 节定义从零创建。
 

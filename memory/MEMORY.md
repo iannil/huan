@@ -17,7 +17,7 @@
 
 - **huan** = Go 静态站点生成器，阶段一目标：替代 Hugo 构建 zhurongshuo.com，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) 与 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
 - 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前仍由 Hugo 构建
-- 当前分支：`master`；阶段一里程碑 1–9 已全部落地（详见 [`docs/progress/CURRENT_STATE.md`](../docs/progress/CURRENT_STATE.md)）
+- 当前分支：`master`；**stage 1 已于 2026-06-12 完成**（三维度等价标准 ADR 0001 落地，4 项必修/应修差异全解决，三维度验证管线 gate 通过）；stage 2 待启动
 - `huan build` 与 Hugo byte-diff 一致率：905/2028 共有文件完全相同（44.6%，噪声 ±75，详见经验教训），剩余 5 类差异已按三维度尺子重新归类（详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)）
 - `huan serve`（HTTP + fsnotify + LiveReload）已于 2026-06-12 完成，17 commits 落地
 - 仓库整洁度：无 TODO/FIXME 标记，无 backup/tmp/CI/Makefile；`pkg/` 与 `internal/{pipeline,plugin,search}/` 已删除（stage 2 时再建）
