@@ -60,3 +60,28 @@ func TestByCount(t *testing.T) {
 		t.Errorf("expected 'common' first with count 3, got %s (%d)", entries[0].Name, entries[0].Count)
 	}
 }
+
+// TestBuild_PreservesInputPageOrder documents the contract that Build does NOT
+// reorder pages within a term — it appends in input order. Callers (e.g.
+// build.go) are responsible for passing already-sorted pages (sorted via
+// content.sortPagesDefault with the site's collator). This test guards against
+// future regressions that might silently reorder taxonomy term members.
+func TestBuild_PreservesInputPageOrder(t *testing.T) {
+	d := time.Date(2025, 10, 14, 0, 0, 0, 0, time.UTC)
+	p1 := &content.Page{Title: "苹果", Tags: []string{"fruit"}, DateParsed: d, RelPath: "/a.md"}
+	p2 := &content.Page{Title: "香蕉", Tags: []string{"fruit"}, DateParsed: d, RelPath: "/b.md"}
+	p3 := &content.Page{Title: "樱桃", Tags: []string{"fruit"}, DateParsed: d, RelPath: "/c.md"}
+
+	// Pass pages in a deliberately scrambled order.
+	tax := Build([]*content.Page{p2, p3, p1}, "tags")
+	pages := tax["fruit"]
+	if len(pages) != 3 {
+		t.Fatalf("expected 3 pages, got %d", len(pages))
+	}
+	// Output should preserve input order: p2, p3, p1.
+	if pages[0] != p2 || pages[1] != p3 || pages[2] != p1 {
+		gotTitles := []string{pages[0].Title, pages[1].Title, pages[2].Title}
+		wantTitles := []string{p2.Title, p3.Title, p1.Title}
+		t.Errorf("Build did not preserve input order:\n  got:  %v\n  want: %v", gotTitles, wantTitles)
+	}
+}
