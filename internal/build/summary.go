@@ -1,82 +1,147 @@
 package build
 
 import (
+	"bytes"
 	"strings"
 	"unicode/utf8"
 )
 
-// TruncateHTMLByWords truncates HTML content to approximately N "words"
-// (CJK chars count as 1 word each, ASCII words split by whitespace).
-// When N words are reached, it immediately cuts and closes any open tags.
-// This matches Hugo's summary behavior (truncates mid-paragraph at word boundary).
+// TruncateHTMLByWords truncates HTML content to the first N words and closes
+// any open tags. Word counting follows the same rules as CountWordsInPlain
+// (strings.Fields + rune count for CJK fields).
+//
+// Truncation happens at word boundaries: the moment we finish counting the
+// Nth word, we cut immediately (without consuming the trailing separator) and
+// close open tags. This matches Hugo's summary behavior.
 func TruncateHTMLByWords(htmlStr string, n int) string {
 	if n <= 0 {
 		return htmlStr
 	}
-	count := 0
-	inTag := false
-	inWord := false
+	var buf bytes.Buffer
 	var openTags []string
+	count := 0
+	inWord := false
+	runes := []rune(htmlStr)
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
 
-	for i := 0; i < len(htmlStr); i++ {
-		c := htmlStr[i]
-		if inTag {
-			if c == '>' {
-				inTag = false
+		// Handle HTML tags: a tag always ends the current word.
+		if r == '<' {
+			if count >= n && inWord {
+				return finalizeTruncated(buf.String(), openTags)
 			}
-			continue
-		}
-		if c == '<' {
-			inTag = true
 			inWord = false
-			// Track open/close tags for proper closing
-			tagEnd := strings.IndexByte(htmlStr[i:], '>')
-			if tagEnd > 0 {
-				tagContent := htmlStr[i+1 : i+tagEnd]
-				if len(tagContent) > 0 && tagContent[0] == '/' {
-					// Closing tag
-					if len(openTags) > 0 {
-						openTags = openTags[:len(openTags)-1]
-					}
-				} else if tagContent != "br" && tagContent != "hr" &&
-					!strings.HasPrefix(tagContent, "br/") &&
-					!strings.HasPrefix(tagContent, "img") &&
-					!strings.HasPrefix(tagContent, "hr/") {
-					// Opening tag - extract name
-					name := tagContent
-					if idx := strings.IndexAny(name, " /"); idx > 0 {
-						name = name[:idx]
-					}
+			end := indexRuneFrom(runes, '>', i)
+			if end < 0 {
+				buf.WriteString(string(runes[i:]))
+				return finalizeTruncated(buf.String(), openTags)
+			}
+			tagStr := string(runes[i+1 : end])
+			buf.WriteRune('<')
+			buf.WriteString(tagStr)
+			buf.WriteRune('>')
+			if len(tagStr) > 0 && tagStr[0] == '/' {
+				if len(openTags) > 0 {
+					openTags = openTags[:len(openTags)-1]
+				}
+			} else if !isVoidTagName(tagStr) {
+				name := tagName(tagStr)
+				if name != "" {
 					openTags = append(openTags, name)
 				}
 			}
+			i = end + 1
 			continue
 		}
-		if c >= 0x80 {
-			if c&0xC0 != 0x80 {
-				count++
-				inWord = false
+
+		// Word boundary detection — must match CountWordsInPlain semantics
+		// (Hugo's CJK branch: every rune in a CJK field counts as a word).
+		// Any non-ASCII rune is treated as part of a CJK field; this aligns
+		// with CountWordsInPlain's `len == RuneCount` branch (ASCII = 1 word,
+		// otherwise each rune counts).
+		isCJKFieldRune := r >= 0x4E00
+		isSpace := r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '　'
+
+		if isCJKFieldRune {
+			// Each rune in a CJK field is its own "word" per Hugo algorithm.
+			if count >= n && inWord {
+				return finalizeTruncated(buf.String(), openTags)
 			}
-			continue
-		}
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			count++
+			buf.WriteRune(r)
 			inWord = false
-		} else {
-			if !inWord {
-				count++
-				inWord = true
+			i++
+			if count >= n {
+				return finalizeTruncated(buf.String(), openTags)
 			}
+			continue
 		}
-		if count >= n {
-			// Cut here, close any open tags
-			result := htmlStr[:i+1]
-			for j := len(openTags) - 1; j >= 0; j-- {
-				result += "</" + openTags[j] + ">"
+		if isSpace {
+			if count >= n && inWord {
+				return finalizeTruncated(buf.String(), openTags)
 			}
-			return result
+			inWord = false
+			buf.WriteRune(r)
+			i++
+			continue
 		}
+		// ASCII non-space: part of an ASCII word
+		if !inWord {
+			if count >= n {
+				return finalizeTruncated(buf.String(), openTags)
+			}
+			count++
+			inWord = true
+		}
+		buf.WriteRune(r)
+		i++
 	}
 	return htmlStr
+}
+
+// finalizeTruncated closes any open tags after a truncation point.
+func finalizeTruncated(s string, openTags []string) string {
+	var b strings.Builder
+	b.WriteString(s)
+	for j := len(openTags) - 1; j >= 0; j-- {
+		b.WriteString("</")
+		b.WriteString(openTags[j])
+		b.WriteString(">")
+	}
+	return b.String()
+}
+
+func indexRuneFrom(runes []rune, target rune, from int) int {
+	for i := from; i < len(runes); i++ {
+		if runes[i] == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func isVoidTagName(tagStr string) bool {
+	s := strings.TrimSpace(tagStr)
+	s = strings.TrimPrefix(s, "/")
+	if idx := strings.IndexAny(s, " /"); idx > 0 {
+		s = s[:idx]
+	}
+	switch strings.ToLower(s) {
+	case "br", "hr", "img", "input", "meta", "link", "area", "base",
+		"col", "embed", "param", "source", "track", "wbr":
+		return true
+	}
+	return false
+}
+
+func tagName(tagStr string) string {
+	s := strings.TrimSpace(tagStr)
+	s = strings.TrimPrefix(s, "/")
+	if idx := strings.IndexAny(s, " /"); idx > 0 {
+		return strings.ToLower(s[:idx])
+	}
+	return strings.ToLower(s)
 }
 
 // StripHTMLTagsForSummary strips HTML tags for plain text summary.
