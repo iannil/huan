@@ -118,6 +118,12 @@ func StripHTMLTagsForSummary(s string) string {
 // ideographic space U+3000); each whitespace-separated field is 1 word if
 // pure ASCII, otherwise contributes its rune count. Punctuation inside a
 // field is counted as a rune — this matches Hugo's behavior exactly.
+//
+// Stage 1 limitation: Hugo gates this CJK branch behind `isCJKLanguage` (from
+// `hasCJKLanguage` config). huan unconditionally applies the CJK algorithm,
+// which is correct for zhurongshuo (hasCJKLanguage=true) but would under-count
+// non-CJK sites. Stage 2 should add a config gate when huan is used for other
+// sites.
 func CountWordsInPlain(s string) int {
 	words := strings.Fields(s)
 	count := 0
