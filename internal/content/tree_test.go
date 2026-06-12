@@ -245,3 +245,47 @@ func TestBuildTree_InheritsCascadeListNever(t *testing.T) {
 		t.Errorf("expected only [Visible], got %v", titles)
 	}
 }
+
+// TestBuildTree_NestedSectionAutoCreatedRecursive reproduces the zhurongshuo
+// posts/ layout: no _index.md anywhere, posts organized as
+// posts/YEAR/MONTH/DAY.md. Hugo auto-creates a section page for the top-level
+// directory and treats every descendant page as part of that section.
+//
+// Without the auto-create-before-parent-assignment fix, posts' pages would be
+// parentless orphans and posts.RegularPagesRecursive would be empty, leaving
+// the posts RSS feed with zero items.
+func TestBuildTree_NestedSectionAutoCreatedRecursive(t *testing.T) {
+	now := time.Now()
+	pages := []*Page{
+		{Title: "Post A", RelPath: "posts/2026/05/2601.md", Kind: "page", Section: "posts", DateParsed: now},
+		{Title: "Post B", RelPath: "posts/2026/05/2701.md", Kind: "page", Section: "posts", DateParsed: now.Add(-time.Hour)},
+		{Title: "Post C", RelPath: "posts/2020/11/0101.md", Kind: "page", Section: "posts", DateParsed: now.Add(-24 * time.Hour)},
+	}
+	cfg := &config.Config{LanguageCode: "en"}
+	site, err := BuildTree(pages, cfg, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sec, ok := site.Sections["posts"]
+	if !ok {
+		t.Fatal("posts section not auto-created (missing from site.Sections)")
+	}
+	// All three pages nest under the auto-created posts section.
+	if got := len(sec.RegularPagesRecursive); got != 3 {
+		t.Errorf("posts.RegularPagesRecursive len: got %d, want 3", got)
+	}
+	// Direct RegularPages: Hugo attaches nested pages directly to the
+	// first-level section when no nested _index.md exists.
+	if got := len(sec.RegularPages); got != 3 {
+		t.Errorf("posts.RegularPages len: got %d, want 3", got)
+	}
+	// Every page's parent should be the posts section.
+	for _, p := range pages {
+		if p.Parent == nil {
+			t.Errorf("page %q has no parent (should be posts section)", p.RelPath)
+		} else if p.Parent != sec {
+			t.Errorf("page %q parent: got %q, want posts section", p.RelPath, p.Parent.RelPath)
+		}
+	}
+}
