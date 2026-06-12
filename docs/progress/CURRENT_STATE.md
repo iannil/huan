@@ -48,11 +48,23 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 
 > **修订记录（2026-06-12 grill-me 复核）**：原清单 3 项里 #1「meta description 换行压缩」方向描述反了（实际是 huan 多行、Hugo 折叠），#2「RSS items 数量差」与 #3「lastBuildDate 格式差」均不存在（前者是 grep 命令误用、后者实证 byte-identical）。下列为全量调查（1265 个 differing .html/.xml 文件）归纳的真实差异。
 
-1. **meta description 多行换行**（影响 565 文件，**优先级最高**）
-   - 现象：huan 在 `<meta name=description>` / `og:description` / `twitter:description` 里保留 `\n` 多行；Hugo plainify 折叠为单行空格
-   - 根因：`internal/template/funcs.go:28` 的 `plainify` 函数只调 `stripTags`，未调已存在的 `collapseWhitespace`（line 174）
-   - 修复方向：`plainify` 接 `collapseWhitespace` + `TrimSpace`；加单元测试
-   - 三维度影响：肉眼不可见（meta 不显示），但 SEO 维度差 565 个文件、AI 维度差部分（JSON-LD description 复用）
+### Stage 2 进度
+
+| Phase | 项 | 状态 | 完成日期 |
+|---|---|---|---|
+| 1 | meta description plainify | ✅ 已完成 | 2026-06-12 |
+| 2 | RSS 中文 URL 编码 | 待启动 | — |
+| 3 | books section part 顺序 | 待启动 | — |
+| 4 | body 渲染细节 | 待启动 | — |
+| 5 | minify artifacts | 待启动 | — |
+
+---
+
+1. **meta description 多行换行**（原影响 565 文件）→ ✅ **已修（stage 2 phase 1，2026-06-12）**
+   - 根因（修正后）：`internal/template/funcs.go:28` 的 `plainify` 是 `stripTags(toString(v))`，未实现 Hugo `tpl/template.go:StripHTML` 的完整算法（placeholder 保留 `</p>` / `<br>` 边界 + 连续 whitespace 去重）
+   - 修复：plainify 提取为 named function，Port Hugo 完整 StripHTML 算法（pre-replacer + stripTags + placeholder 还原 + unicode.IsSpace 去重）；不 trim、不 collapseWhitespace
+   - **教训**：第一轮修复（collapseWhitespace + TrimSpace）方向反了——实证发现 Hugo 实际保留 `\n`（来自 `</p>` placeholder），不是折叠为单空格。reset 后用 Hugo 源码（`tpl/template.go`）Port 完整算法才 byte-match
+   - 验证：3 篇典型页面（general/practices/books）meta name=description / og:description 全部 byte-identical；diff-build.sh 4 模式都下降（seo 983 → 699，ai 323 → 36）
 
 2. **RSS 中文 URL 编码**（影响 464 文件）
    - 现象：huan 输出 `<link>https://zhurongshuo.com/tags/专注/</link>`；Hugo 输出 `<link>https://zhurongshuo.com/tags/%E4%B8%93%E6%B3%A8/</link>`
