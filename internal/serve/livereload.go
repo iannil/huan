@@ -10,43 +10,81 @@ import (
 	"github.com/coder/websocket"
 )
 
-// LiveReloadHub manages WebSocket connections from browser clients running livereload.js.
-// It broadcasts reload and alert messages to all connected clients.
+// perClientSendBufferSize bounds how many queued messages a single browser
+// client can hold. Beyond this, broadcasts drop (slow-client protection).
+const perClientSendBufferSize = 16
+
+// writeTimeout is the per-write deadline. A slow client that blocks longer
+// than this is disconnected.
+const writeTimeout = 100 * time.Millisecond
+
+// LiveReloadHub manages WebSocket connections from browser clients running
+// livereload.js. It broadcasts reload and alert messages to all clients.
+//
+// Each client has its own writer goroutine that serializes writes — required
+// because coder/websocket forbids concurrent calls to Conn.Write per conn.
+// Broadcasts are fan-out to per-client send channels, so slow clients don't
+// block other clients or the broadcaster.
 type LiveReloadHub struct {
 	mu      sync.RWMutex
-	clients map[*websocket.Conn]struct{}
+	clients map[*websocket.Conn]chan []byte
 	logf    func(format string, args ...any)
 }
 
 func NewHub() *LiveReloadHub {
 	return &LiveReloadHub{
-		clients: map[*websocket.Conn]struct{}{},
+		clients: map[*websocket.Conn]chan []byte{},
 		logf:    func(string, ...any) {},
 	}
 }
 
-// HandleConn runs the WebSocket read loop for one client. Blocks until
-// the client disconnects or ctx is cancelled. Sends the hello message
-// immediately on connect.
+// HandleConn runs the WebSocket lifecycle for one client: starts a writer
+// goroutine, sends the hello message, then runs the read loop until the
+// client disconnects or ctx is cancelled. Blocks until disconnect.
 func (h *LiveReloadHub) HandleConn(ctx context.Context, c *websocket.Conn) {
-	h.add(c)
+	send := make(chan []byte, perClientSendBufferSize)
+	h.add(c, send)
 	defer h.remove(c)
 
-	hello := map[string]any{
+	hello, _ := json.Marshal(map[string]any{
 		"command":    "hello",
 		"protocols":  []string{"http://livereload.com/protocols/official-7"},
 		"serverName": "huan",
-	}
-	_ = h.writeJSON(ctx, c, hello)
+	})
 
-	// Read loop: client may send hello back or info messages. We don't
-	// care about the content; we just need to detect disconnect.
-	for {
-		_, _, err := c.Read(ctx)
+	// Writer goroutine: drains `send` and writes serially to the conn.
+	// coder/websocket requires one writer at a time per conn; this goroutine
+	// is the only thing that calls c.Write.
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		// Send hello first (priority).
+		wctx, cancel := context.WithTimeout(ctx, writeTimeout)
+		err := c.Write(wctx, websocket.MessageText, hello)
+		cancel()
 		if err != nil {
 			return
 		}
+		for msg := range send {
+			wctx, cancel := context.WithTimeout(ctx, writeTimeout)
+			err := c.Write(wctx, websocket.MessageText, msg)
+			cancel()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Read loop: detect disconnect. We don't care about incoming content
+	// (livereload.js sends hello/info but we ignore it).
+	for {
+		_, _, err := c.Read(ctx)
+		if err != nil {
+			break
+		}
 	}
+	close(send)     // signal writer to drain and exit
+	<-writerDone    // wait for writer to finish (or have already exited)
 }
 
 // BroadcastReload notifies all clients to refresh the page.
@@ -73,43 +111,55 @@ func (h *LiveReloadHub) ClientCount() int {
 	return len(h.clients)
 }
 
+// broadcast fans msg out to all clients' send channels. Non-blocking per
+// client: a full queue means the client is behind, so we drop the message
+// rather than block the broadcaster.
 func (h *LiveReloadHub) broadcast(msg map[string]any) {
 	data, _ := json.Marshal(msg)
 	h.mu.RLock()
-	conns := make([]*websocket.Conn, 0, len(h.clients))
-	for c := range h.clients {
-		conns = append(conns, c)
+	chans := make([]chan []byte, 0, len(h.clients))
+	for _, ch := range h.clients {
+		chans = append(chans, ch)
 	}
 	h.mu.RUnlock()
 
-	for _, c := range conns {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		_ = c.Write(ctx, websocket.MessageText, data)
-		cancel()
+	for _, ch := range chans {
+		select {
+		case ch <- data:
+		default:
+			// Queue full — drop. The client will see the next reload instead.
+		}
 	}
 }
 
-func (h *LiveReloadHub) writeJSON(ctx context.Context, c *websocket.Conn, v any) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	wctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-	return c.Write(wctx, websocket.MessageText, data)
-}
-
-func (h *LiveReloadHub) add(c *websocket.Conn) {
+func (h *LiveReloadHub) add(c *websocket.Conn, send chan []byte) {
 	h.mu.Lock()
-	h.clients[c] = struct{}{}
+	h.clients[c] = send
 	h.mu.Unlock()
 }
 
 func (h *LiveReloadHub) remove(c *websocket.Conn) {
 	h.mu.Lock()
-	delete(h.clients, c)
+	send, ok := h.clients[c]
+	if ok {
+		delete(h.clients, c)
+	}
 	h.mu.Unlock()
+	if ok {
+		// Closing send tells the writer goroutine to drain and exit. If the
+		// writer already exited (write error), this is a no-op on a closed
+		// channel — guarded by recover in case of a race.
+		closeSafe(send)
+	}
 	_ = c.CloseNow()
+}
+
+// closeSafe closes a channel, recovering from the rare race where another
+// goroutine already closed it. We don't expect this in normal flow, but
+// defensive code is cheap here.
+func closeSafe(ch chan []byte) {
+	defer func() { _ = recover() }()
+	close(ch)
 }
 
 // AcceptHTTP upgrades an HTTP request to a WebSocket and hands it to the hub.
