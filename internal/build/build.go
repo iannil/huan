@@ -125,7 +125,7 @@ func BuildSite(opts Options) (*Result, error) {
 			}
 		} else {
 			content := string(p.Content)
-			p.Summary = template.HTML(TruncateHTMLByWords(content, 120))
+			p.Summary = template.HTML(TruncateHTMLToBlockBoundary(content, 120))
 		}
 	}
 
