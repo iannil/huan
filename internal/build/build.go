@@ -263,6 +263,11 @@ func BuildSite(opts Options) (*Result, error) {
 			continue
 		}
 
+		// Inject LiveReload script if requested (serve mode only)
+		if opts.InjectLiveReload && opts.LiveReloadURL != "" {
+			html = InjectLiveReload(html, opts.LiveReloadURL)
+		}
+
 		outPath := output.URLToFilePath(p.URL, "")
 		if err := writer.Write(outPath, html); err != nil {
 			logf("  WARN: write %s: %v\n", p.URL, err)
@@ -425,4 +430,46 @@ func BuildSite(opts Options) (*Result, error) {
 
 	r.Duration = time.Since(start)
 	return r, nil
+}
+
+// InjectLiveReload inserts the livereload <script> before </head>.
+// Falls back to before </body> if </head> is absent.
+// If neither is present, appends the script at the end.
+func InjectLiveReload(html, wsURL string) string {
+	tag := `<script src="/livereload.js?mindelay=10&v=2" data-livereload-port="` +
+		portFromURL(wsURL) + `" data-livereload-host="` + hostFromURL(wsURL) +
+		`"></script>`
+	if idx := strings.Index(html, "</head>"); idx >= 0 {
+		return html[:idx] + tag + html[idx:]
+	}
+	if idx := strings.Index(html, "</body>"); idx >= 0 {
+		return html[:idx] + tag + html[idx:]
+	}
+	return html + tag
+}
+
+func portFromURL(wsURL string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(wsURL, "ws://"), "wss://")
+	rest = strings.TrimPrefix(rest, "//")
+	host := rest
+	if idx := strings.IndexByte(rest, '/'); idx >= 0 {
+		host = rest[:idx]
+	}
+	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
+		return host[idx+1:]
+	}
+	return "1313"
+}
+
+func hostFromURL(wsURL string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(wsURL, "ws://"), "wss://")
+	rest = strings.TrimPrefix(rest, "//")
+	host := rest
+	if idx := strings.IndexByte(rest, '/'); idx >= 0 {
+		host = rest[:idx]
+	}
+	if idx := strings.LastIndexByte(host, ':'); idx >= 0 {
+		host = host[:idx]
+	}
+	return host
 }
