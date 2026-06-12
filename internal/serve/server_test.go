@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func writeStaticFixture(t *testing.T, dir string) {
@@ -117,5 +119,50 @@ func TestServerServesLivereloadJS(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "LiveReload") {
 		t.Errorf("body does not look like livereload.js (no 'LiveReload' substring, len=%d)", len(body))
+	}
+}
+
+func TestServerRoutesLivereloadWS(t *testing.T) {
+	tmp, err := os.MkdirTemp("", "huan-serve-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	hub := NewHub()
+	srv := New(ServerOptions{
+		OutputDir: tmp,
+		Bind:      "127.0.0.1",
+		Port:      "0",
+		Hub:       hub,
+	})
+	addrCh := make(chan string, 1)
+	srv.addrCh = addrCh
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Run(ctx) //nolint:errcheck
+
+	var addr string
+	select {
+	case addr = <-addrCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not start within 2s")
+	}
+
+	// Try to connect via WebSocket
+	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/livereload", nil)
+	if err != nil {
+		t.Fatalf("dial /livereload: %v", err)
+	}
+	defer c.CloseNow()
+
+	c.SetReadLimit(1 << 16)
+	_, msg, err := c.Read(ctx)
+	if err != nil {
+		t.Fatalf("read hello: %v", err)
+	}
+	if !strings.Contains(string(msg), `"hello"`) {
+		t.Errorf("first msg = %s, want hello", string(msg))
 	}
 }

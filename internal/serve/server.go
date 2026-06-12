@@ -17,6 +17,7 @@ type ServerOptions struct {
 	OutputDir string
 	Bind      string
 	Port      string // ":0" or "0" makes the OS pick a free port
+	Hub       *LiveReloadHub // optional; if nil, /livereload route returns 404
 	Logf      func(format string, args ...any)
 }
 
@@ -25,13 +26,14 @@ type Server struct {
 	opts   ServerOptions
 	logf   func(string, ...any)
 	addrCh chan string // optional: tests read actual listen addr from here
+	hub    *LiveReloadHub
 }
 
 func New(opts ServerOptions) *Server {
 	if opts.Logf == nil {
 		opts.Logf = func(string, ...any) {}
 	}
-	return &Server{opts: opts, logf: opts.Logf}
+	return &Server{opts: opts, logf: opts.Logf, hub: opts.Hub}
 }
 
 // Run blocks until ctx is cancelled or a SIGINT/SIGTERM arrives.
@@ -47,6 +49,10 @@ func (s *Server) Run(ctx context.Context) error {
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		_, _ = w.Write(livereloadJS)
 	})
+	if s.hub != nil {
+		hub := s.hub // capture for closure
+		mux.HandleFunc("/livereload", hub.AcceptHTTP)
+	}
 	mux.Handle("/", http.FileServer(http.Dir(s.opts.OutputDir)))
 
 	httpSrv := &http.Server{Handler: mux}

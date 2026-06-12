@@ -33,6 +33,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		lrURL = "ws://" + bind + ":" + port + "/livereload"
 	}
 
+	// Create hub if LiveReload enabled
+	var hub *serve.LiveReloadHub
+	if !disableLR {
+		hub = serve.NewHub()
+	}
+
 	// Serve uses a temp directory, never the real publishDir (docs/).
 	tmpDir, err := os.MkdirTemp("", "huan-serve-*")
 	if err != nil {
@@ -74,9 +80,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 					return
 				}
 				fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
-				// LiveReload broadcast wired in G2
-			},
-			Logf: func(format string, a ...any) { fmt.Printf(format, a...) },
+				if hub != nil {
+					hub.BroadcastReload()
+				}
+				},
 		})
 		if err != nil {
 			fmt.Printf("WARNING: file watcher unavailable: %v\n", err)
@@ -93,6 +100,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		OutputDir: tmpDir,
 		Bind:      bind,
 		Port:      port,
+		Hub:       hub,
 		Logf:      func(format string, a ...any) { fmt.Printf(format, a...) },
 	})
 	return srv.Run(ctx)
