@@ -60,11 +60,13 @@ func FuncMap(baseURL string) template.FuncMap {
 		"path_Base": filepath.Base,
 		"path_Dir":  filepath.Dir,
 
-		// Math
-		"add": func(a, b int) int { return a + b },
-		"sub": func(a, b int) int { return a - b },
-		"mul": func(a, b int) int { return a * b },
-		"div": func(a, b int) int { return a / b },
+		// Math. add/sub/mul/div coerce numeric args to float64 (matches Hugo
+		// behavior: templates pass `{{ div $totalWords 10000.0 }}` where one
+		// operand is a float literal). mod stays int — modulo is integer-only.
+		"add": mathAdd,
+		"sub": mathSub,
+		"mul": mathMul,
+		"div": mathDiv,
 		"mod": func(a, b int) int { return a % b },
 
 		// Comparison
@@ -869,6 +871,54 @@ func toInt(v interface{}) int {
 	default:
 		return 0
 	}
+}
+
+// toFloat64 coerces numeric types to float64. Matches Hugo template math
+// behavior, where operands of add/sub/mul/div may be int, int64, float32 or
+// float64. Returns (0, false) for non-numeric values so callers can decide
+// how to surface the error (templates typically render "<no value>").
+func toFloat64(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case float32:
+		return float64(n), true
+	case float64:
+		return n, true
+	}
+	return 0, false
+}
+
+// mathAdd/sub/mul/div implement Hugo-style template arithmetic with float64
+// coercion. Both operands are coerced; result is always float64 (e.g.
+// `div 10 4` yields 2.5, not 2 — matching Hugo semantics).
+func mathAdd(a, b interface{}) interface{} {
+	af, _ := toFloat64(a)
+	bf, _ := toFloat64(b)
+	return af + bf
+}
+
+func mathSub(a, b interface{}) interface{} {
+	af, _ := toFloat64(a)
+	bf, _ := toFloat64(b)
+	return af - bf
+}
+
+func mathMul(a, b interface{}) interface{} {
+	af, _ := toFloat64(a)
+	bf, _ := toFloat64(b)
+	return af * bf
+}
+
+func mathDiv(a, b interface{}) interface{} {
+	af, _ := toFloat64(a)
+	bf, _ := toFloat64(b)
+	if bf == 0 {
+		return 0.0
+	}
+	return af / bf
 }
 
 func compare(a, b interface{}) int {
