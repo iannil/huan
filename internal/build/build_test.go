@@ -8,8 +8,8 @@ import (
 func TestInjectLiveReloadInsertsScriptTag(t *testing.T) {
 	html := `<html><head><title>x</title></head><body></body></html>`
 	got := InjectLiveReload(html, "ws://localhost:1313/livereload")
-	if !strings.Contains(got, `src="/livereload.js?mindelay=10&v=2"`) {
-		t.Errorf("missing script tag in:\n%s", got)
+	if !strings.Contains(got, `src="http://localhost:1313/livereload.js?mindelay=10&v=2"`) {
+		t.Errorf("missing script tag with absolute URL in:\n%s", got)
 	}
 	if !strings.Contains(got, `data-livereload-port="1313"`) {
 		t.Errorf("missing data-livereload-port in:\n%s", got)
@@ -19,7 +19,7 @@ func TestInjectLiveReloadInsertsScriptTag(t *testing.T) {
 	}
 	// Must be inserted BEFORE </head>
 	headIdx := strings.Index(got, "</head>")
-	scriptIdx := strings.Index(got, "<script src=\"/livereload.js")
+	scriptIdx := strings.Index(got, "<script src=\"http://")
 	if scriptIdx >= headIdx {
 		t.Errorf("script not before </head>: script=%d head=%d", scriptIdx, headIdx)
 	}
@@ -30,7 +30,7 @@ func TestInjectLiveReloadFallsBackToBody(t *testing.T) {
 	html := `<html><body>x</body></html>`
 	got := InjectLiveReload(html, "ws://localhost:1313/livereload")
 	bodyIdx := strings.Index(got, "</body>")
-	scriptIdx := strings.Index(got, "<script src=\"/livereload.js")
+	scriptIdx := strings.Index(got, "<script src=\"http://")
 	if scriptIdx >= bodyIdx {
 		t.Errorf("script not before </body>: script=%d body=%d", scriptIdx, bodyIdx)
 	}

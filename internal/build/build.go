@@ -436,9 +436,11 @@ func BuildSite(opts Options) (*Result, error) {
 // Falls back to before </body> if </head> is absent.
 // If neither is present, appends the script at the end.
 func InjectLiveReload(html, wsURL string) string {
-	tag := `<script src="/livereload.js?mindelay=10&v=2" data-livereload-port="` +
-		portFromURL(wsURL) + `" data-livereload-host="` + hostFromURL(wsURL) +
-		`"></script>`
+	host := hostFromURL(wsURL)
+	port := portFromURL(wsURL)
+	tag := `<script src="http://` + host + `:` + port +
+		`/livereload.js?mindelay=10&v=2" data-livereload-port="` + port +
+		`" data-livereload-host="` + host + `"></script>`
 	if idx := strings.Index(html, "</head>"); idx >= 0 {
 		return html[:idx] + tag + html[idx:]
 	}
