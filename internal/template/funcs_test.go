@@ -123,9 +123,12 @@ func TestPlainify_DedupsConsecutiveWhitespace(t *testing.T) {
 }
 
 func TestPlainify_PreservesLeadingTrailingWhitespace(t *testing.T) {
-	// Hugo does NOT trim; leading \n becomes leading space, trailing preserved.
+	// Hugo does NOT TrimSpace; only consecutive whitespace is deduped.
+	// Source `\n` → ` ` (pre-replace); leading `\n  ` → `   ` → dedup → ` `.
+	// `</p>` → `\n`; trailing `  ` is whitespace after `\n`, so dropped.
+	// Net: ` x\n` (one leading space, no trailing space).
 	in := "\n  <p>x</p>  "
-	want := "   x\n   "
+	want := " x\n"
 	got := plainify(in)
 	if got != want {
 		t.Errorf("plainify preserves edges:\n  got:  %q\n  want: %q", got, want)

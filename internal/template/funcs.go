@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -25,7 +26,7 @@ func FuncMap(baseURL string) template.FuncMap {
 		"safeURL":  func(v interface{}) template.URL { return template.URL(toString(v)) },
 
 		// Content helpers
-		"plainify":    func(v interface{}) string { return stripTags(toString(v)) },
+		"plainify":    plainify,
 		"markdownify": func(s string) (string, error) { return s, nil }, // placeholder, will be replaced
 		"jsonify":     jsonifyFunc,
 		"printf":      fmt.Sprintf,
@@ -174,6 +175,63 @@ func stripTags(s string) string {
 func collapseWhitespace(s string) string {
 	wsRe := regexp.MustCompile(`\s+`)
 	return wsRe.ReplaceAllString(s, " ")
+}
+
+// hugoNewLinePlaceholder mirrors Hugo's `tpl/template.go` constant. Used by
+// plainify to preserve block-level element boundaries (`</p>`, `<br>`, `<br />`)
+// as newlines through the tag-stripping step.
+const hugoNewLinePlaceholder = "___hugonl_"
+
+// stripHTMLReplacerPre is the pre-replacement applied before StripTags in Hugo's
+// StripHTML: source `\n` becomes space (avoid being mistaken for block boundary),
+// and `</p>` / `<br>` / `<br />` become placeholder (restored to `\n` after strip).
+var stripHTMLReplacerPre = strings.NewReplacer(
+	"\n", " ",
+	"</p>", hugoNewLinePlaceholder,
+	"<br>", hugoNewLinePlaceholder,
+	"<br />", hugoNewLinePlaceholder,
+)
+
+// plainify strips HTML tags and produces output matching Hugo's StripHTML
+// algorithm (tpl/template.go). The key behaviors:
+//   - Source `\n` becomes space (so it isn't mistaken for a block boundary).
+//   - `</p>` / `<br>` / `<br />` boundaries are preserved as `\n` via placeholder.
+//   - Other tag boundaries (`<h2>`, `<div>`, etc.) get their surrounding source
+//     `\n` converted to space (no placeholder).
+//   - Consecutive runs of whitespace are deduped to a single char of the
+//     leading type (`\n\n` → `\n`; `   ` → ` `; `\n ` → `\n`).
+//   - Leading/trailing whitespace is preserved (no TrimSpace).
+//
+// Do NOT collapse-whitespace to a single space here — that breaks byte-level
+// equivalence with Hugo for the `<meta name=description content="...">` use case.
+func plainify(v interface{}) string {
+	s := toString(v)
+	if !strings.ContainsAny(s, "<>") {
+		return s
+	}
+
+	pre := stripHTMLReplacerPre.Replace(s)
+	preReplaced := pre != s
+
+	s = stripTags(pre)
+
+	if preReplaced {
+		s = strings.ReplaceAll(s, hugoNewLinePlaceholder, "\n")
+	}
+
+	var wasSpace bool
+	var buf strings.Builder
+	for _, r := range s {
+		isSpace := unicode.IsSpace(r)
+		if !(isSpace && wasSpace) {
+			buf.WriteRune(r)
+		}
+		wasSpace = isSpace
+	}
+	if buf.Len() > 0 {
+		s = buf.String()
+	}
+	return s
 }
 
 // toString converts any value to a string for template functions that expect strings.
