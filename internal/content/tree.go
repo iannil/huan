@@ -3,6 +3,7 @@ package content
 import (
 	"html/template"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -308,17 +309,26 @@ func collectRegularPagesRecursive(section *Page) []*Page {
 	return result
 }
 
-// sortPagesByDateDesc sorts pages by Date descending (newest first).
+// sortPagesByDateDesc sorts pages by Date descending (newest first), with a
+// stable tiebreaker that matches Hugo's default ordering:
+//
+//	1. DateParsed descending
+//	2. lower(Title) ascending (zhurongshuo has no linkTitle, so Title is used)
+//	3. RelPath ascending
+//
+// This ensures deterministic output when dates are equal.
 func sortPagesByDateDesc(pages []*Page) {
-	for i := 1; i < len(pages); i++ {
-		for j := i; j > 0; j-- {
-			if pages[j].DateParsed.After(pages[j-1].DateParsed) {
-				pages[j], pages[j-1] = pages[j-1], pages[j]
-			} else {
-				break
-			}
+	sort.SliceStable(pages, func(i, j int) bool {
+		a, b := pages[i], pages[j]
+		if !a.DateParsed.Equal(b.DateParsed) {
+			return a.DateParsed.After(b.DateParsed)
 		}
-	}
+		la, lb := strings.ToLower(a.Title), strings.ToLower(b.Title)
+		if la != lb {
+			return la < lb
+		}
+		return a.RelPath < b.RelPath
+	})
 }
 
 // computePageMeta sets Kind, URL, Section from the file path.
