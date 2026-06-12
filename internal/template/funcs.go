@@ -170,13 +170,6 @@ func stripTags(s string) string {
 	return re.ReplaceAllString(s, "")
 }
 
-// collapseWhitespace replaces runs of whitespace (spaces, tabs, newlines) with
-// a single space, matching Hugo's plainify behavior.
-func collapseWhitespace(s string) string {
-	wsRe := regexp.MustCompile(`\s+`)
-	return wsRe.ReplaceAllString(s, " ")
-}
-
 // hugoNewLinePlaceholder mirrors Hugo's `tpl/template.go` constant. Used by
 // plainify to preserve block-level element boundaries (`</p>`, `<br>`, `<br />`)
 // as newlines through the tag-stripping step.
