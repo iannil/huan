@@ -7,17 +7,11 @@ import (
 	"time"
 
 	"github.com/novel_ttl/huan/internal/build"
-	"github.com/novel_ttl/huan/internal/config"
 	"github.com/novel_ttl/huan/internal/serve"
 	"github.com/spf13/cobra"
 )
 
 func runServe(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(sourceDir)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
 	port, _ := cmd.Flags().GetString("port")
 	bind, _ := cmd.Flags().GetString("bind")
 	disableLR, _ := cmd.Flags().GetBool("disableLiveReload")
@@ -56,10 +50,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
 	}
 
-	fmt.Printf("Building site: %s\n", cfg.Title)
-	fmt.Printf("  Source:      %s\n", sourceDir)
-	fmt.Printf("  Output:      %s\n", tmpDir)
-
 	if _, err := build.BuildSite(buildOpts); err != nil {
 		return err
 	}
@@ -96,7 +86,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Serving at:  http://%s:%s/\n", bind, port)
 	fmt.Println("Press Ctrl+C to stop")
 
 	srv := serve.New(serve.ServerOptions{
