@@ -42,20 +42,41 @@
 
 ---
 
-## Stage 2 候选工作清单（2026-06-12 stage 1 收尾时发现）
+## Stage 2 候选工作清单（2026-06-12 stage 1 收尾 + grill-me 复核修订）
 
-stage 1 收尾跑 diff-build.sh 时发现的、超出原 5 类的差异。优先级排序：
+stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me 全量复核后修订为本清单。
 
-1. **meta description / og:description / JSON-LD 多段落 summary 换行压缩**（中优先级，影响 SEO 维度）
-   - 现象：huan 把 summary 压成单行，Hugo 保留段落换行
-   - 影响：影响约 983 个文件的 SEO 字段对比（来自最新 diff-build.sh 运行，mode=seo differing=983，含 ±75 噪声）
-   - 方向：在 summary 后处理时保留块级换行
-2. **RSS items 数量差**（低优先级，影响 normalized 维度）
-   - 现象：huan home RSS 多 1 个 item（11 vs Hugo 10）
-   - 方向：检查 RSS limit 边界处理
-3. **`lastBuildDate` 格式差**（低优先级）
-   - 现象：空日期时 huan 渲染 `0001-01-01`，Hugo 渲染空字符串
-   - 方向：在 RSS 模板对零值日期做特殊处理
+> **修订记录（2026-06-12 grill-me 复核）**：原清单 3 项里 #1「meta description 换行压缩」方向描述反了（实际是 huan 多行、Hugo 折叠），#2「RSS items 数量差」与 #3「lastBuildDate 格式差」均不存在（前者是 grep 命令误用、后者实证 byte-identical）。下列为全量调查（1265 个 differing .html/.xml 文件）归纳的真实差异。
+
+1. **meta description 多行换行**（影响 565 文件，**优先级最高**）
+   - 现象：huan 在 `<meta name=description>` / `og:description` / `twitter:description` 里保留 `\n` 多行；Hugo plainify 折叠为单行空格
+   - 根因：`internal/template/funcs.go:28` 的 `plainify` 函数只调 `stripTags`，未调已存在的 `collapseWhitespace`（line 174）
+   - 修复方向：`plainify` 接 `collapseWhitespace` + `TrimSpace`；加单元测试
+   - 三维度影响：肉眼不可见（meta 不显示），但 SEO 维度差 565 个文件、AI 维度差部分（JSON-LD description 复用）
+
+2. **RSS 中文 URL 编码**（影响 464 文件）
+   - 现象：huan 输出 `<link>https://zhurongshuo.com/tags/专注/</link>`；Hugo 输出 `<link>https://zhurongshuo.com/tags/%E4%B8%93%E6%B3%A8/</link>`
+   - 根因：RSS link 生成时未对中文 URL-encode
+   - 修复方向：定位 RSS 模板里 link 生成位置，加 `url.QueryEscape` 或类似编码
+   - 三维度影响：SEO/AI 维度（RSS 阅读器与爬虫解析 link 时差异）
+
+3. **books section part 顺序错**（影响 104 文件）
+   - 现象：huan 把 sections 排成 第一→第三→第二→第四；Hugo 按 `part-01/02/03/04` 数字顺序
+   - 根因：待查（疑似 map iteration 非确定性，或 section 排序逻辑缺失）
+   - 修复方向：定位 books list.html 里 section 遍历位置，加按 part 编号排序
+   - 三维度影响：肉眼可见（列表顺序不同），SEO/AI 影响 minor
+
+4. **body 内容渲染细节**（影响 ~30 文件）
+   - 现象：少量 practices/books 章节 body HTML 有细微差异（`<p>` / `<h2>` / `<h3>` / `<li>` / `<code>` 标签的属性或内容）
+   - 根因：待逐个调查（可能是 goldmark 配置、shortcode 输出、HTML 转义）
+   - 修复方向：每篇差异单独定位
+   - 三维度影响：肉眼可能可见，SEO/AI minor
+
+5. **minify artifacts**（影响 ~30 文件）
+   - 现象：attribute 引号风格、void 元素自闭合形式、entity 编码差异
+   - 根因：huan minify 与 Hugo minify 算法不完全一致
+   - 修复方向：升级 diff-build.sh Step 5 的 normalized 模式做更激进的 normalize（吸收这些差异），或对齐 minify 行为
+   - 三维度影响：肉眼不可见，SEO/AI 不可见（purely byte-level）
 
 ---
 

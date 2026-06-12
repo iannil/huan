@@ -45,6 +45,7 @@
 - **`div` 模板函数只支持 int 的 bug**（2026-06-12 Phase 3 暴露，Phase 3.5 已修复）：原 `div`/`add`/`sub`/`mul` 是 `func(int, int) int`，无法处理 zhurongshuo 模板 `{{ div $totalWords 10000.0 }}` 的 float64 字面量。**含义**：Phase 3.5 已通过 `toFloat64` coercion helper 修复（`internal/template/funcs.go`）。Stage 1 范畴内类似隐藏 bug 仍需在 stage 2 kickoff 时检查（例如其他模板函数签名假设）。
 - **Hugo summary 用块边界，不是定长截断**（2026-06-12，Phase 5.5 确认）：`summaryLength=120` 是**下限**。Hugo 找到第 N 词位置后，**forward-scan 到包含该词的 block 元素的 close tag**（`</p>` / `</h1>`~`</h6>` / `</li>` / `</blockquote>` 等）才截断。所以长文章 summary 通常**远多于 N 词**——是包含第 N 词的整个第一/二段。GitHub issue #11863 是入口。huan 的实现是 `internal/build/summary.go::TruncateHTMLToBlockBoundary`（包装 `TruncateHTMLByWords` + `commonPrefixLen` trick + 26 种 block close tag forward-scan）。
 - **`commonPrefixLen` trick**（2026-06-12，Phase 5.5 总结）：要在不破坏已有函数接口的前提下，拿到「带合成 close tag 的截断结果」在原输入中的真实切点 byte offset——比较原输入与截断结果的最长公共前缀即可。第一个分歧 byte 就是切点。比让原函数暴露内部状态干净。
+- **stage 1 收尾的「3 项遗留」全部是误判**（2026-06-12 grill-me 复核）：原报告说 meta description 换行、RSS items 数量差、lastBuildDate 格式差——grill-me 全量复核后发现：(a) meta description 方向反了（huan 多行、Hugo plainify 折叠，根因是 `plainify` 函数没调 `collapseWhitespace`），(b) RSS items 数量差是 grep 命令误用（minified 单行 RSS 用 `grep -c "<item>"` 数行不数 occurrence），(c) lastBuildDate 两边 byte-identical。**含义**：发布"已完成"前必须用全量分析（不依赖 sample）+ 多角度 grep 验证；"3 项遗留"实际是 5 类真实差异（meta plainify / RSS URL 编码 / books part 顺序 / body 渲染细节 / minify artifacts），详见 `docs/progress/CURRENT_STATE.md` Stage 2 候选清单。
 
 
 ## 文档与导航

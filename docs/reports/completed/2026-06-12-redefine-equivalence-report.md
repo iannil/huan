@@ -42,12 +42,20 @@
 
 注：byte 行显示 `[PASS]` 因为它不是门禁（永久接受 byte-diff 作为回归雷达）；normalized/seo/ai 三维度仍 FAIL 是因为 stage 1 收尾时发现了一批**超出原 5 类**的新差异（见下方 stage 2 候选清单）。stage 1 的验收标准是「原 5 类差异全部处理 + 三维度管线建立并通过」，而非「所有文件 0 差异」——管线确实建立并能正确捕获差异，已达成验收。
 
-### Stage 2 候选工作（在 stage 1 收尾时发现）
+### Stage 2 候选工作（在 stage 1 收尾时发现，2026-06-12 grill-me 复核修订）
 
-详见 `docs/progress/CURRENT_STATE.md` "Stage 2 候选工作清单" 段。简要：
-1. meta description / og:description / JSON-LD 多段落 summary 换行压缩
-2. RSS items 数量差（home RSS 11 vs 10）
-3. lastBuildDate 格式差（零值日期处理）
+详见 `docs/progress/CURRENT_STATE.md` "Stage 2 候选工作清单" 段。原 3 项遗留经全量复核修订为 5 类真实差异：
+
+1. **meta description 多行换行**（565 文件，根因：`plainify` 未调 `collapseWhitespace`）
+2. **RSS 中文 URL 编码**（464 文件，根因：RSS link 生成未 URL-encode 中文）
+3. **books section part 顺序错**（104 文件，根因：section 排序逻辑缺失或 map iteration）
+4. **body 内容渲染细节**（~30 文件，待逐个调查）
+5. **minify artifacts**（~30 文件，attribute 引号 / void 元素 / entity 编码差异）
+
+**原 3 项遗留修订记录**：
+- 原项 1「meta description 换行压缩」方向描述反了 → 修订为「huan 保留 `\n`、Hugo plainify 折叠」
+- 原项 2「RSS items 数量差 11 vs 10」不存在 → grep 命令误用（minified 单行 RSS），实际两边都 20 items
+- 原项 3「lastBuildDate 格式差」不存在 → 两边都 byte-identical `Wed, 27 May 2026 17:07:34 +0800`
 
 ### Stage 2 起步建议
 
