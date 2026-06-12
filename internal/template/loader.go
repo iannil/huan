@@ -104,7 +104,7 @@ func (l *Loader) LoadAll() (*template.Template, error) {
     <generator>Hugo</generator>
     <language>{{ site.Language.LanguageCode }}</language>{{ with .Site.Copyright }}
     <copyright>{{ . }}</copyright>{{ end }}
-    <lastBuildDate>{{ .RegularPages.ByLastmod.Reverse.First.Lastmod.Format "Mon, 02 Jan 2006 15:04:05 -0700" | safeHTML }}</lastBuildDate>
+    <lastBuildDate>{{ rssLastBuildDate . | safeHTML }}</lastBuildDate>
     {{- with .OutputFormats.Get "RSS" }}
     {{ printf "<atom:link href=%q rel=\"self\" type=%q />" .Permalink .MediaType.Type | safeHTML }}
     {{- end }}

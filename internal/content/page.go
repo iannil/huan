@@ -91,6 +91,11 @@ type Site struct {
 
 	// Section index pages
 	Sections map[string]*Page
+
+	// TaxonomyOriginalCase maps plural (e.g. "tags") → {urlized-key → originalcased-name}.
+	// Used to recover display casing for term-page titles (e.g. FANFAN) while
+	// keeping the urlized key (e.g. fanfan) for filesystem paths and URL paths.
+	TaxonomyOriginalCase map[string]map[string]string
 }
 
 // Taxonomy maps a tag name to its pages.

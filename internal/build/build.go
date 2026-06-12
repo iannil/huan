@@ -170,11 +170,18 @@ func BuildSite(opts Options) (*Result, error) {
 	}
 
 	// 7. Build taxonomies
-	// Pass site.RegularPages (sorted via content.sortPagesDefault with the
-	// site's collator) rather than the raw scan-order `pages`, so taxonomy
-	// term members and the per-tag RSS items are emitted in the same order
-	// Hugo produces via its DefaultPageSort.
-	taxonomies := taxonomy.BuildAll(site.RegularPages)
+	// Pass site.Pages (all non-draft pages including hidden/never-listed ones)
+	// so that tags whose only pages are hidden still appear as taxonomy keys.
+	// Hugo generates /tags/{tag}/ pages (HTML + RSS) for these "empty" tags
+	// even though their page list is filtered to zero. BuildTaxonomyContext
+	// then filters each term's page list to exclude never-listed pages.
+	// Pages here are already sorted via content.sortPagesDefault with the
+	// site's collator, so taxonomy term members and per-tag RSS items emit
+	// in the same order Hugo produces via its DefaultPageSort.
+	// We also capture original-cased tag names so term-page titles render as
+	// Hugo does (e.g. <title>FANFAN on ...</title>) while the urlized key
+	// (fanfan) is still used for filesystem paths and URL paths.
+	taxonomies, originalCases := taxonomy.BuildAllWithOriginalCase(site.Pages)
 	taxCount := 0
 	if tax, ok := taxonomies["tags"]; ok {
 		taxCount = len(tax)
@@ -188,6 +195,7 @@ func BuildSite(opts Options) (*Result, error) {
 		}
 		site.Taxonomies[name] = converted
 	}
+	site.TaxonomyOriginalCase = originalCases
 
 	// 8. Load templates
 	tmpls, err := tmpl.LoadAllTemplates(opts.SourceDir, cfg.BaseURL)

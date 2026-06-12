@@ -68,6 +68,60 @@ func (p PageSlice) Reverse() PageSlice {
 // Len returns the number of pages.
 func (p PageSlice) Len() int { return len(p) }
 
+// SortDefault sorts the slice in-place using Hugo's DefaultPageSort:
+//   - Weight (0 sorts last; otherwise ascending)
+//   - Date desc
+//   - Linkable Title asc (uses Title when LinkTitle empty)
+//   - RelPermalink asc (byte-level)
+//
+// The collator is required for the Title tie-break layer. Callers should
+// construct it once per build via i18n.BuildCollator(langCode) and reuse.
+func (p PageSlice) SortDefault(coll CompareFunc) {
+	if coll == nil {
+		// Fallback: byte-level comparison on Title
+		coll = func(a, b string) int {
+			switch {
+			case a < b:
+				return -1
+			case a > b:
+				return 1
+			default:
+				return 0
+			}
+		}
+	}
+	sort.SliceStable(p, func(i, j int) bool {
+		a, b := asCtx(p[i]), asCtx(p[j])
+		if a == nil || b == nil {
+			return false
+		}
+		// Layer 1: Weight (0 sorts last; otherwise ascending)
+		if a.Weight == 0 && b.Weight != 0 {
+			return false
+		}
+		if a.Weight != 0 && b.Weight == 0 {
+			return true
+		}
+		if a.Weight != b.Weight {
+			return a.Weight < b.Weight
+		}
+		// Layer 2: Date desc
+		if !a.Date.Equal(b.Date) {
+			return a.Date.After(b.Date)
+		}
+		// Layer 3: Collator on Title asc
+		if c := coll(a.Title, b.Title); c != 0 {
+			return c < 0
+		}
+		// Layer 4: RelPermalink asc (byte-level)
+		return a.RelPermalink < b.RelPermalink
+	})
+}
+
+// CompareFunc is a string comparison function used by SortDefault for the
+// Title tie-break layer. Returns <0 if a<b, 0 if equal, >0 if a>b.
+type CompareFunc func(a, b string) int
+
 // First returns the first page, or a safe default Context if empty.
 // Returning a non-nil value avoids template nil-pointer panics when callers
 // chain methods like .First.Lastmod.

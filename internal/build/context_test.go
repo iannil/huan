@@ -181,3 +181,217 @@ func TestBuildTaxonomyContext_TermStubURLPercentEncoded(t *testing.T) {
 		t.Errorf("CJK stub RelPermalink: got %q", stub.RelPermalink)
 	}
 }
+
+// TestURLEscapeForURL_PercentEncodesCJK verifies that URLEscapeForURL
+// percent-encodes CJK characters, matching Hugo's permalink behavior for
+// URLs in HTML/XML output (RSS <link>, <guid>, <atom:link>).
+// Filesystem paths use URLEscape (CJK preserved); URLs use URLEscapeForURL.
+func TestURLEscapeForURL_PercentEncodesCJK(t *testing.T) {
+	got := URLEscapeForURL("专注")
+	want := "%E4%B8%93%E6%B3%A8"
+	if got != want {
+		t.Errorf("URLEscapeForURL(%q) = %q, want %q", "专注", got, want)
+	}
+}
+
+// TestURLEscapeForURL_PreservesASCII verifies ASCII passes through unchanged.
+func TestURLEscapeForURL_PreservesASCII(t *testing.T) {
+	got := URLEscapeForURL("apple")
+	want := "apple"
+	if got != want {
+		t.Errorf("URLEscapeForURL(%q) = %q, want %q", "apple", got, want)
+	}
+}
+
+// TestURLEscapeForURL_SpaceBecomesHyphen verifies spaces become hyphens,
+// mirroring URLEscape (path version) for the ASCII parts.
+func TestURLEscapeForURL_SpaceBecomesHyphen(t *testing.T) {
+	got := URLEscapeForURL("hello world")
+	want := "hello-world"
+	if got != want {
+		t.Errorf("URLEscapeForURL(%q) = %q, want %q", "hello world", got, want)
+	}
+}
+
+// TestURLEscapeForURL_Mixed verifies a mixed ASCII + CJK term encodes the
+// CJK portion while preserving ASCII.
+func TestURLEscapeForURL_Mixed(t *testing.T) {
+	// "go语言" → "go" + percent-encoded "语言"
+	got := URLEscapeForURL("go语言")
+	want := "go%E8%AF%AD%E8%A8%80"
+	if got != want {
+		t.Errorf("URLEscapeForURL(%q) = %q, want %q", "go语言", got, want)
+	}
+}
+
+// TestBuildTermContext_PercentEncodesCJKInPermalink verifies that the single
+// term page context (/tags/{tag}/) percent-encodes CJK in both Permalink
+// and RelPermalink, matching Hugo's RSS output where the channel <link>
+// is e.g. /tags/%E4%B8%93%E6%B3%A8/ not /tags/专注/.
+func TestBuildTermContext_PercentEncodesCJKInPermalink(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	cfg := &config.Config{}
+	site := &content.Site{}
+
+	ctx := BuildTermContext(siteCtx, nil, site, cfg, "专注", tmpl.PageSlice{})
+	if ctx == nil {
+		t.Fatal("expected non-nil term context")
+	}
+	wantPerm := "https://x/tags/%E4%B8%93%E6%B3%A8/"
+	if ctx.Permalink != wantPerm {
+		t.Errorf("term Permalink: got %q, want %q", ctx.Permalink, wantPerm)
+	}
+	if ctx.RelPermalink != "/tags/%E4%B8%93%E6%B3%A8/" {
+		t.Errorf("term RelPermalink: got %q, want %q", ctx.RelPermalink, "/tags/%E4%B8%93%E6%B3%A8/")
+	}
+}
+
+// TestBuildTermContext_FiltersNeverListedPages verifies that
+// BuildTermContext strips build.list=never pages from the term's page list.
+// This matches Hugo's behavior: tags whose only pages are hidden still get
+// /tags/{tag}/index.{html,xml} generated, but the page list (and thus RSS
+// items) is empty.
+func TestBuildTermContext_FiltersNeverListedPages(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	cfg := &config.Config{}
+	site := &content.Site{}
+
+	// visible page; never-listed page
+	visibleCtx := &tmpl.Context{Title: "visible"}
+	neverCtx := &tmpl.Context{
+		Title: "never-listed",
+		Build: config.BuildConfig{List: "never"},
+	}
+	pages := tmpl.PageSlice{visibleCtx, neverCtx}
+
+	ctx := BuildTermContext(siteCtx, nil, site, cfg, "tag1", pages)
+	if ctx == nil {
+		t.Fatal("expected non-nil term context")
+	}
+	if len(ctx.RegularPages) != 1 {
+		t.Fatalf("RegularPages: got %d, want 1 (never-listed excluded)", len(ctx.RegularPages))
+	}
+	got := tmpl.AsCtx(ctx.RegularPages[0]).Title
+	if got != "visible" {
+		t.Errorf("RegularPages[0].Title: got %q, want %q", got, "visible")
+	}
+}
+
+// TestBuildTermContext_EmptyWhenAllPagesNeverListed verifies that a term
+// whose only pages are never-listed produces an empty page list. Hugo still
+// generates /tags/{tag}/index.{html,xml} for these tags (file exists) but
+// with zero items in RSS.
+func TestBuildTermContext_EmptyWhenAllPagesNeverListed(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	cfg := &config.Config{}
+	site := &content.Site{}
+
+	neverCtx := &tmpl.Context{
+		Title: "hidden-page",
+		Build: config.BuildConfig{List: "never"},
+	}
+	pages := tmpl.PageSlice{neverCtx}
+
+	ctx := BuildTermContext(siteCtx, nil, site, cfg, "phantom", pages)
+	if ctx == nil {
+		t.Fatal("expected non-nil term context (file must still be generated)")
+	}
+	if len(ctx.RegularPages) != 0 {
+		t.Errorf("RegularPages: got %d, want 0 (all pages never-listed)", len(ctx.RegularPages))
+	}
+	if len(ctx.Pages) != 0 {
+		t.Errorf("Pages: got %d, want 0", len(ctx.Pages))
+	}
+}
+
+// TestBuildTermContext_TitleUsesOriginalCase verifies that the term-page
+// Title uses the original-cased tag name from frontmatter (e.g. "FANFAN")
+// rather than the urlized key (e.g. "fanfan"). Hugo's term-page RSS emits
+// <title>FANFAN on ...</title> while the URL uses /tags/fanfan/.
+func TestBuildTermContext_TitleUsesOriginalCase(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	cfg := &config.Config{}
+	site := &content.Site{
+		TaxonomyOriginalCase: map[string]map[string]string{
+			"tags": {"fanfan": "FANFAN"},
+		},
+	}
+
+	ctx := BuildTermContext(siteCtx, nil, site, cfg, "fanfan", tmpl.PageSlice{})
+	if ctx == nil {
+		t.Fatal("expected non-nil term context")
+	}
+	if ctx.Title != "FANFAN" {
+		t.Errorf("term Title: got %q, want %q (original case from frontmatter)", ctx.Title, "FANFAN")
+	}
+	// Filesystem path / URL must still use the urlized key.
+	if ctx.RelPermalink != "/tags/fanfan/" {
+		t.Errorf("term RelPermalink: got %q, want %q", ctx.RelPermalink, "/tags/fanfan/")
+	}
+}
+
+// TestBuildTermContext_TitleFallsBackToKeyWhenNoOriginalCase verifies that
+// when no original-case mapping is available, the term Title falls back to
+// the (urlized) key. This preserves prior behavior for taxonomies built
+// without the original-case tracking.
+func TestBuildTermContext_TitleFallsBackToKeyWhenNoOriginalCase(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	cfg := &config.Config{}
+	site := &content.Site{} // no TaxonomyOriginalCase
+
+	ctx := BuildTermContext(siteCtx, nil, site, cfg, "plain", tmpl.PageSlice{})
+	if ctx == nil {
+		t.Fatal("expected non-nil term context")
+	}
+	if ctx.Title != "plain" {
+		t.Errorf("term Title: got %q, want %q (fallback to key)", ctx.Title, "plain")
+	}
+}
+
+// TestBuildTermContext_SetsSectionToTags verifies that the term-page context
+// has Section="tags" so templates (e.g. GA page-context script) see the
+// correct section. Hugo's term pages under /tags/{tag}/ report Section="tags".
+func TestBuildTermContext_SetsSectionToTags(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	cfg := &config.Config{}
+	site := &content.Site{}
+
+	ctx := BuildTermContext(siteCtx, nil, site, cfg, "anytag", tmpl.PageSlice{})
+	if ctx == nil {
+		t.Fatal("expected non-nil term context")
+	}
+	if ctx.Section != "tags" {
+		t.Errorf("term Section: got %q, want %q", ctx.Section, "tags")
+	}
+}
+
+// TestRssLastBuildDate_EmptyForEmptyRegularPages verifies that
+// rssLastBuildDate returns "" when RegularPages is empty. This matches
+// Hugo's <lastBuildDate/> output for tags whose only pages are hidden.
+func TestRssLastBuildDate_EmptyForEmptyRegularPages(t *testing.T) {
+	ctx := &tmpl.Context{RegularPages: tmpl.PageSlice{}}
+	got := tmpl.RssLastBuildDate(ctx)
+	if got != "" {
+		t.Errorf("rssLastBuildDate(empty): got %q, want %q", got, "")
+	}
+}
+
+// TestRssLastBuildDate_FormatsLatestLastmod verifies that rssLastBuildDate
+// returns the latest Lastmod formatted with Hugo's RSS date layout when
+// RegularPages is non-empty.
+func TestRssLastBuildDate_FormatsLatestLastmod(t *testing.T) {
+	earlier := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	later := time.Date(2026, 5, 27, 17, 7, 34, 0, time.UTC)
+	ctx := &tmpl.Context{
+		RegularPages: tmpl.PageSlice{
+			&tmpl.Context{Lastmod: earlier},
+			&tmpl.Context{Lastmod: later},
+		},
+	}
+	got := tmpl.RssLastBuildDate(ctx)
+	// Hugo's RSS layout: "Mon, 02 Jan 2006 15:04:05 -0700"
+	want := later.Format("Mon, 02 Jan 2006 15:04:05 -0700")
+	if got != want {
+		t.Errorf("rssLastBuildDate: got %q, want %q", got, want)
+	}
+}

@@ -33,6 +33,12 @@ func FuncMap(baseURL string) template.FuncMap {
 		"substr":      substrFunc,
 		"default":     defaultFunc,
 		"cond":        condFunc,
+		// rssLastBuildDate formats the most-recent Lastmod among ctx.RegularPages
+		// using Hugo's RSS date layout. Returns "" when RegularPages is empty so
+		// empty tag RSS produces <lastBuildDate></lastBuildDate> (compressed to
+		// <lastBuildDate/>) matching Hugo's output for tags whose only pages
+		// are hidden/never-listed.
+		"rssLastBuildDate": RssLastBuildDate,
 
 		// String operations
 		"strings_RuneCount": utf8.RuneCountInString,
@@ -289,6 +295,34 @@ func langFormatNumberCustom(decimals int, num interface{}) string {
 	}
 	format := fmt.Sprintf("%%.%df", decimals)
 	return fmt.Sprintf(format, f)
+}
+
+// RssLastBuildDate returns the RSS-formatted most-recent Lastmod among the
+// context's RegularPages, or "" when RegularPages is empty. The empty string
+// matches Hugo's output for "empty" tags (those whose only pages are hidden),
+// where Hugo emits <lastBuildDate/> rather than a zero-time formatted date.
+func RssLastBuildDate(ctx interface{}) string {
+	c, ok := ctx.(*Context)
+	if !ok || c == nil {
+		return ""
+	}
+	if len(c.RegularPages) == 0 {
+		return ""
+	}
+	var latest time.Time
+	for _, item := range c.RegularPages {
+		pc := AsCtx(item)
+		if pc == nil {
+			continue
+		}
+		if pc.Lastmod.After(latest) {
+			latest = pc.Lastmod
+		}
+	}
+	if latest.IsZero() {
+		return ""
+	}
+	return latest.Format("Mon, 02 Jan 2006 15:04:05 -0700")
 }
 
 func uniqFunc(slice interface{}) []interface{} {

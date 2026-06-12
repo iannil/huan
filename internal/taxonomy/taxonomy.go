@@ -8,6 +8,9 @@ import (
 )
 
 // Taxonomy maps a term (e.g., tag name) to the pages tagged with it.
+// Keys are in urlized form (lowercase ASCII, CJK preserved) so they match
+// the URL path. To recover the original (display) casing for term titles,
+// use OriginalCase().
 type Taxonomy map[string]WeightedPages
 
 // WeightedPages is a slice of pages associated with a taxonomy term.
@@ -19,6 +22,12 @@ type TermEntry struct {
 	Pages WeightedPages
 	Count int
 }
+
+// originalCaseMap maps a urlized taxonomy key to its original-cased form
+// (the first casing seen in frontmatter). Used by term-page renderers that
+// need the display name (e.g., <title>FANFAN on ...</title>), while the
+// urlized key is still used for filesystem paths and URL paths.
+type originalCaseMap map[string]string
 
 // Build constructs a taxonomy map from pages, keyed by the given frontmatter field.
 // Hugo's taxonomy keys are urlize-form (lowercase ASCII, CJK preserved).
@@ -54,11 +63,58 @@ func Build(pages []*content.Page, field string) Taxonomy {
 	return tax
 }
 
+// BuildWithOriginalCase is like Build but also returns a map from urlized key
+// to the original-cased form (first occurrence wins). Hugo's term-page .Title
+// uses the original casing while the urlized key is used for URLs/paths.
+func BuildWithOriginalCase(pages []*content.Page, field string) (Taxonomy, map[string]string) {
+	tax := Taxonomy{}
+	original := map[string]string{}
+
+	for _, p := range pages {
+		if p.Draft {
+			continue
+		}
+
+		var terms []string
+		switch field {
+		case "tags":
+			terms = p.Tags
+		default:
+			continue
+		}
+
+		for _, term := range terms {
+			if term == "" {
+				continue
+			}
+			key := hugoUrlize(term)
+			tax[key] = append(tax[key], p)
+			// Preserve first-seen original casing. Subsequent declarations
+			// with different casing do not override the first.
+			if _, exists := original[key]; !exists {
+				original[key] = term
+			}
+		}
+	}
+
+	return tax, original
+}
+
 // BuildAll builds all taxonomies (currently just "tags") and returns them as a map.
 func BuildAll(pages []*content.Page) map[string]Taxonomy {
 	return map[string]Taxonomy{
 		"tags": Build(pages, "tags"),
 	}
+}
+
+// BuildAllWithOriginalCase is like BuildAll but also returns a per-plural map
+// of urlized-key → original-cased name. Used to recover display casing for
+// term-page titles (e.g. <title>FANFAN on ...</title>) while keeping the
+// urlized key for filesystem paths and URL paths.
+func BuildAllWithOriginalCase(pages []*content.Page) (map[string]Taxonomy, map[string]map[string]string) {
+	tagsTax, tagsOriginal := BuildWithOriginalCase(pages, "tags")
+	return map[string]Taxonomy{"tags": tagsTax},
+		map[string]map[string]string{"tags": tagsOriginal}
 }
 
 // ByCount returns term entries sorted by page count (descending).

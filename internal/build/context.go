@@ -145,6 +145,11 @@ func DetectThemeName(sourceDir string) string {
 //   - CJK characters are preserved as-is (NOT URL-encoded)
 //   - ASCII letters/digits are preserved (after lowercasing)
 //   - other special chars (parens, etc.) are URL-encoded
+//
+// Use this for filesystem paths (where CJK must be preserved so the OS can
+// read the file). For URLs that appear in HTML/XML output (RSS <link>,
+// <guid>, <atom:link>, og:url, canonical), use URLEscapeForURL which
+// percent-encodes CJK to match Hugo's permalink behavior.
 func URLEscape(s string) string {
 	s = strings.ToLower(s)
 	var b strings.Builder
@@ -161,6 +166,32 @@ func URLEscape(s string) string {
 			r == '-' || r == '_' || r == '.' || r == '/':
 			b.WriteRune(r)
 		default:
+			encoded := url.PathEscape(string(r))
+			b.WriteString(encoded)
+		}
+	}
+	return b.String()
+}
+
+// URLEscapeForURL mirrors Hugo's URL percent-encoding for non-filesystem URLs
+// (permalinks, RSS link/guid, atom:link, og:url). Unlike URLEscape (which
+// preserves CJK for filesystem paths), URLEscapeForURL percent-encodes CJK
+// characters and other non-ASCII / non-URL-safe chars.
+//
+// Use this for any URL that appears in HTML/XML output. Use URLEscape for
+// filesystem paths.
+func URLEscapeForURL(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == ' ':
+			b.WriteByte('-')
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
+			r == '-' || r == '_' || r == '.' || r == '/':
+			b.WriteRune(r)
+		default:
+			// Percent-encode everything else (CJK, punctuation, etc.)
 			encoded := url.PathEscape(string(r))
 			b.WriteString(encoded)
 		}
@@ -185,6 +216,11 @@ func BuildTaxonomyContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*t
 		var ps tmpl.PageSlice
 		for _, p := range pages {
 			if c, ok := lookup[p]; ok {
+				// Keep all pages (including hidden/never-listed) in the term
+				// entry so Count reflects the true total. Hugo's /tags/index.html
+				// uses .Data.Terms.ByCount which includes hidden pages. The
+				// filtering of hidden pages for RSS item lists happens in
+				// BuildTermContext (per-term RSS).
 				ps = append(ps, c)
 			}
 		}
@@ -325,19 +361,55 @@ func BuildEmptyTaxonomyContext(siteCtx *tmpl.SiteContext, title, plural string) 
 
 // BuildTermContext creates the context for /tags/{tag}/ (single term page).
 func BuildTermContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*tmpl.Context, site *content.Site, cfg *config.Config, term string, pages tmpl.PageSlice) *tmpl.Context {
-	relURL := "/tags/" + URLEscape(term) + "/"
-	permURL := siteCtx.BaseURL + "tags/" + URLEscape(term) + "/"
+	// Permalink and RelPermalink percent-encode CJK to match Hugo's RSS output
+	// (e.g. /tags/%E4%B8%93%E6%B3%A8/ not /tags/专注/). The filesystem path
+	// uses URLEscape (CJK preserved) separately in the build loop.
+	encoded := URLEscapeForURL(term)
+	relURL := "/tags/" + encoded + "/"
+	permURL := siteCtx.BaseURL + "tags/" + encoded + "/"
+	// Hugo's per-term page list (.RegularPages, used for both HTML listing and
+	// RSS <item>s) excludes never-listed pages (e.g., hidden/ section). The
+	// taxonomy key set still includes tags whose only pages are hidden, so
+	// this filter produces an empty page list for those tags — matching
+	// Hugo's behavior of emitting /tags/{tag}/index.{html,xml} with no items.
+	listed := make(tmpl.PageSlice, 0, len(pages))
+	for _, item := range pages {
+		c := tmpl.AsCtx(item)
+		if c == nil {
+			continue
+		}
+		if c.Build.List == "never" {
+			continue
+		}
+		listed = append(listed, c)
+	}
+	// Hugo's .RegularPages is pre-sorted via DefaultPageSort (Weight → Date
+	// desc → Title via site collator → Path). Sort the listed slice so RSS
+	// items and HTML listings match Hugo's order even when the source pages
+	// came from an unsorted taxonomy map iteration.
+	coll := i18n.BuildCollator(cfg.LanguageCode)
+	listed.SortDefault(coll.CompareString)
+	// Hugo's term-page .Title uses the original-cased tag name from frontmatter
+	// (e.g. "FANFAN"), not the urlized key (e.g. "fanfan"). Recover the
+	// original casing from site.TaxonomyOriginalCase; fall back to the key.
+	title := term
+	if site != nil {
+		if orig, ok := site.TaxonomyOriginalCase["tags"][term]; ok && orig != "" {
+			title = orig
+		}
+	}
 	return &tmpl.Context{
 		Kind:        "term",
-		Title:       term,
+		Title:       title,
+		Section:     "tags",
 		Site:        siteCtx,
 		Data: &tmpl.DataAccessor{
-			Pages:  pages,
+			Pages:  listed,
 			Plural: "tags",
 		},
 		Scratch:       tmpl.NewScratch(),
-		RegularPages:  pages,
-		Pages:         pages,
+		RegularPages:  listed,
+		Pages:         listed,
 		RelPermalink:  relURL,
 		Permalink:     permURL,
 		OutputFormats: tmpl.DefaultPageOutputFormats(permURL, relURL),

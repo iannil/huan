@@ -85,3 +85,48 @@ func TestBuild_PreservesInputPageOrder(t *testing.T) {
 		t.Errorf("Build did not preserve input order:\n  got:  %v\n  want: %v", gotTitles, wantTitles)
 	}
 }
+
+// TestBuildWithOriginalCase_PreservesFirstSeenCasing verifies that the
+// original-case map captures the first-seen casing of each tag, even when
+// subsequent declarations use different casing. Hugo's term-page .Title
+// uses the original casing while the urlized key is used for paths/URLs.
+func TestBuildWithOriginalCase_PreservesFirstSeenCasing(t *testing.T) {
+	p1 := &content.Page{Title: "a", Tags: []string{"FANFAN"}}
+	p2 := &content.Page{Title: "b", Tags: []string{"Fanfan"}} // different casing, same urlized key
+
+	tax, original := BuildWithOriginalCase([]*content.Page{p1, p2}, "tags")
+
+	// urlized key is "fanfan" (lowercase)
+	if _, ok := tax["fanfan"]; !ok {
+		t.Fatalf("tax should have key %q, got keys: %v", "fanfan", mapKeys(tax))
+	}
+	// original-case should be the first-seen "FANFAN", not "Fanfan"
+	if got := original["fanfan"]; got != "FANFAN" {
+		t.Errorf("original[%q]: got %q, want %q (first-seen casing)", "fanfan", got, "FANFAN")
+	}
+}
+
+// TestBuildWithOriginalCase_DistinctKeysForDistinctCasing verifies that two
+// tags with different urlized keys each get their own original-case entry.
+func TestBuildWithOriginalCase_DistinctKeysForDistinctCasing(t *testing.T) {
+	p1 := &content.Page{Title: "a", Tags: []string{"Apple"}}
+	p2 := &content.Page{Title: "b", Tags: []string{"苹果"}}
+
+	_, original := BuildWithOriginalCase([]*content.Page{p1, p2}, "tags")
+
+	if got := original["apple"]; got != "Apple" {
+		t.Errorf("original[%q]: got %q, want %q", "apple", got, "Apple")
+	}
+	// CJK is preserved by hugoUrlize, so key == original == 苹果
+	if got := original["苹果"]; got != "苹果" {
+		t.Errorf("original[%q]: got %q, want %q", "苹果", got, "苹果")
+	}
+}
+
+func mapKeys(m map[string]WeightedPages) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
