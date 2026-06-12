@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/novel_ttl/huan/internal/build"
 	"github.com/novel_ttl/huan/internal/config"
@@ -38,6 +39,8 @@ func main() {
 	serveCmd.Flags().String("bind", "127.0.0.1", "interface to bind")
 	serveCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
 	serveCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
+	serveCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
+	serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 
 	rootCmd.AddCommand(buildCmd, serveCmd)
 

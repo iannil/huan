@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/novel_ttl/huan/internal/build"
 	"github.com/novel_ttl/huan/internal/config"
@@ -19,6 +20,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	port, _ := cmd.Flags().GetString("port")
 	bind, _ := cmd.Flags().GetString("bind")
+	disableLR, _ := cmd.Flags().GetBool("disableLiveReload")
+	disableWatch, _ := cmd.Flags().GetBool("disableWatch")
+	debounce, _ := cmd.Flags().GetDuration("debounce")
+	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
+
+	// LiveReload URL options
+	lrURL := ""
+	injectLR := false
+	if !disableLR {
+		injectLR = true
+		lrURL = "ws://" + bind + ":" + port + "/livereload"
+	}
 
 	// Serve uses a temp directory, never the real publishDir (docs/).
 	tmpDir, err := os.MkdirTemp("", "huan-serve-*")
@@ -27,28 +40,50 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
-
-	disableLR, _ := cmd.Flags().GetBool("disableLiveReload")
-	lrURL := ""
-	injectLR := false
-	if !disableLR {
-		injectLR = true
-		lrURL = "ws://" + bind + ":" + port + "/livereload"
+	// Build options shared between initial build and rebuilds
+	buildOpts := build.Options{
+		SourceDir:        sourceDir,
+		OutputDir:        tmpDir,
+		IncludeDrafts:    includeDrafts,
+		InjectLiveReload: injectLR,
+		LiveReloadURL:    lrURL,
+		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
 	}
 
 	fmt.Printf("Building site: %s\n", cfg.Title)
 	fmt.Printf("  Source:      %s\n", sourceDir)
 	fmt.Printf("  Output:      %s\n", tmpDir)
 
-	if _, err := build.BuildSite(build.Options{
-		SourceDir:        sourceDir,
-		OutputDir:        tmpDir,
-		IncludeDrafts:    includeDrafts,
-		InjectLiveReload: injectLR,
-		LiveReloadURL:    lrURL,
-	}); err != nil {
+	if _, err := build.BuildSite(buildOpts); err != nil {
 		return err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start watcher if not disabled
+	if !disableWatch {
+		watcher, err := serve.NewWatcher(serve.WatcherOptions{
+			SourceDir: sourceDir,
+			Debounce:  debounce,
+			OnChange: func() {
+				fmt.Println("[watch] change detected, rebuilding...")
+				start := time.Now()
+				if _, err := build.BuildSite(buildOpts); err != nil {
+					fmt.Printf("[watch] rebuild error: %v\n", err)
+					return
+				}
+				fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
+				// LiveReload broadcast wired in G2
+			},
+			Logf: func(format string, a ...any) { fmt.Printf(format, a...) },
+		})
+		if err != nil {
+			fmt.Printf("WARNING: file watcher unavailable: %v\n", err)
+			fmt.Println("WARNING: use --disableWatch to suppress this message")
+		} else {
+			go watcher.Run(ctx) //nolint:errcheck
+		}
 	}
 
 	fmt.Printf("Serving at:  http://%s:%s/\n", bind, port)
@@ -60,8 +95,5 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Port:      port,
 		Logf:      func(format string, a ...any) { fmt.Printf(format, a...) },
 	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	return srv.Run(ctx)
 }
