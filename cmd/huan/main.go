@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	neturl "net/url"
-
 	"github.com/novel_ttl/huan/internal/build"
 	"github.com/novel_ttl/huan/internal/config"
 	"github.com/novel_ttl/huan/internal/content"
@@ -187,7 +185,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	// Load i18n bundles (theme first, then project overrides).
 	i18nBundle := i18n.New()
-	themeI18nDir := filepath.Join(sourceDir, "themes", detectThemeName(sourceDir), "i18n")
+	themeI18nDir := filepath.Join(sourceDir, "themes", build.DetectThemeName(sourceDir), "i18n")
 	if _, err := os.Stat(themeI18nDir); err == nil {
 		_ = i18nBundle.LoadDir(themeI18nDir)
 	}
@@ -242,7 +240,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		tmplName := resolveTemplateName(tmpls, p)
+		tmplName := build.ResolveTemplateName(tmpls, p)
 		if tmplName == "" {
 			continue
 		}
@@ -276,7 +274,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 		// RSS output for home and section pages
 		if p.Kind == "home" || p.Kind == "section" {
-			if rssName := resolveRSSOutput(p); rssName != "" {
+			if rssName := build.ResolveRSSOutput(p); rssName != "" {
 				if rssHTML, err := renderer.Render(rssName, ctx); err == nil {
 					rssPath := strings.TrimSuffix(p.URL, "/") + "/index.xml"
 					rssPath = strings.TrimPrefix(rssPath, "/")
@@ -291,7 +289,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate taxonomy term pages: /tags/ and /tags/{tag}/
-	if taxCtx := buildTaxonomyContext(siteCtx, lookup, site, cfg); taxCtx != nil {
+	if taxCtx := build.BuildTaxonomyContext(siteCtx, lookup, site, cfg); taxCtx != nil {
 		// /tags/ - the terms listing page
 		if html, err := renderer.Render("_default/terms.html", taxCtx); err == nil {
 			writer.Write("tags/index.html", html)
@@ -307,9 +305,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		// /tags/{tag}/ - one page per term (HTML + RSS)
 		if termsTmpl := tmpls.Lookup("_default/list.html"); termsTmpl != nil {
 			for _, term := range taxCtx.DataTerms {
-				termCtx := buildTermContext(siteCtx, lookup, site, cfg, term.Name, term.Pages)
+				termCtx := build.BuildTermContext(siteCtx, lookup, site, cfg, term.Name, term.Pages)
 				if termCtx != nil {
-					tagSlug := urlEscape(term.Name)
+					tagSlug := build.URLEscape(term.Name)
 					if html, err := renderer.Render("_default/list.html", termCtx); err == nil {
 						writer.Write("tags/"+tagSlug+"/index.html", html)
 					}
@@ -322,7 +320,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate empty /categories/ taxonomy (Hugo default, even when unused).
-	if catCtx := buildEmptyTaxonomyContext(siteCtx, "Categories", "categories"); catCtx != nil {
+	if catCtx := build.BuildEmptyTaxonomyContext(siteCtx, "Categories", "categories"); catCtx != nil {
 		if html, err := renderer.Render("_default/terms.html", catCtx); err == nil {
 			writer.Write("categories/index.html", html)
 		}
@@ -334,8 +332,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Generate paginated home pages: /page/2/, /page/3/, etc.
 	// Hugo's default mainSections pagination: site.RegularPages filtered to mainSections.
 	// /page/1/ is generated as a redirect to / (Hugo alias behavior).
-	if homeCtx := findHomeContext(lookup, site); homeCtx != nil {
-		mainPageItems := filterMainSections(siteCtx.RegularPages, cfg.Params.MainSections)
+	if homeCtx := build.FindHomeContext(lookup, site); homeCtx != nil {
+		mainPageItems := build.FilterMainSections(siteCtx.RegularPages, cfg.Params.MainSections)
 		pageSize := cfg.Paginate
 		if pageSize <= 0 {
 			pageSize = 10
@@ -353,7 +351,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 		// /page/2/, /page/3/, ... are actual paginated home pages
 		for i := 2; i <= totalPages; i++ {
-			pagedCtx := cloneContextForPagination(homeCtx, mainPageItems, pageSize, i, totalPages)
+			pagedCtx := build.CloneContextForPagination(homeCtx, mainPageItems, pageSize, i, totalPages)
 			html, err := renderer.Render("index.html", pagedCtx)
 			if err != nil {
 				continue
@@ -380,7 +378,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate sitemap.xml
-	if siteMapCtx := buildSitemapContext(siteCtx, lookup, site, cfg); siteMapCtx != nil {
+	if siteMapCtx := build.BuildSitemapContext(siteCtx, lookup, site, cfg); siteMapCtx != nil {
 		if html, err := renderer.Render("_default/sitemap.xml", siteMapCtx); err == nil {
 			writer.Write("sitemap.xml", html)
 		} else {
@@ -389,7 +387,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate search.json from home page context
-	if homeCtx := findHomeContext(lookup, site); homeCtx != nil {
+	if homeCtx := build.FindHomeContext(lookup, site); homeCtx != nil {
 		if html, err := renderer.Render("_default/index.searchindex.json", homeCtx); err == nil {
 			if werr := writer.Write("search.json", html); werr != nil {
 				fmt.Printf("  WARN: write search.json: %v\n", werr)
@@ -400,7 +398,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Copy static assets: theme static first, then project static (overrides)
-	themeName := detectThemeName(sourceDir)
+	themeName := build.DetectThemeName(sourceDir)
 	if themeName != "" {
 		themeStaticDir := filepath.Join(sourceDir, "themes", themeName, "static")
 		if _, err := os.Stat(themeStaticDir); err == nil {
@@ -423,308 +421,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Build complete.")
 	return nil
-}
-
-// resolveRSSOutput returns the RSS template name for a section/home page.
-func resolveRSSOutput(p *content.Page) string {
-	// Hugo uses _default/rss.xml for all sections
-	return "_default/rss.xml"
-}
-
-// buildSitemapContext creates a root context for sitemap rendering.
-// The sitemap template iterates .Pages, so we need a context with all pages populated.
-func buildSitemapContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*tmpl.Context, site *content.Site, cfg *config.Config) *tmpl.Context {
-	ctx := &tmpl.Context{
-		Kind:   "home",
-		Site:   siteCtx,
-		Params: map[string]interface{}{},
-		Data:   siteCtx.Data,
-	}
-	ctx.Pages = siteCtx.Pages
-	return ctx
-}
-
-// findHomeContext returns the home page context, used for search index rendering.
-func findHomeContext(lookup map[*content.Page]*tmpl.Context, site *content.Site) *tmpl.Context {
-	for _, p := range site.Pages {
-		if p.Kind == "home" {
-			return lookup[p]
-		}
-	}
-	return nil
-}
-
-// filterMainSections returns pages whose Section is in mainSections.
-func filterMainSections(pages tmpl.PageSlice, mainSections []string) tmpl.PageSlice {
-	sectionSet := map[string]bool{}
-	for _, s := range mainSections {
-		sectionSet[s] = true
-	}
-	var result tmpl.PageSlice
-	for _, item := range pages {
-		c := tmpl.AsCtx(item)
-		if c == nil {
-			continue
-		}
-		if sectionSet[c.Section] {
-			result = append(result, c)
-		}
-	}
-	return result
-}
-
-// cloneContextForPagination creates a shallow copy of homeCtx with a Paginator
-// pointing at page N. The URL stays "/" so meta tags match Hugo's behavior.
-func cloneContextForPagination(homeCtx *tmpl.Context, allItems tmpl.PageSlice, pageSize, pageNum, totalPages int) *tmpl.Context {
-	start := (pageNum - 1) * pageSize
-	end := start + pageSize
-	if end > len(allItems) {
-		end = len(allItems)
-	}
-	if start >= len(allItems) {
-		start = len(allItems)
-	}
-
-	ctx := *homeCtx
-	pager := &tmpl.PaginatorContext{
-		PageNumber: pageNum,
-		URL:        fmt.Sprintf("/page/%d/", pageNum),
-		Pages:      allItems[start:end],
-		TotalPages: totalPages,
-		PagerSize:  pageSize,
-		HasPrev:    pageNum > 1,
-		HasNext:    pageNum < totalPages,
-	}
-	// Provide non-nil Prev/Next to avoid nil-pointer derefs in templates that
-	// access $paginator.Prev.URL unconditionally. Hugo returns a zero paginator
-	// when at the boundary; we do similar by reusing the same pager with HasPrev/HasNext=false.
-	if !pager.HasPrev {
-		pager.Prev = pager
-	} else {
-		prevStart := (pageNum - 2) * pageSize
-		prevEnd := prevStart + pageSize
-		if prevEnd > len(allItems) {
-			prevEnd = len(allItems)
-		}
-		pager.Prev = &tmpl.PaginatorContext{
-			PageNumber: pageNum - 1,
-			URL:        fmt.Sprintf("/page/%d/", pageNum-1),
-			Pages:      allItems[prevStart:prevEnd],
-			HasNext:    true,
-		}
-		if pager.Prev.PageNumber == 1 {
-			pager.Prev.URL = "/"
-		}
-	}
-	if !pager.HasNext {
-		pager.Next = pager
-	} else {
-		nextStart := pageNum * pageSize
-		nextEnd := nextStart + pageSize
-		if nextEnd > len(allItems) {
-			nextEnd = len(allItems)
-		}
-		pager.Next = &tmpl.PaginatorContext{
-			PageNumber: pageNum + 1,
-			URL:        fmt.Sprintf("/page/%d/", pageNum+1),
-			Pages:      allItems[nextStart:nextEnd],
-			HasPrev:    true,
-		}
-	}
-	tmpl.SetPaginator(&ctx, pager)
-	return &ctx
-}
-
-func detectThemeName(sourceDir string) string {
-	themesDir := filepath.Join(sourceDir, "themes")
-	entries, err := os.ReadDir(themesDir)
-	if err != nil {
-		return ""
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			return e.Name()
-		}
-	}
-	return ""
-}
-
-// urlEscape mirrors Hugo's urlize behavior for tag URLs:
-//   - lowercase ASCII letters
-//   - spaces become "-"
-//   - CJK characters are preserved as-is (NOT URL-encoded)
-//   - ASCII letters/digits are preserved (after lowercasing)
-//   - other special chars (parens, etc.) are URL-encoded
-func urlEscape(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r == ' ':
-			b.WriteByte('-')
-		case r >= 0x4E00 && r <= 0x9FFF, // CJK Unified Ideographs
-			 r >= 0x3040 && r <= 0x309F, // Hiragana
-			 r >= 0x30A0 && r <= 0x30FF, // Katakana
-			 r >= 0x3400 && r <= 0x4DBF: // CJK Extension A
-			b.WriteRune(r)
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
-			r == '-' || r == '_' || r == '.' || r == '/':
-			b.WriteRune(r)
-		default:
-			encoded := neturl.PathEscape(string(r))
-			b.WriteString(encoded)
-		}
-	}
-	return b.String()
-}
-
-// buildTaxonomyContext creates the context for /tags/ (terms listing).
-func buildTaxonomyContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*tmpl.Context, site *content.Site, cfg *config.Config) *tmpl.Context {
-	tags, ok := site.Taxonomies["tags"]
-	if !ok || len(tags) == 0 {
-		return nil
-	}
-
-	// Sort terms by count desc, then alphabetical
-	type termEntry struct {
-		Name  string
-		Pages tmpl.PageSlice
-	}
-	var entries []termEntry
-	for term, pages := range tags {
-		var ps tmpl.PageSlice
-		for _, p := range pages {
-			if c, ok := lookup[p]; ok {
-				ps = append(ps, c)
-			}
-		}
-		entries = append(entries, termEntry{Name: term, Pages: ps})
-	}
-	// Sort by count desc, then by name asc
-	for i := 1; i < len(entries); i++ {
-		for j := i; j > 0; j-- {
-			if len(entries[j].Pages) > len(entries[j-1].Pages) ||
-				(len(entries[j].Pages) == len(entries[j-1].Pages) && entries[j].Name < entries[j-1].Name) {
-				entries[j], entries[j-1] = entries[j-1], entries[j]
-			} else {
-				break
-			}
-		}
-	}
-
-	dataTerms := make([]tmpl.TermSummaryExternal, 0, len(entries))
-	for _, e := range entries {
-		dataTerms = append(dataTerms, tmpl.TermSummaryExternal{
-			Name:  e.Name,
-			Pages: e.Pages,
-			Count: len(e.Pages),
-		})
-	}
-
-	return &tmpl.Context{
-		Kind:        "taxonomy",
-		Title:       "Tags",
-		Site:        siteCtx,
-		Data: &tmpl.DataAccessor{
-			Terms:  tmpl.TermsList(dataTerms),
-			Plural: "tags",
-		},
-		Scratch:      tmpl.NewScratch(),
-		DataTerms:    dataTerms,
-		RegularPages: siteCtx.RegularPages,
-		OutputFormats: tmpl.DefaultPageOutputFormats(siteCtx.BaseURL+"/tags/", "/tags/"),
-	}
-}
-
-// buildEmptyTaxonomyContext creates a context for an empty taxonomy listing
-// (e.g., /categories/ when no categories are defined). Hugo generates these
-// by default.
-func buildEmptyTaxonomyContext(siteCtx *tmpl.SiteContext, title, plural string) *tmpl.Context {
-	relURL := "/" + plural + "/"
-	permURL := siteCtx.BaseURL + plural + "/"
-	return &tmpl.Context{
-		Kind:          "taxonomy",
-		Title:         title,
-		Site:          siteCtx,
-		Data: &tmpl.DataAccessor{
-			Terms:  tmpl.TermsList{},
-			Plural: plural,
-		},
-		Scratch:       tmpl.NewScratch(),
-		RegularPages:  siteCtx.RegularPages,
-		RelPermalink:  relURL,
-		Permalink:     permURL,
-		OutputFormats: tmpl.DefaultPageOutputFormats(permURL, relURL),
-	}
-}
-
-// buildTermContext creates the context for /tags/{tag}/ (single term page).
-func buildTermContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*tmpl.Context, site *content.Site, cfg *config.Config, term string, pages tmpl.PageSlice) *tmpl.Context {
-	relURL := "/tags/" + urlEscape(term) + "/"
-	permURL := siteCtx.BaseURL + "tags/" + urlEscape(term) + "/"
-	return &tmpl.Context{
-		Kind:        "term",
-		Title:       term,
-		Site:        siteCtx,
-		Data: &tmpl.DataAccessor{
-			Pages:  pages,
-			Plural: "tags",
-		},
-		Scratch:      tmpl.NewScratch(),
-		RegularPages: pages,
-		Pages:        pages,
-		RelPermalink: relURL,
-		Permalink:    permURL,
-		OutputFormats: tmpl.DefaultPageOutputFormats(permURL, relURL),
-	}
-}
-
-// resolveTemplateName maps a page to its template using Hugo's lookup rules.
-func resolveTemplateName(tmpls *template.Template, p *content.Page) string {
-	switch p.Kind {
-	case "home":
-		if t := tmpls.Lookup("index.html"); t != nil {
-			return "index.html"
-		}
-		return "_default/list.html"
-
-	case "section":
-		// Hugo lookup order: {type}/list.html → {section}/list.html → _default/list.html
-		if p.Type != "" {
-			if t := tmpls.Lookup(p.Type + "/list.html"); t != nil {
-				return p.Type + "/list.html"
-			}
-		}
-		if p.Section != "" {
-			if t := tmpls.Lookup(p.Section + "/list.html"); t != nil {
-				return p.Section + "/list.html"
-			}
-		}
-		if t := tmpls.Lookup("_default/list.html"); t != nil {
-			return "_default/list.html"
-		}
-		return ""
-
-	case "page":
-		// Hugo lookup order: {type}/single.html → {section}/single.html → _default/single.html
-		if p.Type != "" {
-			if t := tmpls.Lookup(p.Type + "/single.html"); t != nil {
-				return p.Type + "/single.html"
-			}
-		}
-		if p.Section != "" {
-			if t := tmpls.Lookup(p.Section + "/single.html"); t != nil {
-				return p.Section + "/single.html"
-			}
-		}
-		if t := tmpls.Lookup("_default/single.html"); t != nil {
-			return "_default/single.html"
-		}
-		return ""
-
-	default:
-		return ""
-	}
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
