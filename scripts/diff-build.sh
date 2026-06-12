@@ -116,9 +116,7 @@ EQUIV_BIN="/tmp/equiv-check"
 needs_build=0
 if [ ! -x "$EQUIV_BIN" ]; then
     needs_build=1
-elif [ "$HUAN_REPO_DIR/cmd/equiv-check/main.go" -nt "$EQUIV_BIN" ]; then
-    needs_build=1
-elif [ "$HUAN_REPO_DIR/internal/equiv" -nt "$EQUIV_BIN" ]; then
+elif [ -n "$(find "$HUAN_REPO_DIR/cmd/equiv-check" "$HUAN_REPO_DIR/internal/equiv" -name '*.go' -newer "$EQUIV_BIN" 2>/dev/null)" ]; then
     needs_build=1
 fi
 

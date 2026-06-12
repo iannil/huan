@@ -57,11 +57,7 @@ func main() {
 		fmt.Println(rep.FormatSummary())
 		if !rep.Pass() {
 			failed = true
-			limit := len(rep.Differing)
-			if limit > 10 {
-				limit = 10
-			}
-			for _, f := range rep.Differing[:limit] {
+			for _, f := range rep.Differing[:min(len(rep.Differing), 10)] {
 				fmt.Printf("  diff: %s\n", f)
 			}
 		}

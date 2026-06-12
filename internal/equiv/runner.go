@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // Mode selects which equivalence check to run.
@@ -62,14 +63,23 @@ func CompareDirs(mode Mode, dirA, dirB string) (Report, error) {
 		if !setB[f] {
 			continue
 		}
-		a, _ := os.ReadFile(filepath.Join(dirA, f))
-		b, _ := os.ReadFile(filepath.Join(dirB, f))
+		a, err := os.ReadFile(filepath.Join(dirA, f))
+		if err != nil {
+			return r, fmt.Errorf("read %s in dirA: %w", f, err)
+		}
+		b, err := os.ReadFile(filepath.Join(dirB, f))
+		if err != nil {
+			return r, fmt.Errorf("read %s in dirB: %w", f, err)
+		}
 		if compareContent(mode, string(a), string(b)) {
 			r.Identical++
 		} else {
 			r.Differing = append(r.Differing, f)
 		}
 	}
+	sort.Strings(r.Differing)
+	sort.Strings(r.MissingInA)
+	sort.Strings(r.ExtraInA)
 	return r, nil
 }
 
