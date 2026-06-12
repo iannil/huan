@@ -41,6 +41,9 @@
 - **Go template + Scratch 引用语义 bug**（2026-06-12 撞墙，未解）：模板 `{{ $x := sort ($scratch.Get "key") }}{{ range $x }}` 中，`range $x` 实际遍历的是 `$scratch.data["key"]` 的**原始 slice**，不是 sort 返回值。证据：把 sort 改成 in-place mutate input slice 也不能改变 HTML 输出。试图给 `internal/template/funcs.go` 的 `sortFunc` 加 PageSlice/[]interface{} mutation 都失败。**含义**：补 Hugo 兼容排序的"在 sortFunc 里动手脚"路径走不通。下次尝试应该从 **Scratch.Add/Set 的 slice 共享** 或 **Go template 变量赋值在 pipe + variadic + 多返回值场景下的实际行为** 入手，并配合最小复现单元测试。
 - **grill 实证必须 fresh build**（2026-06-12 教训）：早期基于 `/tmp/huan-output`（几天前的旧 build）做实证，误判 huan 有"effective-constraints 缺 15 章"的 bug。重新 build 后该 bug 消失——是旧输出造成的假象。**含义**：任何关于 huan 输出的实证，必须**当场重新跑** `./huan build`，不能信任 `/tmp` 里已有的输出。
 - **CURRENT_STATE.md 的「5 类差异」描述部分过期**（2026-06-12 更新）：第 2 类「Hugo date 相同时顺序不稳定」是错的——实证发现 Hugo 有稳定 tiebreaker（推断为 `Date desc → lower(Title) asc → RelPath asc`）。stage 1 收尾后所有 5 类差异已按三维度尺子重新归类，详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) §4 与 §5。
+- **Hugo CJK WordCount 的真实算法**（2026-06-12，Phase 3 确认）：不是 `unicode.Is(unicode.Han, r)` 之类的 Unicode 属性分类，而是 `strings.Fields(plain)` + 每个 field 若 `len==runeCount` 算 1 词（纯 ASCII），否则算 `runeCount`（含 CJK）。源码在 `hugolib/page__content.go`（Hugo master）。**含义**：CJK 段落里没有空格分隔的标点也按 rune 计入（如 `"巧合"` 算 4 词，不是 2 词）。huan 的实现见 `internal/build/summary.go::CountWordsInPlain`。
+- **huan `div` 模板函数只支持 int**（2026-06-12，Phase 3 暴露）：`internal/template/funcs.go:67` 的 `div` 签名是 `func(a, b int) int`。当模板写 `div $x 10000.0`（含浮点字面量）时，huan 会强转 int 做整数除法，而 Hugo 的 `div` 支持浮点。这导致 `约 {{ lang.FormatNumberCustom 1 (div $totalWords 10000.0) }} 万字` 在 huan 里显示「15.0 万字」、Hugo 显示「15.5 万字」。**含义**：WordCount 算法修对了仍有 0.x 的小数位显示差异，根因在 `div`，留给后续 phase 修。
+
 
 ## 文档与导航
 
