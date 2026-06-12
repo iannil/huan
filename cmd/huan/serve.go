@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/novel_ttl/huan/internal/build"
@@ -19,12 +20,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 	debounce, _ := cmd.Flags().GetDuration("debounce")
 	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
 
+	// For browser-facing URLs, wildcard binds (0.0.0.0, ::) aren't reachable
+	// from the browser; use localhost. Same-machine clients hit localhost,
+	// LAN clients override via their own hostname.
+	browserHost := bind
+	if bind == "0.0.0.0" || bind == "::" {
+		browserHost = "localhost"
+	}
+
 	// LiveReload URL options
 	lrURL := ""
 	injectLR := false
 	if !disableLR {
 		injectLR = true
-		lrURL = "ws://" + bind + ":" + port + "/livereload"
+		lrURL = "ws://" + browserHost + ":" + port + "/livereload"
 	}
 
 	// Create hub if LiveReload enabled
@@ -57,26 +66,54 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start watcher if not disabled
+	// Start watcher if not disabled.
+	// BuildSite is not safe for concurrent calls (mutates package-level
+	// template/i18n state, writes to the same OutputDir). Serialize rebuilds:
+	// if a build is in flight, set rebuildPending so we do one trailing rebuild
+	// after the current one finishes — coalescing any burst of edits.
+	//
+	// Note: we deliberately do NOT clear OutputDir between rebuilds. Doing so
+	// would 404 every request during the multi-second rebuild window, which
+	// is worse than the rare stale-page-on-delete case we're trading away.
+	// Restart `huan serve` if you delete a lot of files and want them gone
+	// from the dev mirror.
+	var (
+		rebuildBusy   atomic.Bool
+		rebuildPended atomic.Bool
+	)
+	doRebuild := func() {
+		if !rebuildBusy.CompareAndSwap(false, true) {
+			// Already building; mark pending and let the in-flight build pick it up.
+			rebuildPended.Store(true)
+			return
+		}
+		for {
+			fmt.Println("[watch] change detected, rebuilding...")
+			start := time.Now()
+			if _, err := build.BuildSite(buildOpts); err != nil {
+				fmt.Printf("[watch] rebuild error: %v\n", err)
+				if hub != nil {
+					hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", err))
+				}
+				break
+			}
+			fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
+			if hub != nil {
+				hub.BroadcastReload()
+			}
+			if !rebuildPended.CompareAndSwap(true, false) {
+				break // no pending rebuild, exit loop
+			}
+			// Pending rebuild queued — loop and rebuild again.
+		}
+		rebuildBusy.Store(false)
+	}
+
 	if !disableWatch {
 		watcher, err := serve.NewWatcher(serve.WatcherOptions{
 			SourceDir: sourceDir,
 			Debounce:  debounce,
-			OnChange: func() {
-				fmt.Println("[watch] change detected, rebuilding...")
-				start := time.Now()
-				if _, err := build.BuildSite(buildOpts); err != nil {
-					fmt.Printf("[watch] rebuild error: %v\n", err)
-					if hub != nil {
-						hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", err))
-					}
-					return
-				}
-				fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
-				if hub != nil {
-					hub.BroadcastReload()
-				}
-				},
+			OnChange:  doRebuild,
 		})
 		if err != nil {
 			fmt.Printf("WARNING: file watcher unavailable: %v\n", err)
