@@ -170,7 +170,11 @@ func BuildSite(opts Options) (*Result, error) {
 	}
 
 	// 7. Build taxonomies
-	taxonomies := taxonomy.BuildAll(pages)
+	// Pass site.RegularPages (sorted via content.sortPagesDefault with the
+	// site's collator) rather than the raw scan-order `pages`, so taxonomy
+	// term members and the per-tag RSS items are emitted in the same order
+	// Hugo produces via its DefaultPageSort.
+	taxonomies := taxonomy.BuildAll(site.RegularPages)
 	taxCount := 0
 	if tax, ok := taxonomies["tags"]; ok {
 		taxCount = len(tax)
