@@ -24,7 +24,7 @@ Goal: pull the 370-line build core out of `cmd/huan/main.go` into a reusable pac
 - Create: `internal/build/summary.go`
 - Modify: `cmd/huan/main.go` (remove the 3 functions, add import)
 
-- [ ] **Step 1: Create the new file**
+- [x] **Step 1: Create the new file**
 
 Create `internal/build/summary.go` with this exact content (functions moved verbatim from `main.go`):
 
@@ -144,14 +144,14 @@ func CountWordsInPlain(s string) int {
 }
 ```
 
-- [ ] **Step 2: Delete the old functions from main.go**
+- [x] **Step 2: Delete the old functions from main.go**
 
 In `cmd/huan/main.go`, delete these three functions verbatim (currently at lines 540-648 per `grep -n "^func "`):
 - `truncateHTMLByWords`
 - `stripHTMLTagsForSummary`
 - `countWordsInPlain`
 
-- [ ] **Step 3: Update references in main.go**
+- [x] **Step 3: Update references in main.go**
 
 The old code at main.go:107-110 and 119-121 calls these. Update call sites:
 
@@ -161,17 +161,17 @@ Replace `truncateHTMLByWords(content, 120)` → `build.TruncateHTMLByWords(conte
 
 Add import: `"github.com/novel_ttl/huan/internal/build"` to main.go's import block.
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles cleanly, no errors.
 
-- [ ] **Step 5: Byte-for-byte regression check**
+- [x] **Step 5: Byte-for-byte regression check**
 
 Run: `./scripts/diff-build.sh`
 Expected: prints "No differences found" (or whatever the script's success message is). Zero differing files.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/build/summary.go cmd/huan/main.go
@@ -186,7 +186,7 @@ git commit -m "refactor: move HTML summary helpers to internal/build"
 - Create: `internal/build/context.go`
 - Modify: `cmd/huan/main.go` (remove ~9 functions, update references)
 
-- [ ] **Step 1: Create the new file**
+- [x] **Step 1: Create the new file**
 
 Create `internal/build/context.go`. Move these functions verbatim from `main.go`, renaming to exported (capital first letter):
 
@@ -225,11 +225,11 @@ Move each function body verbatim. The function bodies reference `tmpl` and `cont
 
 **Important:** the function bodies call each other (e.g., `buildTaxonomyContext` doesn't call others, but `cloneContextForPagination` references nothing external). Verify after the move by running `go vet ./...`. If there are intra-package calls (e.g., `urlEscape` called from `BuildTermContext`), update to the new exported name.
 
-- [ ] **Step 2: Delete the old functions from main.go**
+- [x] **Step 2: Delete the old functions from main.go**
 
 Remove all 11 functions listed above from `cmd/huan/main.go`. Keep their callers in `runBuild` intact — we'll update those next.
 
-- [ ] **Step 3: Update call sites in main.go**
+- [x] **Step 3: Update call sites in main.go**
 
 In `runBuild` (still in main.go until Task A3), every call to a moved function needs the `build.` prefix. Specifically:
 
@@ -247,17 +247,17 @@ In `runBuild` (still in main.go until Task A3), every call to a moved function n
 
 Add `net/url` removal if no other main.go code uses it (was only used by `urlEscape`).
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles cleanly.
 
-- [ ] **Step 5: Byte-for-byte regression check**
+- [x] **Step 5: Byte-for-byte regression check**
 
 Run: `./scripts/diff-build.sh`
 Expected: zero differences.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/build/context.go cmd/huan/main.go
@@ -272,7 +272,7 @@ git commit -m "refactor: move template/context helpers to internal/build"
 - Create: `internal/build/build.go`
 - Modify: `cmd/huan/main.go` — `runBuild` shrinks to ~10 lines
 
-- [ ] **Step 1: Create the new file with types**
+- [x] **Step 1: Create the new file with types**
 
 Create `internal/build/build.go`:
 
@@ -325,7 +325,7 @@ func (o *Options) logf() func(string, ...any) {
 }
 ```
 
-- [ ] **Step 2: Move `runBuild` body into `BuildSite`**
+- [x] **Step 2: Move `runBuild` body into `BuildSite`**
 
 Cut the entire body of `runBuild` in `cmd/huan/main.go` (from line 57 `cfg, err := config.Load(sourceDir)` through line 424 `return nil`), and paste it as the body of a new function in `internal/build/build.go`:
 
@@ -404,7 +404,7 @@ func BuildSite(opts Options) (*Result, error) {
 
 5. Drop the `fmt.Println("Build complete.")` standalone line — it's now in logf.
 
-- [ ] **Step 3: Replace `runBuild` in main.go**
+- [x] **Step 3: Replace `runBuild` in main.go**
 
 Replace the entire `runBuild` function in `cmd/huan/main.go` with:
 
@@ -426,7 +426,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 }
 ```
 
-- [ ] **Step 4: Add `-D/--buildDrafts` flag to build command**
+- [x] **Step 4: Add `-D/--buildDrafts` flag to build command**
 
 In `cmd/huan/main.go` where `buildCmd` is defined (around line 35-39), add the flag:
 
@@ -439,7 +439,7 @@ buildCmd := &cobra.Command{
 buildCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
 ```
 
-- [ ] **Step 5: Remove now-unused imports from main.go**
+- [x] **Step 5: Remove now-unused imports from main.go**
 
 `main.go` no longer directly uses many imports — they live in `internal/build/build.go` now. Remove unused imports. Likely to remove from main.go's import block:
 - `html/template`
@@ -457,12 +457,12 @@ Keep:
 
 After editing, run `goimports -w cmd/huan/main.go` if available, or manually fix imports by reading the compile errors.
 
-- [ ] **Step 6: Build**
+- [x] **Step 6: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles cleanly.
 
-- [ ] **Step 7: Byte-for-byte regression check**
+- [x] **Step 7: Byte-for-byte regression check**
 
 Run: `./scripts/diff-build.sh`
 Expected: zero differences.
@@ -471,7 +471,7 @@ If diff fails: re-read main.go at the lines where the body was cut. Common bug s
 - Forgot to convert some `sourceDir` reference
 - Drafts handling broke existing behavior (shouldn't, since `IncludeDrafts=false` matches old `if p.Draft { continue }`)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/build/build.go cmd/huan/main.go
@@ -482,22 +482,22 @@ git commit -m "refactor: extract BuildSite into internal/build"
 
 ### Task A4: Verify Phase A complete
 
-- [ ] **Step 1: Full test suite**
+- [x] **Step 1: Full test suite**
 
 Run: `go test ./...`
 Expected: PASS (no new tests, existing tests in pagination/shortcode/taxonomy/encrypt still green).
 
-- [ ] **Step 2: Final diff sanity check**
+- [x] **Step 2: Final diff sanity check**
 
 Run: `./scripts/diff-build.sh`
 Expected: zero differences vs Hugo baseline.
 
-- [ ] **Step 3: Manual smoke test of build**
+- [x] **Step 3: Manual smoke test of build**
 
 Run: `./huan build -s /Users/rong.zhu/Code/zhurongshuo`
 Expected: builds without errors; outputs to `docs/` directory; terminal output looks similar to before refactor.
 
-- [ ] **Step 4: main.go size check**
+- [x] **Step 4: main.go size check**
 
 Run: `wc -l cmd/huan/main.go`
 Expected: under 100 lines (was 858). The bulk is now in `internal/build/`.
@@ -513,7 +513,7 @@ No commit — this task is verification only.
 **Files:**
 - Modify: `go.mod`, `go.sum`
 
-- [ ] **Step 1: Add deps**
+- [x] **Step 1: Add deps**
 
 Run:
 ```bash
@@ -523,22 +523,22 @@ go get github.com/coder/websocket@v1.8.12
 
 (Use whatever the latest 1.8.x is at run time; v1.8.12 is the version known at plan-writing time.)
 
-- [ ] **Step 2: Verify go.mod**
+- [x] **Step 2: Verify go.mod**
 
 Run: `grep -E "fsnotify|coder/websocket" go.mod`
 Expected: both packages appear under `require`.
 
-- [ ] **Step 3: Tidy**
+- [x] **Step 3: Tidy**
 
 Run: `go mod tidy`
 Expected: no errors.
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `go build ./...`
 Expected: compiles. (The new deps aren't imported yet — that's fine.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add go.mod go.sum
@@ -557,7 +557,7 @@ Goal: get a minimal `huan serve` that builds once into a temp dir and serves ove
 - Create: `internal/serve/server.go`
 - Test: `internal/serve/server_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `internal/serve/server_test.go`:
 
@@ -679,12 +679,12 @@ func TestServerServesStaticFiles(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/serve/ -run TestServerServesStaticFiles -v`
 Expected: FAIL — `undefined: New`, `undefined: ServerOptions`, etc.
 
-- [ ] **Step 3: Write minimal server.go**
+- [x] **Step 3: Write minimal server.go**
 
 Create `internal/serve/server.go`:
 
@@ -763,12 +763,12 @@ func (s *Server) Run(ctx context.Context) error {
 
 Add the missing `time` import. (Editor's note: include `"time"` in the imports.)
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/serve/ -run TestServerServesStaticFiles -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/serve/server.go internal/serve/server_test.go
@@ -783,7 +783,7 @@ git commit -m "feat(serve): HTTP static file server skeleton"
 - Create: `cmd/huan/serve.go`
 - Modify: `cmd/huan/main.go` (remove stub `runServe`)
 
-- [ ] **Step 1: Create serve.go**
+- [x] **Step 1: Create serve.go**
 
 Create `cmd/huan/serve.go`:
 
@@ -844,11 +844,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 ```
 
-- [ ] **Step 2: Remove stub from main.go**
+- [x] **Step 2: Remove stub from main.go**
 
 In `cmd/huan/main.go`, delete the entire `runServe` function (lines 842-858 per spec).
 
-- [ ] **Step 3: Update serveCmd registration in main.go**
+- [x] **Step 3: Update serveCmd registration in main.go**
 
 The `serveCmd` already exists with `--port` flag (lines 41-49 of original main.go). Add `--bind` and `-D/--buildDrafts`:
 
@@ -858,12 +858,12 @@ serveCmd.Flags().String("bind", "127.0.0.1", "interface to bind")
 serveCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
 ```
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles.
 
-- [ ] **Step 5: Manual smoke test**
+- [x] **Step 5: Manual smoke test**
 
 Run in one terminal:
 ```bash
@@ -879,7 +879,7 @@ Expected: HTML head of the site.
 
 Ctrl+C in the first terminal: process exits, temp dir cleaned up (verify with `ls /var/folders/*/T/huan-serve-* 2>/dev/null` returning nothing).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmd/huan/serve.go cmd/huan/main.go
@@ -896,7 +896,7 @@ git commit -m "feat(serve): wire build + HTTP serve (no watch yet)"
 - Create: `internal/serve/livereload.js`
 - Create: `internal/serve/embed.go`
 
-- [ ] **Step 1: Fetch the file**
+- [x] **Step 1: Fetch the file**
 
 Run:
 ```bash
@@ -907,12 +907,12 @@ curl -fsSL -o livereload.js \
 
 (Use v4.1.0 or whatever the latest v4.x tag is — check `git ls-remote --tags https://github.com/livereload/livereload-js` first.)
 
-- [ ] **Step 2: Compute SHA256**
+- [x] **Step 2: Compute SHA256**
 
 Run: `shasum -a 256 livereload.js`
 Record the hash for the file header comment.
 
-- [ ] **Step 3: Prepend header comment**
+- [x] **Step 3: Prepend header comment**
 
 Add at the very top of `internal/serve/livereload.js`:
 
@@ -925,7 +925,7 @@ Add at the very top of `internal/serve/livereload.js`:
 
 Then the original file contents follow.
 
-- [ ] **Step 4: Create embed.go**
+- [x] **Step 4: Create embed.go**
 
 Create `internal/serve/embed.go`:
 
@@ -938,12 +938,12 @@ import _ "embed"
 var livereloadJS []byte
 ```
 
-- [ ] **Step 5: Build**
+- [x] **Step 5: Build**
 
 Run: `go build ./...`
 Expected: compiles.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/serve/livereload.js internal/serve/embed.go
@@ -958,7 +958,7 @@ git commit -m "feat(serve): vendor livereload.js v4"
 - Modify: `internal/serve/server.go`
 - Test: `internal/serve/server_test.go` (append)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `internal/serve/server_test.go`:
 
@@ -1000,12 +1000,12 @@ func TestServerServesLivereloadJS(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test, verify FAIL**
+- [x] **Step 2: Run test, verify FAIL**
 
 Run: `go test ./internal/serve/ -run TestServerServesLivereloadJS -v`
 Expected: FAIL — 404 for `/livereload.js`.
 
-- [ ] **Step 3: Add route in server.go**
+- [x] **Step 3: Add route in server.go**
 
 In `internal/serve/server.go`, modify the `Run` method's mux setup:
 
@@ -1019,12 +1019,12 @@ mux.HandleFunc("/livereload.js", func(w http.ResponseWriter, r *http.Request) {
 mux.Handle("/", http.FileServer(http.Dir(s.opts.OutputDir)))
 ```
 
-- [ ] **Step 4: Run test, verify PASS**
+- [x] **Step 4: Run test, verify PASS**
 
 Run: `go test ./internal/serve/ -run TestServerServesLivereloadJS -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/serve/server.go internal/serve/server_test.go
@@ -1041,7 +1041,7 @@ git commit -m "feat(serve): route /livereload.js"
 - Modify: `internal/build/build.go`
 - Test: `internal/build/build_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `internal/build/build_test.go`:
 
@@ -1120,12 +1120,12 @@ params:
 
 Note: if the fixture is too minimal to build (templates missing), expand it — copy minimal theme templates from a fixture dir. The point of this test is **verifying injection happened**, not exercising the full build pipeline. If the fixture is too painful to construct, switch to an integration test that uses the real zhurongshuo project — see Task K1.
 
-- [ ] **Step 2: Run test, verify FAIL**
+- [x] **Step 2: Run test, verify FAIL**
 
 Run: `go test ./internal/build/ -run TestBuildSiteInjectsLiveReload -v`
 Expected: FAIL — script tag not in output.
 
-- [ ] **Step 3: Implement injection**
+- [x] **Step 3: Implement injection**
 
 In `internal/build/build.go`, find the page-rendering loop. After each HTML render (around the existing `html, err := renderer.Render(tmplName, ctx)`), add injection:
 
@@ -1187,17 +1187,17 @@ func hostFromURL(wsURL string) string {
 }
 ```
 
-- [ ] **Step 4: Run test, verify PASS**
+- [x] **Step 4: Run test, verify PASS**
 
 Run: `go test ./internal/build/ -run TestBuildSiteInjectsLiveReload -v`
 Expected: PASS.
 
-- [ ] **Step 5: Verify no regression on normal build**
+- [x] **Step 5: Verify no regression on normal build**
 
 Run: `./scripts/diff-build.sh`
 Expected: zero differences (the build command does not set InjectLiveReload).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/build/build.go internal/build/build_test.go
@@ -1211,7 +1211,7 @@ git commit -m "feat(build): inject livereload script when InjectLiveReload=true"
 **Files:**
 - Modify: `cmd/huan/serve.go`
 
-- [ ] **Step 1: Update BuildSite call in serve.go**
+- [x] **Step 1: Update BuildSite call in serve.go**
 
 In `cmd/huan/serve.go`, change the BuildSite call to include LiveReload options:
 
@@ -1241,18 +1241,18 @@ Also add `--disableLiveReload` flag registration in main.go's serveCmd setup:
 serveCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles.
 
-- [ ] **Step 3: Manual smoke test**
+- [x] **Step 3: Manual smoke test**
 
 Run: `./huan serve -s /Users/rong.zhu/Code/zhurongshuo`
 In another terminal: `curl -s http://127.0.0.1:1313/ | grep livereload`
 Expected: shows the injected script tag.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add cmd/huan/serve.go cmd/huan/main.go
@@ -1269,7 +1269,7 @@ git commit -m "feat(serve): pass LiveReload options to BuildSite"
 - Create: `internal/serve/watcher.go`
 - Test: `internal/serve/watcher_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `internal/serve/watcher_test.go`:
 
@@ -1364,12 +1364,12 @@ func TestWatcherDebouncesBursts(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test, verify FAIL**
+- [x] **Step 2: Run test, verify FAIL**
 
 Run: `go test ./internal/serve/ -run TestWatcher -v`
 Expected: FAIL — `undefined: NewWatcher`.
 
-- [ ] **Step 3: Implement watcher.go**
+- [x] **Step 3: Implement watcher.go**
 
 Create `internal/serve/watcher.go`:
 
@@ -1491,14 +1491,14 @@ func (w *Watcher) schedule() {
 
 Add `"os"` to the imports (needed for `os.FileInfo` and `os.Stat`).
 
-- [ ] **Step 4: Run tests, verify PASS**
+- [x] **Step 4: Run tests, verify PASS**
 
 Run: `go test ./internal/serve/ -run TestWatcher -v`
 Expected: both tests PASS.
 
 If flaky on CI: bump the test sleep durations — fsnotify on macOS can be slow to deliver events.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/serve/watcher.go internal/serve/watcher_test.go
@@ -1513,7 +1513,7 @@ git commit -m "feat(serve): recursive fsnotify watcher with debounce"
 - Modify: `cmd/huan/serve.go`
 - Modify: `cmd/huan/main.go` (add `--debounce`, `--disableWatch` flags)
 
-- [ ] **Step 1: Update serve.go to start watcher**
+- [x] **Step 1: Update serve.go to start watcher**
 
 In `cmd/huan/serve.go`, after BuildSite, add watcher setup:
 
@@ -1566,7 +1566,7 @@ return srv.Run(ctx)
 
 Note: the OnChange closure references `injectLR` and `lrURL` from E2's edits. If those variable names differ in your serve.go, adjust.
 
-- [ ] **Step 2: Add CLI flags**
+- [x] **Step 2: Add CLI flags**
 
 In `cmd/huan/main.go` where serveCmd is configured:
 
@@ -1577,18 +1577,18 @@ serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 
 Add `"time"` import to main.go.
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles.
 
-- [ ] **Step 4: Manual smoke test**
+- [x] **Step 4: Manual smoke test**
 
 Run: `./huan serve -s /Users/rong.zhu/Code/zhurongshuo`
 In another terminal: `echo "test" >> /Users/rong.zhu/Code/zhurongshuo/content/posts/sample.md` (create or pick any existing md file)
 Expected: terminal prints `[watch] change detected, rebuilding...` then `[watch] rebuild complete`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cmd/huan/serve.go cmd/huan/main.go
@@ -1605,7 +1605,7 @@ git commit -m "feat(serve): wire file watcher to trigger rebuild"
 - Create: `internal/serve/livereload.go`
 - Test: `internal/serve/livereload_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `internal/serve/livereload_test.go`:
 
@@ -1698,12 +1698,12 @@ func httpServeWS(ctx context.Context, ln net.Listener, hub *LiveReloadHub) error
 
 Add imports: `"net"`, `"net/http"`, `"strings"`.
 
-- [ ] **Step 2: Run test, verify FAIL**
+- [x] **Step 2: Run test, verify FAIL**
 
 Run: `go test ./internal/serve/ -run TestLiveReloadHub -v`
 Expected: FAIL — `undefined: NewHub`, etc.
 
-- [ ] **Step 3: Implement livereload.go**
+- [x] **Step 3: Implement livereload.go**
 
 Create `internal/serve/livereload.go`:
 
@@ -1825,12 +1825,12 @@ func (h *LiveReloadHub) AcceptHTTP(w http.ResponseWriter, r *http.Request) {
 
 (If `fmt` isn't otherwise used in this file, drop the import and the dummy line. The Go compiler will tell you.)
 
-- [ ] **Step 4: Run test, verify PASS**
+- [x] **Step 4: Run test, verify PASS**
 
 Run: `go test ./internal/serve/ -run TestLiveReloadHub -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/serve/livereload.go internal/serve/livereload_test.go
@@ -1845,7 +1845,7 @@ git commit -m "feat(serve): LiveReload WebSocket hub with hello/reload/alert"
 - Modify: `internal/serve/server.go`
 - Modify: `cmd/huan/serve.go` (call BroadcastReload after rebuild)
 
-- [ ] **Step 1: Add hub field to Server**
+- [x] **Step 1: Add hub field to Server**
 
 In `internal/serve/server.go`, modify `ServerOptions` and `Server`:
 
@@ -1889,7 +1889,7 @@ if s.hub != nil {
 mux.Handle("/", http.FileServer(http.Dir(s.opts.OutputDir)))
 ```
 
-- [ ] **Step 2: Update serve.go to construct hub**
+- [x] **Step 2: Update serve.go to construct hub**
 
 In `cmd/huan/serve.go`, create hub and wire to server + rebuild callback:
 
@@ -1917,12 +1917,12 @@ srv := serve.New(serve.ServerOptions{
 })
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles.
 
-- [ ] **Step 4: Manual smoke test (full LiveReload path)**
+- [x] **Step 4: Manual smoke test (full LiveReload path)**
 
 Run: `./huan serve -s /Users/rong.zhu/Code/zhurongshuo`
 Open browser to `http://localhost:1313/`. Open dev tools Network tab. Confirm `livereload.js` loads and a WS connection to `/livereload` opens.
@@ -1930,7 +1930,7 @@ Open browser to `http://localhost:1313/`. Open dev tools Network tab. Confirm `l
 Edit any markdown file under `/Users/rong.zhu/Code/zhurongshuo/content/` and save.
 Expected: browser auto-refreshes within ~1s.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/serve/server.go cmd/huan/serve.go
@@ -1946,7 +1946,7 @@ git commit -m "feat(serve): wire /livereload WS route and broadcast on rebuild"
 **Files:**
 - Modify: `cmd/huan/serve.go`
 
-- [ ] **Step 1: Update OnChange callback**
+- [x] **Step 1: Update OnChange callback**
 
 In `cmd/huan/serve.go`, the OnChange callback already catches the build error. Add an alert broadcast:
 
@@ -1969,17 +1969,17 @@ OnChange: func() {
 },
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `go build -o huan ./cmd/huan`
 Expected: compiles.
 
-- [ ] **Step 3: Manual smoke test**
+- [x] **Step 3: Manual smoke test**
 
 Run `./huan serve -s /Users/rong.zhu/Code/zhurongshuo`. Edit a markdown file to introduce invalid frontmatter (e.g., add a stray `:` to the YAML). Save.
 Expected: terminal shows error; browser shows alert popup. Fix the file, save again → browser reloads normally.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add cmd/huan/serve.go
@@ -1995,7 +1995,7 @@ git commit -m "feat(serve): broadcast alert on rebuild error"
 **Files:**
 - Modify: `internal/serve/server.go`
 
-- [ ] **Step 1: Update Run to surface port conflict**
+- [x] **Step 1: Update Run to surface port conflict**
 
 In `internal/serve/server.go`'s `Run`, the `net.Listen` call already returns an error on conflict. Improve the error wrapping:
 
@@ -2013,7 +2013,7 @@ if err != nil {
 
 (`errors` and `net` already imported.)
 
-- [ ] **Step 2: Test manually**
+- [x] **Step 2: Test manually**
 
 Run two terminals:
 ```bash
@@ -2022,7 +2022,7 @@ Run two terminals:
 ```
 Expected: terminal 2 prints `ERROR: port 1313 already in use on 127.0.0.1 (try --port <other>): ...` and exits non-zero. Terminal 1 keeps running.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/serve/server.go
@@ -2038,7 +2038,7 @@ git commit -m "feat(serve): friendly error on port conflict"
 **Files:**
 - Create: `internal/serve/e2e_test.go`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 Create `internal/serve/e2e_test.go`:
 
@@ -2174,12 +2174,12 @@ params:
 
 **Note:** If the fixture is too minimal and BuildSite fails to render due to missing theme/templates, expand `mustWriteServeFixture` with more layouts. The test exists to verify wiring — adjust as needed.
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run: `go test ./internal/serve/ -run TestE2E -v`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/serve/e2e_test.go
@@ -2192,17 +2192,17 @@ git commit -m "test(serve): end-to-end build + serve + livereload"
 
 ### Task K1: Acceptance checklist
 
-- [ ] **Step 1: Full test suite**
+- [x] **Step 1: Full test suite**
 
 Run: `go test ./...`
 Expected: all PASS.
 
-- [ ] **Step 2: Hugo parity regression**
+- [x] **Step 2: Hugo parity regression**
 
 Run: `./scripts/diff-build.sh`
 Expected: zero differences.
 
-- [ ] **Step 3: Manual end-to-end against real project**
+- [x] **Step 3: Manual end-to-end against real project**
 
 ```bash
 ./huan serve -s /Users/rong.zhu/Code/zhurongshuo
@@ -2215,7 +2215,7 @@ Open `http://localhost:1313/` in a browser. Verify:
 - Editing `huan.yaml` causes refresh
 - Ctrl+C cleans up (no orphan processes; temp dir gone)
 
-- [ ] **Step 4: Verify flags**
+- [x] **Step 4: Verify flags**
 
 Test each flag:
 - `--port 8080` serves on 8080
@@ -2225,12 +2225,12 @@ Test each flag:
 - `--disableWatch` serves without rebuilding on file change
 - `--debounce 1s` makes rebuild wait 1s after last change
 
-- [ ] **Step 5: main.go size final check**
+- [x] **Step 5: main.go size final check**
 
 Run: `wc -l cmd/huan/main.go`
 Expected: under 80 lines.
 
-- [ ] **Step 6: No commit**
+- [x] **Step 6: No commit**
 
 This is verification only. The feature is complete.
 
