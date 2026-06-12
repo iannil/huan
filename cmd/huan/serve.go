@@ -28,7 +28,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		browserHost = "localhost"
 	}
 
-	// LiveReload URL options
+	// LiveReload URL options + dev baseURL.
+	// Override cfg.BaseURL so in-site links (canonify, permalinks, RSS,
+	// sitemap) point at the dev server instead of the production domain.
+	devBaseURL := "http://" + browserHost + ":" + port + "/"
 	lrURL := ""
 	injectLR := false
 	if !disableLR {
@@ -56,6 +59,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		IncludeDrafts:    includeDrafts,
 		InjectLiveReload: injectLR,
 		LiveReloadURL:    lrURL,
+		BaseURLOverride:  devBaseURL,
 		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
 	}
 

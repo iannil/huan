@@ -27,6 +27,7 @@ type Options struct {
 	IncludeDrafts    bool
 	InjectLiveReload bool   // serve-only; when true, LiveReloadURL must be set (Task E1 will use this)
 	LiveReloadURL    string // empty disables injection
+	BaseURLOverride  string // serve-only; when non-empty, overrides cfg.BaseURL so in-site links point to the dev server
 	Logf             func(format string, args ...any)
 }
 
@@ -56,6 +57,13 @@ func BuildSite(opts Options) (*Result, error) {
 	cfg, err := config.Load(opts.SourceDir)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+
+	// serve mode overrides cfg.BaseURL so all in-site absolute URLs (canonify,
+	// permalinks, RSS, sitemap, OG metadata) point at the dev server instead
+	// of the production domain. Empty = use cfg.BaseURL as-is (production build).
+	if opts.BaseURLOverride != "" {
+		cfg.BaseURL = opts.BaseURLOverride
 	}
 
 	logf("Building site: %s\n", cfg.Title)
