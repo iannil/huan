@@ -18,7 +18,7 @@
 - **huan** = Go 静态站点生成器，阶段一目标：替代 Hugo 构建 zhurongshuo.com，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) 与 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
 - 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前仍由 Hugo 构建
 - 当前分支：`master`；阶段一里程碑 1–9 已全部落地（详见 [`docs/progress/CURRENT_STATE.md`](../docs/progress/CURRENT_STATE.md)）
-- `huan build` 与 Hugo 一致率：905/2028 共有文件完全相同（44.5%），剩余 5 类边缘差异
+- `huan build` 与 Hugo byte-diff 一致率：905/2028 共有文件完全相同（44.6%，噪声 ±75，详见经验教训），剩余 5 类差异已按三维度尺子重新归类（详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)）
 - `huan serve`（HTTP + fsnotify + LiveReload）已于 2026-06-12 完成，17 commits 落地
 - 仓库整洁度：无 TODO/FIXME 标记，无 backup/tmp/CI/Makefile；`pkg/` 与 `internal/{pipeline,plugin,search}/` 已删除（stage 2 时再建）
 
@@ -27,7 +27,7 @@
 - 模板引擎阶段一用 `html/template`，阶段二可插件替换
 - Markdown 用 goldmark（与 Hugo 同源库）
 - 配置格式 `huan.yaml`（YAML），非 drop-in 替换 Hugo
-- 验证方式：`./scripts/diff-build.sh` 逐字节对比 Hugo 输出，**零回归才允许合并**
+- 验证方式：`./scripts/diff-build.sh` 多模式对比（byte 雷达 + normalized / seo / ai 三维度门禁），三维度任一失败则阻断合并
 - 插件架构阶段一**只预留文档**（接口未落地，连占位空目录都已删除），stage 2 增量扩展
 - 加密密文仍由外部 Node.js `scripts/encrypt-content.js` 生成，huan 只负责读取与嵌入
 - serve 模式用临时目录 `os.MkdirTemp("", "huan-serve-*")`，绝不污染 `docs/` 生产输出

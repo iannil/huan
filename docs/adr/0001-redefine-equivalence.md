@@ -47,7 +47,7 @@ stage 1 范畴内允许两种「更好」：
 | # | 差异 | 归类 | 处理 |
 |---|---|---|---|
 | 1 | 字数统计精度 | 必修 | Port Hugo WordCount 算法（覆盖 unicode.Is(unicode.Han) 全范围 + 假名 + 韩文 + 全角符号） |
-| 2 | RSS items 顺序 | 应修 | `sortPagesByDateDesc` 加 tiebreaker（date desc → title asc → path asc） |
+| 2 | RSS items 顺序 | 应修 | `sortPagesByDateDesc` 加 tiebreaker（date desc → lower(title) asc → relpath asc） |
 | 3 | RSS description 截断 | 应修 | `TruncateHTMLByWords` 改为 word-boundary 截断 |
 | 4 | products summary 换行 | 接受 | 永久差异（渲染等价），登记在 `docs/standards/equivalence.md` |
 | 5 | general summary 截断 | 应修 | 与 #3 在 summary 后处理统一 |
