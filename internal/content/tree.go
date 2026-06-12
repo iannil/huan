@@ -54,6 +54,56 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		}
 	}
 
+	// Hugo auto-creates a section page for every top-level content directory,
+	// even when no _index.md is present. huan must do the same BEFORE parent
+	// assignment so that pages nested under that directory (e.g.
+	// posts/2026/05/2601.md) can find their section via the directory walk.
+	// Without this, zhurongshuo's posts/ (no _index.md, organized as
+	// year/month/day subdirs) would have no section page, and all its pages
+	// would be parentless orphans — leaving posts/.RegularPagesRecursive empty.
+	//
+	// Skip leaf bundles: a directory with only an index.md (no _index.md and
+	// no other content) is a leaf bundle, not a section.
+	topLevelDirs := map[string]bool{}
+	for _, p := range pages {
+		if p.Kind == "page" {
+			parts := strings.Split(filepath.ToSlash(p.RelPath), "/")
+			if len(parts) > 1 {
+				topLevelDirs[parts[0]] = true
+			}
+		}
+	}
+	for dir := range topLevelDirs {
+		if _, exists := sectionMap[dir]; exists {
+			continue // a section page (with _index.md) already covers this dir
+		}
+		// Check if this dir is a leaf bundle (only has index.md, no other pages)
+		hasOtherContent := false
+		for _, p := range pages {
+			parts := strings.Split(filepath.ToSlash(p.RelPath), "/")
+			if len(parts) > 1 && parts[0] == dir {
+				base := parts[len(parts)-1]
+				if base != "index.md" {
+					hasOtherContent = true
+					break
+				}
+			}
+		}
+		if !hasOtherContent {
+			continue // skip creating section for leaf bundle
+		}
+		sectionPage := &Page{
+			Title:   dir,
+			Kind:    "section",
+			Section: dir,
+			URL:     "/" + dir + "/",
+			RelPath: dir + "/_index.md",
+		}
+		computePageMeta(sectionPage)
+		sectionMap[dir] = sectionPage
+		pages = append(pages, sectionPage)
+	}
+
 	// Assign parents and children
 	for _, p := range pages {
 		if p.Kind == "home" {
@@ -213,61 +263,6 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 		}
 		homePage.RegularPagesRecursive = site.RegularPages
 		site.Pages = append([]*Page{homePage}, site.Pages...)
-	}
-
-	// Ensure section pages exist for every top-level content directory, even
-	// when no _index.md is present (Hugo auto-creates section pages).
-	// Skip directories that are leaf bundles (have an index.md but no _index.md
-	// and no other content beneath them).
-	topLevelDirs := map[string]bool{}
-	for _, p := range pages {
-		if p.Kind == "page" {
-			parts := strings.Split(filepath.ToSlash(p.RelPath), "/")
-			if len(parts) > 1 {
-				topLevelDirs[parts[0]] = true
-			}
-		}
-	}
-	for dir := range topLevelDirs {
-		// Skip if a section page already exists for this top-level dir
-		found := false
-		for _, p := range site.Pages {
-			if p.Kind == "section" && p.Section == dir {
-				found = true
-				break
-			}
-		}
-		if found {
-			continue
-		}
-
-		// Check if this dir is a leaf bundle (only has index.md, no other pages)
-		isLeafBundle := true
-		hasOtherContent := false
-		for _, p := range pages {
-			parts := strings.Split(filepath.ToSlash(p.RelPath), "/")
-			if len(parts) > 1 && parts[0] == dir {
-				base := parts[len(parts)-1]
-				if base == "index.md" {
-					// OK
-				} else {
-					hasOtherContent = true
-				}
-			}
-		}
-		if isLeafBundle && !hasOtherContent {
-			continue // skip creating section for leaf bundle
-		}
-
-		sectionPage := &Page{
-			Title:   dir,
-			Kind:    "section",
-			Section: dir,
-			URL:     "/" + dir + "/",
-			RelPath: dir + "/_index.md",
-		}
-		site.Pages = append(site.Pages, sectionPage)
-		site.Sections[dir] = sectionPage
 	}
 
 	// Build section map

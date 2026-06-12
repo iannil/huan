@@ -431,7 +431,18 @@ func LinkPageRelationships(ctx *Context, p *content.Page, lookup map[*content.Pa
 			ctx.Pages = append(ctx.Pages, c)
 		}
 	}
-	for _, child := range p.RegularPages {
+	// Hugo's .RegularPages in section/home context is recursive: it includes
+	// every regular page beneath the section (including those in nested
+	// subsections). zhurongshuo's posts/ is organized by year/month/day
+	// subdirs, so the section's direct children are subsections — p.RegularPages
+	// would be empty. For section/home, wire ctx.RegularPages from
+	// p.RegularPagesRecursive. For regular pages, p.RegularPages stays as-is
+	// (empty, matching Hugo's per-page .RegularPages).
+	regularPagesSrc := p.RegularPages
+	if p.Kind == "section" || p.Kind == "home" {
+		regularPagesSrc = p.RegularPagesRecursive
+	}
+	for _, child := range regularPagesSrc {
 		if c, ok := lookup[child]; ok {
 			ctx.RegularPages = append(ctx.RegularPages, c)
 		}
