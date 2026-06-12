@@ -77,6 +77,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 				start := time.Now()
 				if _, err := build.BuildSite(buildOpts); err != nil {
 					fmt.Printf("[watch] rebuild error: %v\n", err)
+					if hub != nil {
+						hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", err))
+					}
 					return
 				}
 				fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
