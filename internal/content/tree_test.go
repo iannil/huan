@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/i18n"
 )
 
@@ -163,5 +164,74 @@ func TestSortPagesDefault_RealWorldZhurongshuoChapters(t *testing.T) {
 			t.Errorf("zhurongshuo chapters pos %d:\n  got:  %q\n  want: %q\nfull got: %v", i, got[i], w, got)
 			break
 		}
+	}
+}
+
+func TestBuildTree_FiltersBuildListNever(t *testing.T) {
+	// Pages with Build.List == "never" should NOT appear in site.RegularPages.
+	now := time.Now()
+	pages := []*Page{
+		{Title: "Visible", RelPath: "posts/a.md", Kind: "page", DateParsed: now, Section: "posts"},
+		{Title: "Hidden", RelPath: "posts/b.md", Kind: "page", DateParsed: now, Section: "posts",
+			Build: config.BuildConfig{List: "never"}},
+		{Title: "Also Visible", RelPath: "posts/c.md", Kind: "page", DateParsed: now, Section: "posts"},
+	}
+	cfg := &config.Config{LanguageCode: "en"}
+	site, err := BuildTree(pages, cfg, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := pageTitles(site.RegularPages)
+	want := []string{"Visible", "Also Visible"}
+	if len(titles) != len(want) {
+		t.Fatalf("expected %d regular pages, got %d: %v", len(want), len(titles), titles)
+	}
+	for i, w := range want {
+		if i >= len(titles) || titles[i] != w {
+			t.Errorf("pos %d: got %v, want %v", i, titles, want)
+			break
+		}
+	}
+}
+
+func TestBuildTree_InheritsCascadeListNever(t *testing.T) {
+	// Child page in section whose _index.md has cascade.build.list=never
+	// should be filtered from site.RegularPages.
+	now := time.Now()
+	section := &Page{
+		Title:      "Hidden Section",
+		RelPath:    "hidden/_index.md",
+		Kind:       "section",
+		Section:    "hidden",
+		DateParsed: now,
+		Cascade: config.CascadeConfig{
+			Build: config.BuildConfig{List: "never"},
+		},
+	}
+	child := &Page{
+		Title:      "Hidden Child",
+		RelPath:    "hidden/page.md",
+		Kind:       "page",
+		Section:    "hidden",
+		DateParsed: now,
+		// Child doesn't set Build.List — should inherit "never" from section cascade.
+	}
+	visible := &Page{
+		Title:      "Visible",
+		RelPath:    "posts/a.md",
+		Kind:       "page",
+		Section:    "posts",
+		DateParsed: now,
+	}
+	pages := []*Page{section, child, visible}
+	cfg := &config.Config{LanguageCode: "en"}
+	site, err := BuildTree(pages, cfg, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := pageTitles(site.RegularPages)
+	// Should only contain "Visible"; "Hidden Child" excluded via inherited cascade.
+	if len(titles) != 1 || titles[0] != "Visible" {
+		t.Errorf("expected only [Visible], got %v", titles)
 	}
 }
