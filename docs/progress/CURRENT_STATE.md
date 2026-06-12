@@ -17,48 +17,42 @@
 | 8. 验证 + 修正（Hugo diff 管线） | ✅ | `scripts/diff-*.sh` |
 | 9. 开发服务器（serve） | ✅ | `internal/serve`（17 commits，2026-06-12 完成） |
 
-**Hugo 输出一致性快照**（来自 `technical-plan.md` 第 8.2 节，作为基线参考）：
+**Hugo 输出一致性快照**（带 ±75 文件噪声，详见经验教训）：
 - Hugo 总文件数：2029  ·  huan 总文件数：2036
-- 共有文件：2028  ·  完全一致：905（44.5%）
-- 仅 Hugo（缺失）：0  ·  仅 huan（多余）：8
-- 内容差异：1124（含上方"剩余差异"5 类的批量影响）
+- byte-diff：约 905 完全一致 / 1124 差异（噪声 ±75）
+- **新等价标准**：以 [`docs/standards/equivalence.md`](../standards/equivalence.md) 为准，byte-diff 仅作雷达
 
 ---
 
 ## 当前活跃工作
 
-无。`huan serve` 已于 2026-06-12 收尾，下一步方向待用户决定（见下方"待办"）。
+三维度等价标准落地（ADR 0001）：详见 [`docs/superpowers/plans/2026-06-12-redefine-equivalence.md`](../superpowers/plans/2026-06-12-redefine-equivalence.md)。
 
 ---
 
-## 待办 — 剩余 Hugo 兼容差异
+## 待办 — 剩余差异（按三维度归类，2026-06-12 重新评估）
 
-这 5 类是 stage 1 阶段允许保留的边缘差异（详见 `docs/technical-plan.md` 第 8.4 节）。修复任一项需配套新增 diff 用例。
+详见 [ADR 0001](../adr/0001-redefine-equivalence.md) 与 [`docs/standards/equivalence.md`](../standards/equivalence.md)。
 
-1. **字数统计精度**
-   - 现象：Hugo 用专门 CJK word segmenter（基于 dictionary），huan 用简单字符计数，差距约 25%
-   - 影响范围：列表页 `WordCount` / `ReadingTime` / 摘要的 FuzzySummary 字段
-   - 建议方向：引入分词库或对齐 Hugo 算法；先评估收益（这些字段是否影响 zhurongshuo 实际页面）
+1. **字数统计精度** → **必修**（books/practices 列表页「约 X 万字」肉眼可见，huan 12.0 vs Hugo 15.5）
+   - 处理：Port Hugo WordCount 算法（覆盖 `unicode.Is(unicode.Han/Hiragana/Katakana/Hangul)` + 全角符号）
+   - 影响：`internal/build/summary.go:CountWordsInPlain`
 
-2. **RSS items 顺序**
-   - 现象：Hugo 内部多字段排序（date desc → LinkTitle asc → path asc），date 相同时顺序不稳定
-   - 影响范围：所有 RSS 文件
-   - 建议方向：在 `internal/output` 的 RSS 生成路径补一个稳定 tiebreaker
+2. **RSS items 顺序** → **应修**
+   - 处理：`sortPagesByDateDesc` 加 tiebreaker（date desc → lower(title) asc → relpath asc）
+   - 影响：`internal/content/tree.go:311`
 
-3. **RSS item description 截断**
-   - 现象：Hugo summary 在 word 边界截断，huan 在 `</p>` 边界截断
-   - 影响范围：RSS 文件
-   - 建议方向：复用 `internal/build/summary.go` 的 word-boundary 逻辑
+3. **RSS item description 截断** → **应修**
+   - 处理：`TruncateHTMLByWords` 改为 word-boundary 截断
+   - 影响：`internal/build/summary.go:9`
 
-4. **products page description 换行**
-   - 现象：summary 中 block-level 换行（`</h2>\n<p>`）Hugo 转为空格，huan 保留换行
-   - 影响范围：products 列表页
-   - 建议方向：在 summary 后处理增加 block-level whitespace 折叠
+4. **products page description 换行** → **接受**为永久差异
+   - 原因：`</h2>\n<p>` 与 `</h2> <p>` 浏览器渲染等价
+   - 已登记于 `docs/standards/equivalence.md` §4
 
-5. **general page summary 截断位置**
-   - 现象：summary 截断位置与 Hugo 略有不同
-   - 影响范围：general section 页面
-   - 建议方向：与 (3)(4) 一起在 summary 后处理中统一对齐
+5. **general page summary 截断位置** → **应修**
+   - 处理：与 (3) 在 `TruncateHTMLByWords` 统一
+   - 影响：`internal/build/summary.go:9`
 
 ---
 
