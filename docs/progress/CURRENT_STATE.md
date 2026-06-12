@@ -48,7 +48,7 @@ stage 1 收尾跑 diff-build.sh 时发现的、超出原 5 类的差异。优先
 
 1. **meta description / og:description / JSON-LD 多段落 summary 换行压缩**（中优先级，影响 SEO 维度）
    - 现象：huan 把 summary 压成单行，Hugo 保留段落换行
-   - 影响：影响约 N 个文件的 SEO 字段对比
+   - 影响：影响约 983 个文件的 SEO 字段对比（来自最新 diff-build.sh 运行，mode=seo differing=983，含 ±75 噪声）
    - 方向：在 summary 后处理时保留块级换行
 2. **RSS items 数量差**（低优先级，影响 normalized 维度）
    - 现象：huan home RSS 多 1 个 item（11 vs Hugo 10）
@@ -60,8 +60,6 @@ stage 1 收尾跑 diff-build.sh 时发现的、超出原 5 类的差异。优先
 ---
 
 ## Stage 2 待新增（架构层）
-
-下列目录与能力属于 stage 2 范围，stage 1 期间**未保留任何占位代码**（避免空目录垃圾）。启动 stage 2 时按 `docs/technical-plan.md` 第 4.11 节定义从零创建。
 
 下列目录与能力属于 stage 2 范围，stage 1 期间**未保留任何占位代码**（避免空目录垃圾）。启动 stage 2 时按 `docs/technical-plan.md` 第 4.11 节定义从零创建。
 
