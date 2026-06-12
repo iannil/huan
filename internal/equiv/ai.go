@@ -8,7 +8,7 @@ import (
 
 // AIFields is the set of HTML fields that affect LLM crawler friendliness.
 type AIFields struct {
-	MainText string          // innerText of <main> or <article>
+	MainText string          // innerText of <main>; pages without <main> yield empty (zhurongshuo templates use <main> so this is sufficient)
 	Outline  []Heading       // h1-h6 in document order
 	JSONLD   []string        // same content as SEOFields.JSONLD
 	Semantic map[string]bool // which semantic elements are present

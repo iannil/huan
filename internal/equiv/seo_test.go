@@ -54,3 +54,16 @@ func TestSEOFields_EqualWhenMatching(t *testing.T) {
 		t.Errorf("expected not equal (title differs)")
 	}
 }
+
+func TestExtractSEO_FoldsTitleAndHeadingWhitespace(t *testing.T) {
+	htmlSrc := `<html><head><title>Hello
+	World</title></head><body><h1>Section
+	One</h1></body></html>`
+	got := ExtractSEO(htmlSrc)
+	if got.Title != "Hello World" {
+		t.Errorf("Title whitespace not folded: got %q", got.Title)
+	}
+	if len(got.Headings) != 1 || got.Headings[0].Text != "Section One" {
+		t.Errorf("Heading whitespace not folded: got %+v", got.Headings)
+	}
+}

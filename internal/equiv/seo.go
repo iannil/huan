@@ -65,7 +65,7 @@ func walkSEO(n *html.Node, out *SEOFields) {
 	if n.Type == html.ElementNode {
 		switch strings.ToLower(n.Data) {
 		case "title":
-			out.Title = textOf(n)
+			out.Title = collapseWS(textOf(n))
 		case "meta":
 			extractMeta(n, out)
 		case "link":
@@ -74,7 +74,7 @@ func walkSEO(n *html.Node, out *SEOFields) {
 			}
 		case "h1", "h2", "h3", "h4", "h5", "h6":
 			lvl := map[string]int{"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}[strings.ToLower(n.Data)]
-			out.Headings = append(out.Headings, Heading{Level: lvl, Text: textOf(n)})
+			out.Headings = append(out.Headings, Heading{Level: lvl, Text: collapseWS(textOf(n))})
 		case "script":
 			if getAttr(n, "type") == "application/ld+json" {
 				out.JSONLD = append(out.JSONLD, strings.TrimSpace(textOf(n)))

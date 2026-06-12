@@ -20,7 +20,10 @@ import (
 //   - Self-closing tags are canonicalized (<br/> and <br /> → <br/>)
 //   - Attributes are sorted by name with double-quoted values
 //   - Boolean attributes are normalized
-//   - HTML entities are decoded then re-encoded as named entities where possible
+//   - HTML entities in text/attribute values are normalized to Go's html.EscapeString
+//     output (numeric character references for `"`, named for `& < > '`). This may
+//     differ from Hugo's named-entity usage — track and align if real data shows
+//     divergence in Phase 2b.
 func NormalizeHTML(in string) string {
 	doc, err := html.Parse(strings.NewReader(in))
 	if err != nil {
