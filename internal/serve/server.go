@@ -36,10 +36,25 @@ func New(opts ServerOptions) *Server {
 	return &Server{opts: opts, logf: opts.Logf, hub: opts.Hub}
 }
 
+// isPortInUseError returns true if err looks like a "bind: address already in use" error.
+// Unfortunately Go's net package doesn't expose this as a typed error, so we check the
+// underlying syscall error. On POSIX systems this is EADDRINUSE.
+func isPortInUseError(err error) bool {
+	var sysErr *os.SyscallError
+	if errors.As(err, &sysErr) {
+		return sysErr.Err == syscall.EADDRINUSE
+	}
+	return false
+}
+
 // Run blocks until ctx is cancelled or a SIGINT/SIGTERM arrives.
 func (s *Server) Run(ctx context.Context) error {
 	listener, err := net.Listen("tcp", net.JoinHostPort(s.opts.Bind, s.opts.Port))
 	if err != nil {
+		if isPortInUseError(err) {
+			return fmt.Errorf("port %s already in use on %s (try --port <other>): %w",
+				s.opts.Port, s.opts.Bind, err)
+		}
 		return fmt.Errorf("listen: %w", err)
 	}
 
