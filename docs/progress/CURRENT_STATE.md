@@ -55,8 +55,8 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 | Phase | 项 | 状态 | 完成日期 |
 |---|---|---|---|
 | 1 | meta description plainify | ✅ 已完成 | 2026-06-12 |
-| 2 | RSS items 顺序（中文排序） | 待启动 | — |
-| 3 | books section 顺序（同 #2） | 待启动（与 #2 合并实施） | — |
+| 2 | RSS items 顺序（中文排序） | ✅ 已完成 | 2026-06-13 |
+| 3 | books section 顺序（同 #2） | ✅ 已完成（与 #2 合并） | 2026-06-13 |
 | 4 | RSS items 内容差 | 待启动 | — |
 | 5 | body 渲染细节 | 待启动 | — |
 | 6 | minify artifacts | 待启动 | — |
@@ -69,17 +69,13 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
    - **教训**：第一轮修复（collapseWhitespace + TrimSpace）方向反了——实证发现 Hugo 实际保留 `\n`（来自 `</p>` placeholder），不是折叠为单空格。reset 后用 Hugo 源码（`tpl/template.go`）Port 完整算法才 byte-match
    - 验证：3 篇典型页面（general/practices/books）meta name=description / og:description 全部 byte-identical；diff-build.sh 4 模式都下降（seo 983 → 699，ai 323 → 36）
 
-2. **RSS items 顺序差**（原影响 187 文件，与 #3 同源）
-   - 现象：RSS `<item>` 的 `<title>` 集合与 Hugo 一致，但顺序不同
-   - 根因：zhurongshuo 章节用中文数字（"第一章"、"第二章"等），huan 按 unicode codepoint 排序（一 < 七 < 三 < 二 < 五），Hugo 用不同算法（观察顺序 二 < 六 < 七 < 三 < 四，**既非 unicode asc 也非 UTF-8 byte asc**，疑似 OS locale collation 或 Hugo 内部中文感知排序）—— **根因需调查 Hugo 源码**
-   - 修复方向：调查 Hugo `tpl/collections` 中的 sort 实现，Port 到 huan `sortPagesByDateDesc` 或上层 RSS 生成
-   - 三维度影响：肉眼不可见，SEO/AI 影响 RSS 顺序
+2. **RSS items 顺序差**（原影响 187 文件）→ ✅ **已修（stage 2 phase 2，2026-06-12~13）**
+   - 根因：huan 用 `strings.ToLower(Title)` 字节级 UTF-8 比较，Hugo 用 `golang.org/x/text/collate` 库做 locale-aware 排序（zh-cn = 拼音序）
+   - 修复：Port Hugo `resources/page/pages_sort.go:DefaultPageSort` 完整链（Weight / Date desc / Collator Title asc / Path asc）；引入 `golang.org/x/text` 依赖；`internal/i18n` 加 `BuildCollator(langCode)`；`build.go:173` 改为传 `site.RegularPages` 给 `taxonomy.BuildAll`（让 tags RSS 也走排序后的 pages）
+   - 验证：books/volume-3 RSS items 顺序 byte-identical Hugo；home RSS 全 title 顺序 byte-match；3 个抽样 books RSS byte-match；tags/道 等 3 个抽样 tags RSS byte-match
 
-3. **books section 顺序差（含 chapter 顺序 + part 顺序）**（原影响 104 文件，与 #2 同源）
-   - 现象：books list page 显示 part 顺序错（第一→第三→第二→第四）；同时 RSS items 顺序差（见 #2）
-   - 根因：同 #2——中文字符排序差异（huan unicode asc vs Hugo 不同算法）
-   - 修复方向：同 #2——修复排序算法后两边一起对齐
-   - 三维度影响：肉眼可见（list 页顺序不同）
+3. **books section 顺序差**（原影响 104 文件）→ ✅ **已修（与 #2 同根因，stage 2 phase 2 一并修复）**
+   - 与 #2 共享修复：Port Hugo DefaultPageSort 后，list page section 顺序 + chapter 顺序 + RSS items 顺序全部对齐
 
 4. **RSS items 内容差**（影响 17 文件）
    - 现象：RSS `<item>` 集合不同（huan 与 Hugo 列出不同 items）
