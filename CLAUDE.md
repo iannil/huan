@@ -9,7 +9,7 @@ huan 是一个用 Go 编写的静态站点生成器，用于替代 Hugo 构建 z
 ## 关联项目
 
 - **zhurongshuo**（祝融说）—— 当前使用 Hugo 的内容站点，代码路径：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`）
-- 阶段一目标：huan 生成的站点输出必须与 Hugo 的输出 100% 一致
+- 阶段一目标：huan 生成的站点输出与 Hugo 输出在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](docs/standards/equivalence.md) 与 [ADR 0001](docs/adr/0001-redefine-equivalence.md)
 - hugo的源码路径：`/Users/rong.zhu/Downloads/hugo-master`
 
 ## 项目指南
@@ -119,5 +119,5 @@ go test ./...
 - Markdown 渲染：goldmark（与 Hugo 同源）
 - 配置格式：`huan.yaml`
 - 项目定位：独立项目，非 Hugo drop-in 替换
-- 验证方式：diff 测试管线，与 Hugo 输出逐字节对比
+- 验证方式：`./scripts/diff-build.sh` 多模式对比（byte 雷达 + normalized / seo / ai 三维度门禁），详见 [`docs/standards/equivalence.md`](docs/standards/equivalence.md)
 - 插件架构：阶段一预留骨架，阶段二增量扩展
