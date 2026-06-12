@@ -57,7 +57,7 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 | 1 | meta description plainify | ✅ 已完成 | 2026-06-12 |
 | 2 | RSS items 顺序（中文排序） | ✅ 已完成 | 2026-06-13 |
 | 3 | books section 顺序（同 #2） | ✅ 已完成（与 #2 合并） | 2026-06-13 |
-| 4 | RSS items 内容差 | 待启动 | — |
+| **4** | **RSS items 内容差**（3 子项） | **✅ 已完成** | 2026-06-13 |
 | 5 | body 渲染细节 | 待启动 | — |
 | 6 | minify artifacts | 待启动 | — |
 
@@ -77,15 +77,12 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 3. **books section 顺序差**（原影响 104 文件）→ ✅ **已修（与 #2 同根因，stage 2 phase 2 一并修复）**
    - 与 #2 共享修复：Port Hugo DefaultPageSort 后，list page section 顺序 + chapter 顺序 + RSS items 顺序全部对齐
 
-4. **RSS items 内容差**（影响 17 文件）
-   - 现象：RSS `<item>` 集合不同（huan 与 Hugo 列出不同 items）
-   - 样本：
-     - `posts/index.xml`：Hugo 多 2 个 items（`权力是共识切片的曲率。`、`语言文字是可能性收敛的雏形。`）
-     - `hidden/index.xml`：huan 多 2 个 items
-     - `tags/index.xml`：完全不同 items
-   - 根因：待查（可能是 RSS limit 边界、hidden page 过滤逻辑、taxonomy items 选择差异）
-   - 修复方向：逐文件调查
-   - 三维度影响：SEO/AI 维度（爬虫看到不同 RSS 内容）
+4. **RSS items 内容差**（原影响 17 文件）→ ✅ **已修（stage 2 phase 3a/3b/3c，2026-06-13）**
+   - 拆分为 3 个子项，分别修复：
+   - **3a (hidden 过滤)**：zhurongshuo `hidden/_index.md` 用 `cascade.build.list: never`，huan 解析了 cascade 但没在 site.RegularPages 过滤。修复：实现 Hugo-style cascade inheritance + 在 BuildTree 过滤 `Build.List == "never"`
+   - **3b (posts RSS 缺 items)**：zhurongshuo `posts/` 按 year 嵌套且无 `_index.md`，huan auto-create section 时机太晚 + section.RegularPages 只含直接子。修复：auto-create 提前到 parent 分配前 + section context 的 `.RegularPages` 用 `RegularPagesRecursive`
+   - **3c (tags/index.xml 内容定义)**：Hugo 的 taxonomy list RSS 列 term stubs，huan 错误列了 site.RegularPages；同时 auto-create section title 用 dir name，Hugo title-cases。修复：BuildTaxonomyContext 构建 term stubs + 接入 site collator 排序 + CJK permalink percent-encode；新增 `makeSectionTitle` helper（`cases.Title(language.English)` + 连字符转空格）
+   - 验证：hidden/posts/tags index.xml 全部 byte-identical Hugo
 
 5. **body 内容渲染细节**（影响 ~30 文件）
    - 现象：少量 practices/books 章节 body HTML 有细微差异（`<p>` / `<h2>` / `<h3>` / `<li>` / `<code>` 标签的属性或内容）
@@ -98,6 +95,15 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
    - 根因：huan minify 与 Hugo minify 算法不完全一致
    - 修复方向：升级 diff-build.sh Step 5 的 normalized 模式做更激进的 normalize（吸收这些差异），或对齐 minify 行为
    - 三维度影响：肉眼不可见，SEO/AI 不可见（purely byte-level）
+
+---
+
+## Stage 2 候选工作清单（2026-06-13 phase 3 后更新）
+
+phase 3 实施过程中发现的新差异（不在原 5 类中）：
+
+7. **tags/{cjk}/index.xml link/guid URL 编码**（影响 ~150 个 term RSS 文件）：huan 输出原始 CJK（如 `tags/专注/`），Hugo 输出 percent-encoded（`tags/%E4%B8%93%E6%B3%A8/`）。这是 stage 1 收尾报告里"RSS 中文 URL 编码（464 文件）"的**真正根因**——之前误判不存在，实际存在于单个 term RSS（而非 tags/index.xml）。
+8. **空 tag RSS 文件未生成**（影响 ~11 个 tags）：Hugo 为空 tag 生成空 RSS 文件，huan 不生成。`/tmp/huan-output` 缺 22 个 `.xml` 文件。
 
 ---
 
