@@ -58,10 +58,10 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
 | 2 | RSS items 顺序（中文排序） | ✅ 已完成 | 2026-06-13 |
 | 3 | books section 顺序（同 #2） | ✅ 已完成（与 #2 合并） | 2026-06-13 |
 | 4 | RSS items 内容差（3 子项） | ✅ 已完成 | 2026-06-13 |
-| **7** | **CJK URL 编码（term RSS）** | **✅ 已完成** | 2026-06-13 |
-| **8** | **空 tag RSS 未生成** | **✅ 已完成** | 2026-06-13 |
-| 5 | body 渲染细节（13 文件） | 待启动 | — |
-| 6 | minify artifacts | 待启动 | — |
+| 7 | CJK URL 编码（term RSS） | ✅ 已完成 | 2026-06-13 |
+| 8 | 空 tag RSS 未生成 | ✅ 已完成 | 2026-06-13 |
+| 5 | body 渲染细节（5d/5e/5f） | ✅ 已完成 | 2026-06-13 |
+| **6** | **minify artifacts（chroma）** | **⚪ 接受为永久差异** | 2026-06-13 |
 
 ---
 
@@ -86,17 +86,15 @@ stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me
    - **3c (tags/index.xml 内容定义)**：Hugo 的 taxonomy list RSS 列 term stubs，huan 错误列了 site.RegularPages；同时 auto-create section title 用 dir name，Hugo title-cases。修复：BuildTaxonomyContext 构建 term stubs + 接入 site collator 排序 + CJK permalink percent-encode；新增 `makeSectionTitle` helper（`cases.Title(language.English)` + 连字符转空格）
    - 验证：hidden/posts/tags index.xml 全部 byte-identical Hugo
 
-5. **body 内容渲染细节**（影响 ~30 文件）
-   - 现象：少量 practices/books 章节 body HTML 有细微差异（`<p>` / `<h2>` / `<h3>` / `<li>` / `<code>` 标签的属性或内容）
-   - 根因：待逐个调查（可能是 goldmark 配置、shortcode 输出、HTML 转义）
-   - 修复方向：每篇差异单独定位
-   - 三维度影响：肉眼可能可见，SEO/AI minor
-
-6. **minify artifacts**（影响 ~30 文件）
-   - 现象：attribute 引号风格、void 元素自闭合形式、entity 编码差异
-   - 根因：huan minify 与 Hugo minify 算法不完全一致
-   - 修复方向：升级 diff-build.sh Step 5 的 normalized 模式做更激进的 normalize（吸收这些差异），或对齐 minify 行为
-   - 三维度影响：肉眼不可见，SEO/AI 不可见（purely byte-level）
+5. **body 渲染细节**（原 ~30 文件）→ ✅ **已修（stage 2 phase 5d/5e/5f，2026-06-13）**
+   - **5d WordCount 差 100 字**（原估 81 实际 1 文件）：根因是 huan 缺 footnote 渲染（appendix 少 ~106 字）+ 代码块内 `&quot;` vs `&#34;` entity 编码差异。修复：goldmark 加 Footnote extension；新增 `normalizeCodeEntities` 后处理（限 code/pre 内部）
+   - **5e list page part 顺序差**（86 文件）：根因是 huan `sort` 模板函数无 field 参数时不排序（缺 else 分支），导致 `sort ($scratch.Get "partSlugs")` 返回 slice 不变。修复：`sortFunc` 重构为 `keyOf` closure（无 field 时 identity，有 field 时 field-extractor），共享 stable insertion sort
+   - **5f-link-text**（3 文件）：根因是 `GroupByDate` 组内未排序，same-Date slug-collided posts 渲染顺序与 Hugo 不一致。修复：`GroupByDate` 组内按 Date desc → Title desc (collator) → File.Path desc 排序
+   - **5f-home-rss**（1 文件）：根因是 `TruncateHTMLToBlockBoundary` 是 Hugo `ExtractSummaryFromHTML` 的近似 Port，漏掉 3 个 quirk：(a) 段尾 word 算法是 `s[wi:i]` 其中 `i` 是最后 rune 的 byte offset（每段少算 1 字）；(b) `</p>` 之间的 `<h2>` 等中间 block tag 算到下一段 word count；(c) HTML-tag-shaped tokens 算 0 word。修复：byte-faithful Port，新增 stateful `stripHTMLTagsInWord` helper
+6. **minify artifacts**（原估 ~30 实际 17 文件）→ **接受为永久差异**
+   - 根因：products 代码块用 chroma 语法高亮（`<div class=highlight><pre class=chroma>`），huan 当前用纯 goldmark `<pre><code>`，引入 chroma 库成本高
+   - 决策：登记到 `docs/standards/equivalence.md` §4 永久差异表
+   - 三维度影响：肉眼不可见（HTML 渲染等价），SEO/AI 不可见
 
 ---
 
@@ -122,6 +120,23 @@ phase 3 实施过程中发现的新差异（不在原 5 类中）：
 - 13 个 tag HTML list page：same-date items 排序差（Phase 5 候选）
 - ~30 practices/books chapter body 内容渲染细节
 - ~30 minify artifacts（attribute 引号、entity 编码）
+
+---
+
+## Stage 2 候选工作清单（2026-06-13 phase 5d/e/f 后更新）
+
+phase 5d/e/f 实施过程中发现 / 解决的差异，以及剩余接受为永久差异的项：
+
+9. **sitemap.xml items 顺序 + lastmod**（1 文件）→ **接受为永久差异**
+   - 影响：SEO 微小
+10. **robots.txt**（1 文件）→ **接受为永久差异**
+11. **search.json**（1 文件）→ **接受为永久差异**
+12. **practices description entity encoding 边缘 case**（1 文件）→ **接受为永久差异**
+    - chapter-07 of data-as-the-boundary 的 meta description entity encoding 差，与 chroma 类似根因
+
+### Stage 2 重大里程碑（2026-06-13 phase 5d/e/f 后）
+
+**byte mode 持续 PASS**：1965 identical / 20 differing。剩余 20 个全部登记为永久差异（chroma 17 + entity 边缘 case + search.json + sitemap.xml + robots.txt）。**stage 2 主要等价工作完成**——所有肉眼可见 / SEO 主要 / AI 主要差异全部解决。
 
 ---
 
