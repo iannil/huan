@@ -11,29 +11,30 @@ import (
 	"time"
 
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // PagesDeployer orchestrates the 5-endpoint Cloudflare Pages direct-upload
 // protocol per ADR 0002 §7.
 type PagesDeployer struct {
 	client *Client
-	logger *deploy.Logger
+	logger *observability.Logger
 }
 
 // NewPagesDeployer returns a deployer using the given client. logger carries
 // the trace_id used to correlate all log lines for this deploy invocation.
-func NewPagesDeployer(client *Client, logger *deploy.Logger) *PagesDeployer {
+func NewPagesDeployer(client *Client, logger *observability.Logger) *PagesDeployer {
 	return &PagesDeployer{client: client, logger: logger}
 }
 
 // DeploymentResult models the response from POST .../deployments.
 type DeploymentResult struct {
-	ID        string `json:"id"`
-	URL       string `json:"url"`
-	Aliases   []string `json:"aliases"`
-	Env       string `json:"environment"`
-	Stage     string `json:"latest_stage"`
-	Status    string `json:"latest_stage_status"`
+	ID      string   `json:"id"`
+	URL     string   `json:"url"`
+	Aliases []string `json:"aliases"`
+	Env     string   `json:"environment"`
+	Stage   string   `json:"latest_stage"`
+	Status  string   `json:"latest_stage_status"`
 }
 
 // CommitMeta attaches git metadata to a deployment. Empty values are allowed;
@@ -46,11 +47,11 @@ type CommitMeta struct {
 
 // DeployPagesOptions captures deploy-time parameters for the Pages protocol.
 type DeployPagesOptions struct {
-	Project  string
-	Branch   string
-	Commit   *CommitMeta
-	Assets   []Asset
-	HTTPParallel int  // hard-capped at 3 internally per ADR 0002 §14.3
+	Project      string
+	Branch       string
+	Commit       *CommitMeta
+	Assets       []Asset
+	HTTPParallel int // hard-capped at 3 internally per ADR 0002 §14.3
 }
 
 // DeployPages runs the 5-endpoint Pages direct-upload protocol and returns a
@@ -96,10 +97,10 @@ func (p *PagesDeployer) DeployPages(ctx context.Context, opts DeployPagesOptions
 		}
 	}
 
-	p.logger.Log("pages-deploy", deploy.EventFunctionStart, map[string]any{
-		"project":      opts.Project,
-		"branch":       opts.Branch,
-		"asset_count":  len(opts.Assets),
+	p.logger.Log("pages-deploy", observability.EventFunctionStart, map[string]any{
+		"project":     opts.Project,
+		"branch":      opts.Branch,
+		"asset_count": len(opts.Assets),
 	})
 
 	// Step 1: get JWT (cached via Client.UploadToken).
@@ -130,7 +131,7 @@ func (p *PagesDeployer) DeployPages(ctx context.Context, opts DeployPagesOptions
 		}
 	}
 
-	p.logger.Log("pages-deploy", deploy.EventPoint, map[string]any{
+	p.logger.Log("pages-deploy", observability.EventPoint, map[string]any{
 		"stage":          "check-missing",
 		"total_hashes":   len(allHashes),
 		"missing_hashes": len(missing),
@@ -172,7 +173,7 @@ func (p *PagesDeployer) DeployPages(ctx context.Context, opts DeployPagesOptions
 	report.Succeeded = report.Attempted - report.Skipped - report.Failed
 
 	report.DurationMs = time.Since(start).Milliseconds()
-	p.logger.Log("pages-deploy", deploy.EventFunctionEnd, map[string]any{
+	p.logger.Log("pages-deploy", observability.EventFunctionEnd, map[string]any{
 		"deployment_id": deployment.ID,
 		"url":           deployment.URL,
 		"attempted":     report.Attempted,
@@ -215,7 +216,7 @@ func (p *PagesDeployer) callWithJWTRefresh(ctx context.Context, project, jwtAuth
 	if !isJWTExpired(err) {
 		return err
 	}
-	p.logger.Log("jwt-refresh", deploy.EventPoint, map[string]any{
+	p.logger.Log("jwt-refresh", observability.EventPoint, map[string]any{
 		"endpoint": path,
 		"reason":   "jwt expired",
 	})

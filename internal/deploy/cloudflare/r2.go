@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 	"github.com/iannil/huan/internal/version"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -47,13 +47,13 @@ type R2Object struct {
 type R2Syncer struct {
 	client r2ObjectClient
 	bucket string
-	logger *deploy.Logger
+	logger *observability.Logger
 }
 
 // NewR2Syncer constructs an R2Syncer with a minio-go-backed client. accountID
 // and access keys come from cloudflare.Config.R2; for test substitution use
 // NewR2SyncerWithClient.
-func NewR2Syncer(cfg R2Config, logger *deploy.Logger) (*R2Syncer, error) {
+func NewR2Syncer(cfg R2Config, logger *observability.Logger) (*R2Syncer, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func NewR2Syncer(cfg R2Config, logger *deploy.Logger) (*R2Syncer, error) {
 }
 
 // NewR2SyncerWithClient lets tests inject a mock r2ObjectClient.
-func NewR2SyncerWithClient(client r2ObjectClient, bucket string, logger *deploy.Logger) *R2Syncer {
+func NewR2SyncerWithClient(client r2ObjectClient, bucket string, logger *observability.Logger) *R2Syncer {
 	return &R2Syncer{client: client, bucket: bucket, logger: logger}
 }
 
@@ -107,11 +107,11 @@ type R2SyncOptions struct {
 // R2SyncResult is the per-invocation outcome. Counts mirror deploy.Report
 // semantics but are scoped to R2 only.
 type R2SyncResult struct {
-	Attempted int      // local files considered
-	Succeeded int      // uploads completed
-	Skipped   int      // remote already had matching MD5
-	Failed    int      // uploads that exhausted retries
-	Pruned    int      // remote objects deleted (--prune)
+	Attempted int // local files considered
+	Succeeded int // uploads completed
+	Skipped   int // remote already had matching MD5
+	Failed    int // uploads that exhausted retries
+	Pruned    int // remote objects deleted (--prune)
 	Failures  []R2FileFailure
 }
 
@@ -151,7 +151,7 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 	localObjs, walkErrs := s.walkLocal(ctx, mappings, result)
 	if len(walkErrs) > 0 {
 		// walk errors are not fatal — we sync what we can.
-		s.logger.Log("r2-walk", deploy.EventError, map[string]any{
+		s.logger.Log("r2-walk", observability.EventError, map[string]any{
 			"walk_errors": len(walkErrs),
 		})
 	}
@@ -178,13 +178,13 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 				}
 			}
 		}
-		s.logger.Log("r2-sync", deploy.EventFunctionEnd, map[string]any{
-			"dry_run":    true,
-			"attempted":  result.Attempted,
-			"would_skip": result.Skipped,
+		s.logger.Log("r2-sync", observability.EventFunctionEnd, map[string]any{
+			"dry_run":      true,
+			"attempted":    result.Attempted,
+			"would_skip":   result.Skipped,
 			"would_upload": result.Succeeded,
-			"would_prune": result.Pruned,
-			"duration_ms": time.Since(start).Milliseconds(),
+			"would_prune":  result.Pruned,
+			"duration_ms":  time.Since(start).Milliseconds(),
 		})
 		// Reset Succeeded for dry-run; caller interprets Succeeded=0 as "nothing actually sent".
 		result.Succeeded = 0
@@ -251,7 +251,7 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 			if _, ok := localObjs[key]; ok {
 				continue
 			}
-			s.logger.Log("r2-prune", deploy.EventPoint, map[string]any{
+			s.logger.Log("r2-prune", observability.EventPoint, map[string]any{
 				"key":  key,
 				"size": remoteObj.Size,
 			})
@@ -267,7 +267,7 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 		}
 	}
 
-	s.logger.Log("r2-sync", deploy.EventFunctionEnd, map[string]any{
+	s.logger.Log("r2-sync", observability.EventFunctionEnd, map[string]any{
 		"attempted":   result.Attempted,
 		"succeeded":   result.Succeeded,
 		"skipped":     result.Skipped,
@@ -280,10 +280,10 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 
 // localEntry is one local file's metadata used for sync.
 type localEntry struct {
-	Key       string
-	LocalPath string
-	Size      int64
-	MD5       string
+	Key         string
+	LocalPath   string
+	Size        int64
+	MD5         string
 	ContentType string
 }
 
@@ -322,10 +322,10 @@ func (s *R2Syncer) walkLocal(ctx context.Context, mappings []SyncMapping, result
 			if d.Type() == os.ModeSymlink {
 				// Per audit L7: log skipped symlinks so users aren't
 				// surprised when expected content doesn't appear in R2.
-				s.logger.Log("r2-walk-skip", deploy.EventPoint, map[string]any{
-					"path":  path,
-					"from":  m.From,
-					"to":    m.To,
+				s.logger.Log("r2-walk-skip", observability.EventPoint, map[string]any{
+					"path":   path,
+					"from":   m.From,
+					"to":     m.To,
 					"reason": "symlink",
 				})
 				return nil
@@ -348,8 +348,8 @@ func (s *R2Syncer) walkLocal(ctx context.Context, mappings []SyncMapping, result
 // Key derivation rules:
 //   - Directory mapping (rel != ""): key = TrimSuffix(to, "/") + "/" + rel
 //   - Single-file mapping (rel == ""):
-//     - If `to` ends with "/": treat as directory; key = to + Base(path)
-//     - Else: key is the literal `to` (with any leading "/" trimmed)
+//   - If `to` ends with "/": treat as directory; key = to + Base(path)
+//   - Else: key is the literal `to` (with any leading "/" trimmed)
 //
 // Audit M7: previously a single-file mapping with trailing-slash `to`
 // (e.g. {from: "logo.png", to: "brand/"}) produced key "brand/" (literal

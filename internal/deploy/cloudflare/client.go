@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // DefaultBaseURL is the Cloudflare API root.
@@ -42,7 +42,7 @@ type Client struct {
 	apiToken  string
 	baseURL   string
 	http      HTTPClient
-	logger    *deploy.Logger
+	logger    *observability.Logger
 
 	// JWT cache for assets/* endpoints. Keyed by project name.
 	jwtMu    sync.Mutex
@@ -55,7 +55,7 @@ type jwtEntry struct {
 }
 
 // NewClient returns a Client configured for the Cloudflare API.
-func NewClient(accountID, apiToken string, logger *deploy.Logger) *Client {
+func NewClient(accountID, apiToken string, logger *observability.Logger) *Client {
 	return &Client{
 		accountID: accountID,
 		apiToken:  apiToken,
@@ -191,7 +191,7 @@ func (c *Client) doJSONNoLock(ctx context.Context, method, path, auth string, bo
 			if wait == 0 {
 				break
 			}
-			c.logger.Log("cf-retry", deploy.EventPoint, map[string]any{
+			c.logger.Log("cf-retry", observability.EventPoint, map[string]any{
 				"path":    path,
 				"attempt": attempt,
 				"wait_ms": wait.Milliseconds(),
@@ -240,7 +240,7 @@ func (c *Client) doJSONNoLock(ctx context.Context, method, path, auth string, bo
 		}
 
 		lastErr = fmt.Errorf("attempt %d: %s", attempt+1, decision.Reason)
-		c.logger.Log("cf-retry", deploy.EventError, map[string]any{
+		c.logger.Log("cf-retry", observability.EventError, map[string]any{
 			"path":    path,
 			"attempt": attempt + 1,
 			"reason":  decision.Reason,

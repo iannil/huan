@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // Plugin is the Cloudflare deploy plugin. It implements both plugin.Plugin
@@ -42,8 +43,8 @@ func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Repor
 	// TraceID. Previously newTraceIDForDeploy() returned "" and let Logger
 	// auto-generate, which meant pre-logger-failure Reports had no correlation
 	// id (audit L1).
-	traceID := deploy.NewTraceID()
-	logger := deploy.NewLogger(traceID)
+	traceID := observability.NewTraceID()
+	logger := observability.NewLogger(traceID)
 
 	target, err := singleTarget(opts.Targets)
 	if err != nil {
@@ -69,7 +70,7 @@ func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Repor
 }
 
 // deployPages runs the Pages direct-upload protocol.
-func (p *Plugin) deployPages(ctx context.Context, opts deploy.Options, logger *deploy.Logger, traceID string) (*deploy.Report, error) {
+func (p *Plugin) deployPages(ctx context.Context, opts deploy.Options, logger *observability.Logger, traceID string) (*deploy.Report, error) {
 	if opts.OutputDir == "" {
 		return nil, fmt.Errorf("deploy: output dir is required")
 	}
@@ -77,7 +78,7 @@ func (p *Plugin) deployPages(ctx context.Context, opts deploy.Options, logger *d
 	if err != nil {
 		return nil, fmt.Errorf("build manifest: %w", err)
 	}
-	logger.Log("manifest", deploy.EventFunctionEnd, map[string]any{
+	logger.Log("manifest", observability.EventFunctionEnd, map[string]any{
 		"asset_count": len(assets),
 		"output_dir":  opts.OutputDir,
 	})
@@ -118,7 +119,7 @@ func (p *Plugin) deployPages(ctx context.Context, opts deploy.Options, logger *d
 }
 
 // deployR2 runs the R2 sync algorithm.
-func (p *Plugin) deployR2(ctx context.Context, opts deploy.Options, logger *deploy.Logger, traceID string) (*deploy.Report, error) {
+func (p *Plugin) deployR2(ctx context.Context, opts deploy.Options, logger *observability.Logger, traceID string) (*deploy.Report, error) {
 	if !p.cfg.HasR2Configured() {
 		return &deploy.Report{
 			TraceID: traceID,
@@ -152,7 +153,7 @@ func (p *Plugin) deployR2(ctx context.Context, opts deploy.Options, logger *depl
 }
 
 // deployWorker uploads the Worker script via CF Workers modules API.
-func (p *Plugin) deployWorker(ctx context.Context, opts deploy.Options, logger *deploy.Logger, traceID string) (*deploy.Report, error) {
+func (p *Plugin) deployWorker(ctx context.Context, opts deploy.Options, logger *observability.Logger, traceID string) (*deploy.Report, error) {
 	if !p.cfg.HasWorkerConfigured() {
 		return &deploy.Report{
 			TraceID: traceID,
@@ -248,9 +249,9 @@ func joinTargets(targets []string) string {
 	return out
 }
 
-// newTraceIDForDeploy is deprecated; use deploy.NewTraceID() directly.
+// newTraceIDForDeploy is deprecated; use observability.NewTraceID() directly.
 // Kept as a no-op stub so any remaining callers compile cleanly; will be
 // removed once we grep-verify no callers remain.
 func newTraceIDForDeploy() string {
-	return deploy.NewTraceID()
+	return observability.NewTraceID()
 }

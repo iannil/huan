@@ -1,4 +1,12 @@
-package deploy
+// Package observability provides cross-cutting structured logging used by
+// huan's release/deploy pipelines. The Logger emits JSON lines per
+// CLAUDE.md's Full-Lifecycle Observability mandate.
+//
+// Logger was previously in internal/deploy/logging.go; it was extracted into
+// its own package once release became the second consumer. The abstraction is
+// domain-agnostic (no deploy/release specifics); Report-shaped types stay in
+// their domain packages because their fields differ.
+package observability
 
 import (
 	"crypto/rand"
@@ -26,8 +34,8 @@ const (
 //
 //	{
 //	  "timestamp": "2026-06-13T...",
-//	  "trace_id": "<deploy invocation id>",
-//	  "span_id": "<step id within this deploy>",
+//	  "trace_id": "<invocation id>",
+//	  "span_id": "<step id within this invocation>",
 //	  "event_type": "Function_Start|Function_End|Branch|Error|Point",
 //	  "payload": { ... arbitrary fields ... }
 //	}
@@ -65,8 +73,7 @@ func NewLoggerWithWriter(traceID string, w io.Writer) *Logger {
 
 // NewTraceID generates a random 16-byte hex-encoded id (32 chars). Exported
 // so callers can pre-generate a trace id and use it both in early-return
-// Report values and in the Logger. Previously Logger auto-generated one
-// internally, which left early-return Reports with empty TraceID.
+// Report values and in the Logger.
 func NewTraceID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -107,7 +114,8 @@ func (l *Logger) LogError(spanID string, err error, payload map[string]any) {
 }
 
 // LogFunctionStart and LogFunctionEnd record the boundary of a logical step
-// (e.g. an HTTP API call). They return the same spanID for chaining.
+// (e.g. an HTTP API call or a sub-command phase). They return the same
+// spanID for chaining.
 //
 //	start := l.LogFunctionStart("upload-file", map[string]any{"path": p})
 //	defer l.LogFunctionEnd(start, time.Since(...), nil)
@@ -122,10 +130,4 @@ func (l *Logger) LogFunctionEnd(spanID string, duration time.Duration, payload m
 	}
 	payload["duration_ms"] = duration.Milliseconds()
 	l.Log(spanID, EventFunctionEnd, payload)
-}
-
-// newTraceID is kept as a private alias for NewTraceID so existing internal
-// references don't break. New code should call NewTraceID directly.
-func newTraceID() string {
-	return NewTraceID()
 }

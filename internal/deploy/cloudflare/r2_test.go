@@ -12,15 +12,16 @@ import (
 	"testing"
 
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // mockR2Client is an in-memory r2ObjectClient for unit tests. It simulates a
 // single bucket with a flat key→object map.
 type mockR2Client struct {
-	mu             sync.Mutex
-	bucketExists   bool
-	objects        map[string]R2Object // key -> metadata
-	contents       map[string][]byte   // key -> content (for read-back verification)
+	mu           sync.Mutex
+	bucketExists bool
+	objects      map[string]R2Object // key -> metadata
+	contents     map[string][]byte   // key -> content (for read-back verification)
 
 	// Hooks for fault injection.
 	putShouldFailFor map[string]error // key -> error to return on PutObject
@@ -112,8 +113,8 @@ func writeLocalFixture(t *testing.T, dir string, relPath string, content []byte)
 	return full
 }
 
-func newR2TestLogger() *deploy.Logger {
-	return deploy.NewLoggerWithWriter("r2-test", &bytes.Buffer{})
+func newR2TestLogger() *observability.Logger {
+	return observability.NewLoggerWithWriter("r2-test", &bytes.Buffer{})
 }
 
 func TestR2Sync_HappyPath_AllUploaded(t *testing.T) {
@@ -264,7 +265,7 @@ func TestR2Sync_PruneLogsEachDelete(t *testing.T) {
 	mock.seedRemoteObject("images/orphan2.jpg", []byte("orphan2-bytes"))
 
 	var buf bytes.Buffer
-	logger := deploy.NewLoggerWithWriter("prune-log-test", &buf)
+	logger := observability.NewLoggerWithWriter("prune-log-test", &buf)
 	syncer := NewR2SyncerWithClient(mock, "b", logger)
 	_, err := syncer.Sync(context.Background(),
 		[]SyncMapping{{From: dir, To: "images"}},
@@ -498,7 +499,7 @@ func TestR2Sync_SymlinkSkipped(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	logger := deploy.NewLoggerWithWriter("symlink-test", &buf)
+	logger := observability.NewLoggerWithWriter("symlink-test", &buf)
 	syncer := NewR2SyncerWithClient(mock, "b", logger)
 	result, err := syncer.Sync(context.Background(),
 		[]SyncMapping{{From: dir, To: "img"}},

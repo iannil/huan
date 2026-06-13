@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // mockServer is a configurable CF API mock. Each handler can be swapped per-test
@@ -236,7 +236,7 @@ func makeAssets(n int) []Asset {
 func TestPages_HappyPath(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("happy", io.Discard)
+	logger := observability.NewLoggerWithWriter("happy", io.Discard)
 	c := NewClient("acc-1", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -294,7 +294,7 @@ func TestPages_PartialCheckMissing_OnlyUploadsMissing(t *testing.T) {
 		return 200, fmt.Sprintf(`{"result":%s,"success":true,"errors":[]}`, string(raw))
 	}
 
-	logger := deploy.NewLoggerWithWriter("partial", io.Discard)
+	logger := observability.NewLoggerWithWriter("partial", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 	report, err := p.DeployPages(context.Background(), DeployPagesOptions{
@@ -331,7 +331,7 @@ func TestPages_JWTExpiredDuringUpload_RefreshesAndRetries(t *testing.T) {
 		return 200, `{"result":{},"success":true,"errors":[]}`
 	}
 
-	logger := deploy.NewLoggerWithWriter("jwt-refresh", io.Discard)
+	logger := observability.NewLoggerWithWriter("jwt-refresh", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -367,7 +367,7 @@ func TestPages_Upload5xxRetriesToSuccess(t *testing.T) {
 		return 200, `{"result":{},"success":true,"errors":[]}`
 	}
 
-	logger := deploy.NewLoggerWithWriter("retry", io.Discard)
+	logger := observability.NewLoggerWithWriter("retry", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -392,7 +392,7 @@ func TestPages_UploadAllFail_AbortsDeployment(t *testing.T) {
 		return 401, `{"result":null,"success":false,"errors":[{"code":10000,"message":"API token invalid"}]}`
 	}
 
-	logger := deploy.NewLoggerWithWriter("allfail", io.Discard)
+	logger := observability.NewLoggerWithWriter("allfail", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -420,7 +420,7 @@ func TestPages_UploadAllFail_AbortsDeployment(t *testing.T) {
 func TestPages_CommitMetadataIncluded(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("commit", io.Discard)
+	logger := observability.NewLoggerWithWriter("commit", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -445,7 +445,7 @@ func TestPages_CommitMetadataIncluded(t *testing.T) {
 func TestPages_CommitMetadataMissing_DeploymentStillSucceeds(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("no-commit", io.Discard)
+	logger := observability.NewLoggerWithWriter("no-commit", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -466,7 +466,7 @@ func TestPages_CommitMetadataMissing_DeploymentStillSucceeds(t *testing.T) {
 func TestPages_ManifestLeadingSlashEnforced(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("slash", io.Discard)
+	logger := observability.NewLoggerWithWriter("slash", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -489,7 +489,7 @@ func TestPages_ManifestLeadingSlashEnforced(t *testing.T) {
 func TestPages_MissingProject_Errors(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("noproject", io.Discard)
+	logger := observability.NewLoggerWithWriter("noproject", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -505,7 +505,7 @@ func TestPages_MissingProject_Errors(t *testing.T) {
 func TestPages_MissingBranch_Errors(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("nobranch", io.Discard)
+	logger := observability.NewLoggerWithWriter("nobranch", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -525,7 +525,7 @@ func TestPages_MissingBranch_Errors(t *testing.T) {
 func TestPages_AssetPathMissingLeadingSlash_ErrorsFast(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("noslash", io.Discard)
+	logger := observability.NewLoggerWithWriter("noslash", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -556,7 +556,7 @@ func TestPages_AssetPathMissingLeadingSlash_ErrorsFast(t *testing.T) {
 func TestPages_BatchedUpload_ManyAssets(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)
-	logger := deploy.NewLoggerWithWriter("batch", io.Discard)
+	logger := observability.NewLoggerWithWriter("batch", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -611,7 +611,7 @@ func TestPages_HTTPConcurrencyCappedAt3(t *testing.T) {
 		return 200, `{"result":{},"success":true,"errors":[]}`
 	}
 
-	logger := deploy.NewLoggerWithWriter("cap", io.Discard)
+	logger := observability.NewLoggerWithWriter("cap", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 
@@ -709,7 +709,7 @@ func TestPages_UploadBodyUsesBase64Content(t *testing.T) {
 		capturedUploadBody = body
 		return 200, `{"result":{},"success":true,"errors":[]}`
 	}
-	logger := deploy.NewLoggerWithWriter("b64", io.Discard)
+	logger := observability.NewLoggerWithWriter("b64", io.Discard)
 	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
 	p := NewPagesDeployer(c, logger)
 

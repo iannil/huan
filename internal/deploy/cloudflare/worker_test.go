@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // mockWorkerServer captures the next PUT request for inspection. Returns
@@ -25,11 +26,11 @@ type mockWorkerServer struct {
 	*httptest.Server
 	mu sync.Mutex
 
-	putSeen      bool
-	pathSeen     string
-	authSeen     string
-	parts        map[string]map[string]string // partName -> {content, contentType, filename}
-	onFailure    func() (int, string)
+	putSeen   bool
+	pathSeen  string
+	authSeen  string
+	parts     map[string]map[string]string // partName -> {content, contentType, filename}
+	onFailure func() (int, string)
 }
 
 func newMockWorkerServer(t *testing.T) *mockWorkerServer {
@@ -123,7 +124,7 @@ func extractHeaderParam(header, param string) string {
 
 func TestWorker_HappyPath(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("worker-test", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("worker-test", &bytes.Buffer{})
 	c := NewClient("acc-1", "test-tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	// Create script file in tmpdir.
@@ -135,8 +136,8 @@ func TestWorker_HappyPath(t *testing.T) {
 
 	d := NewWorkerDeployer(c, logger)
 	report, err := d.Deploy(context.Background(), WorkerConfig{
-		Name:    "image-resizer",
-		Script:  scriptPath,
+		Name:   "image-resizer",
+		Script: scriptPath,
 	}, DeployWorkerOptions{})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
@@ -175,7 +176,7 @@ func TestWorker_HappyPath(t *testing.T) {
 
 func TestWorker_CompatibilityDate_Default(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -199,7 +200,7 @@ func TestWorker_CompatibilityDate_Default(t *testing.T) {
 
 func TestWorker_CompatibilityDate_Override(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -208,8 +209,8 @@ func TestWorker_CompatibilityDate_Override(t *testing.T) {
 
 	d := NewWorkerDeployer(c, logger)
 	_, err := d.Deploy(context.Background(), WorkerConfig{
-		Name:             "w",
-		Script:           scriptPath,
+		Name:              "w",
+		Script:            scriptPath,
 		CompatibilityDate: "2025-09-23",
 	}, DeployWorkerOptions{})
 	if err != nil {
@@ -223,7 +224,7 @@ func TestWorker_CompatibilityDate_Override(t *testing.T) {
 
 func TestWorker_R2Binding_Serialized(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -260,7 +261,7 @@ func TestWorker_R2Binding_Serialized(t *testing.T) {
 
 func TestWorker_KVBinding_Serialized(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -288,7 +289,7 @@ func TestWorker_KVBinding_Serialized(t *testing.T) {
 
 func TestWorker_VarsBinding_TextSerialized(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -319,7 +320,7 @@ func TestWorker_RouteWithZone_OnlyZoneName(t *testing.T) {
 	// CF Workers modules API v4 expects only `zone_name` (matching wrangler).
 	// Sending both could trigger ambiguous-zone rejection.
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -362,7 +363,7 @@ func TestWorker_RouteWithZone_OnlyZoneName(t *testing.T) {
 // relevant fields.
 func TestWorker_BindingRelevantFieldOnly(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -406,7 +407,7 @@ func TestWorker_BindingRelevantFieldOnly(t *testing.T) {
 
 func TestWorker_RouteWithoutZone_OnlyPattern(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -437,7 +438,7 @@ func TestWorker_RouteWithoutZone_OnlyPattern(t *testing.T) {
 
 func TestWorker_ScriptFileNotFound(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	d := NewWorkerDeployer(c, logger)
@@ -458,7 +459,7 @@ func TestWorker_ScriptFileNotFound(t *testing.T) {
 
 func TestWorker_MissingName(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -479,7 +480,7 @@ func TestWorker_CFReturnsError_Propagated(t *testing.T) {
 	mock.onFailure = func() (int, string) {
 		return 400, `{"result":null,"success":false,"errors":[{"code":10000,"message":"script too large"}]}`
 	}
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -507,7 +508,7 @@ func TestWorker_CFReturnsError_Propagated(t *testing.T) {
 
 func TestWorker_DryRun_NoPutCall(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -535,7 +536,7 @@ func TestWorker_DryRun_NoPutCall(t *testing.T) {
 
 func TestWorker_ScriptPartHasFilenameHeader(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()
@@ -558,7 +559,7 @@ func TestWorker_ScriptPartHasFilenameHeader(t *testing.T) {
 
 func TestWorker_SourceDirRelativeScript(t *testing.T) {
 	mock := newMockWorkerServer(t)
-	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	logger := observability.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
 
 	dir := t.TempDir()

@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
-func newTestLogger() *deploy.Logger {
+func newTestLogger() *observability.Logger {
 	var buf bytes.Buffer
-	return deploy.NewLoggerWithWriter("test-trace", &buf)
+	return observability.NewLoggerWithWriter("test-trace", &buf)
 }
 
 // fastBackoffMu serializes fastBackoff swaps. Without this, two tests

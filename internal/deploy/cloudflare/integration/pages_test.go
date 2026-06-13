@@ -7,9 +7,9 @@
 //   - The `integration` build tag is set: `go test -tags integration ./...`
 //   - AND HUAN_CLOUDFLARE_INTEGRATION=1 is set
 //   - AND the required env vars are populated:
-//       CLOUDFLARE_ACCOUNT_ID
-//       CLOUDFLARE_API_TOKEN
-//       HUAN_CLOUDFLARE_TEST_PROJECT (a small pre-created CF Pages project)
+//     CLOUDFLARE_ACCOUNT_ID
+//     CLOUDFLARE_API_TOKEN
+//     HUAN_CLOUDFLARE_TEST_PROJECT (a small pre-created CF Pages project)
 //
 // The tests perform REAL deploys against Cloudflare. Each test uses a unique
 // preview branch to avoid touching production, and cleans up the deployment
@@ -29,6 +29,7 @@ import (
 
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/deploy/cloudflare"
+	"github.com/iannil/huan/internal/observability"
 )
 
 func skipIfUnconfigured(t *testing.T) (accountID, apiToken, project string) {
@@ -76,7 +77,7 @@ func TestPagesDeploy_SmallFixture_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 	assets := buildFixture(t, dir, 10)
 
-	logger := deploy.NewLogger("integration-" + t.Name())
+	logger := observability.NewLogger("integration-" + t.Name())
 	client := cloudflare.NewClient(accountID, apiToken, logger)
 	p := cloudflare.NewPagesDeployer(client, logger)
 

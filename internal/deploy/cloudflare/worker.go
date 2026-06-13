@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/observability"
 )
 
 // DefaultWorkerCompatibilityDate is used when WorkerConfig.CompatibilityDate
@@ -24,11 +25,11 @@ const WorkerMIMEType = "application/javascript+module"
 // WorkerDeployer uploads a Worker script via the CF Workers modules API.
 type WorkerDeployer struct {
 	client *Client
-	logger *deploy.Logger
+	logger *observability.Logger
 }
 
 // NewWorkerDeployer returns a deployer using the given client.
-func NewWorkerDeployer(client *Client, logger *deploy.Logger) *WorkerDeployer {
+func NewWorkerDeployer(client *Client, logger *observability.Logger) *WorkerDeployer {
 	return &WorkerDeployer{client: client, logger: logger}
 }
 
@@ -76,8 +77,8 @@ func (d *WorkerDeployer) Deploy(ctx context.Context, cfg WorkerConfig, opts Depl
 	start := time.Now()
 	traceID := d.logger.TraceID()
 	report := &deploy.Report{
-		TraceID: traceID,
-		Target:  "worker",
+		TraceID:   traceID,
+		Target:    "worker",
 		Attempted: 1,
 	}
 
@@ -115,24 +116,24 @@ func (d *WorkerDeployer) Deploy(ctx context.Context, cfg WorkerConfig, opts Depl
 		return report, fmt.Errorf("marshal metadata: %w", err)
 	}
 
-	d.logger.Log("worker-deploy", deploy.EventFunctionStart, map[string]any{
-		"script":            scriptPath,
-		"script_name":       cfg.Name,
-		"main_module":       mainModule,
+	d.logger.Log("worker-deploy", observability.EventFunctionStart, map[string]any{
+		"script":             scriptPath,
+		"script_name":        cfg.Name,
+		"main_module":        mainModule,
 		"compatibility_date": compatDate,
-		"bindings_count":    len(cfg.Bindings),
-		"routes_count":      len(cfg.Routes),
-		"script_size":       len(scriptContent),
+		"bindings_count":     len(cfg.Bindings),
+		"routes_count":       len(cfg.Routes),
+		"script_size":        len(scriptContent),
 	})
 
 	if opts.DryRun {
 		report.Succeeded = 0 // dry-run: nothing actually uploaded
 		report.Skipped = 1
 		report.DurationMs = time.Since(start).Milliseconds()
-		d.logger.Log("worker-deploy", deploy.EventFunctionEnd, map[string]any{
-			"dry_run":      true,
-			"metadata":     string(metadataJSON),
-			"duration_ms":  report.DurationMs,
+		d.logger.Log("worker-deploy", observability.EventFunctionEnd, map[string]any{
+			"dry_run":     true,
+			"metadata":    string(metadataJSON),
+			"duration_ms": report.DurationMs,
 		})
 		return report, nil
 	}
@@ -164,11 +165,11 @@ func (d *WorkerDeployer) Deploy(ctx context.Context, cfg WorkerConfig, opts Depl
 
 	report.Succeeded = 1
 	report.DurationMs = time.Since(start).Milliseconds()
-	d.logger.Log("worker-deploy", deploy.EventFunctionEnd, map[string]any{
-		"script_name":  result.ScriptName,
-		"modified_on":  result.ModifiedOn,
-		"usage_model":  result.UsageModel,
-		"duration_ms":  report.DurationMs,
+	d.logger.Log("worker-deploy", observability.EventFunctionEnd, map[string]any{
+		"script_name": result.ScriptName,
+		"modified_on": result.ModifiedOn,
+		"usage_model": result.UsageModel,
+		"duration_ms": report.DurationMs,
 	})
 	return report, nil
 }
@@ -176,10 +177,10 @@ func (d *WorkerDeployer) Deploy(ctx context.Context, cfg WorkerConfig, opts Depl
 // workerMetadata is the JSON shape CF Workers modules API expects in the
 // "metadata" multipart part.
 type workerMetadata struct {
-	MainModule        string               `json:"main_module"`
-	CompatibilityDate string               `json:"compatibility_date"`
-	Bindings          []workerBindingJSON  `json:"bindings,omitempty"`
-	Routes            []workerRouteJSON     `json:"routes,omitempty"`
+	MainModule        string              `json:"main_module"`
+	CompatibilityDate string              `json:"compatibility_date"`
+	Bindings          []workerBindingJSON `json:"bindings,omitempty"`
+	Routes            []workerRouteJSON   `json:"routes,omitempty"`
 }
 
 // workerBindingJSON is the JSON shape CF Workers modules API expects for one

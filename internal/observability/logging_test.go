@@ -1,4 +1,4 @@
-package deploy
+package observability
 
 import (
 	"bytes"
@@ -65,7 +65,6 @@ func TestLog_NilPayload_OmittedFromJSON(t *testing.T) {
 
 	var parsed map[string]any
 	_ = json.Unmarshal(buf.Bytes(), &parsed)
-	// payload field is omitempty when nil; check it's absent or null.
 	if v, ok := parsed["payload"]; ok && v != nil {
 		t.Errorf("payload = %v, want nil or absent", v)
 	}
