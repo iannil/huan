@@ -121,7 +121,22 @@ go build -o huan ./cmd/huan
 go install github.com/iannil/huan/cmd/huan@latest
 ```
 
-需要 Go 1.26+。
+**从 release tarball 安装**（无需 Go 工具链）：
+
+```bash
+# 1. 从 /release/0.1.0/ 或 GitHub Releases 下载 huan_0.1.0_<os>_<arch>.tar.gz
+# 2. 校验 checksum（推荐）：
+shasum -a 256 -c huan_0.1.0_checksums.txt   # 对你下载的那个归档报告 OK
+# 3. 解压：
+tar xzf huan_0.1.0_darwin_arm64.tar.gz      # 产出 ./huan、./LICENSE、./README*.md
+# 4. 移入 PATH：
+sudo mv huan /usr/local/bin/
+huan version                                  # 确认："huan 0.1.0 (<git sha>)"
+```
+
+Windows 用户：下载 `huan_0.1.0_windows_amd64.zip`，解压得到 `huan.exe`。
+
+`go install` / `go build` 路径需要 Go 1.26+；预编译 tarball 不依赖 Go。
 
 ### 最小 `huan.yaml`
 

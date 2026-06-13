@@ -121,7 +121,22 @@ go build -o huan ./cmd/huan
 go install github.com/iannil/huan/cmd/huan@latest
 ```
 
-Requires Go 1.26+.
+**From a release tarball** (no Go toolchain required):
+
+```bash
+# 1. Download huan_0.1.0_<os>_<arch>.tar.gz from /release/0.1.0/ or GitHub Releases
+# 2. Verify checksum (optional but recommended):
+shasum -a 256 -c huan_0.1.0_checksums.txt   # reports OK for the archive you downloaded
+# 3. Extract:
+tar xzf huan_0.1.0_darwin_arm64.tar.gz      # produces ./huan, ./LICENSE, ./README*.md
+# 4. Move into PATH:
+sudo mv huan /usr/local/bin/
+huan version                                  # confirm: "huan 0.1.0 (<git sha>)"
+```
+
+Windows users: download the `huan_0.1.0_windows_amd64.zip` instead and extract `huan.exe`.
+
+Requires Go 1.26+ for `go install` / `go build` paths; pre-built tarballs have no Go dependency.
 
 ### Minimal `huan.yaml`
 
