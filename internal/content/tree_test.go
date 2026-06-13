@@ -337,3 +337,93 @@ func TestBuildTree_AutoCreatedSectionTitleMultiWord(t *testing.T) {
 		t.Errorf("auto-created multi-word section title: got %q, want %q", got, want)
 	}
 }
+
+// TestBuildTree_SectionRegularPagesFollowsNearestIndexMd verifies Hugo's
+// "nearest section ancestor" rule: a page belongs to the closest ancestor
+// directory that has _index.md (or auto-created top-level section).
+//
+// zhurongshuo evidence:
+//   - practices/ has _index.md, practices/season-1/ also has _index.md.
+//     A chapter at practices/season-1/research/part-01/chapter-01.md belongs
+//     to season-1, NOT practices. So practices.RegularPages should NOT include
+//     the chapter.
+//   - posts/ has NO _index.md (auto-created); no year/month/day _index.md.
+//     So every posts/**/*.md has nearest-section-ancestor = posts, and
+//     posts.RegularPages = all posts (recursive).
+//
+// Before this fix huan attached every page to its top-level section
+// (page.Section field), producing 20 phantom items in practices.RegularPages
+// and books.RegularPages.
+func TestBuildTree_SectionRegularPagesFollowsNearestIndexMd(t *testing.T) {
+	now := time.Now()
+	practices := &Page{
+		Title: "Practices", RelPath: "practices/_index.md", Kind: "section",
+		Section: "practices", DateParsed: now,
+	}
+	season1 := &Page{
+		Title: "Season 1", RelPath: "practices/season-1/_index.md", Kind: "section",
+		Section: "practices", DateParsed: now,
+	}
+	chapter := &Page{
+		Title: "Chapter 1", RelPath: "practices/season-1/research/part-01/chapter-01.md",
+		Kind: "page", Section: "practices", DateParsed: now,
+	}
+	// Top-level practices post: no intermediate _index.md between it and
+	// practices/_index.md, so its nearest section ancestor is practices itself.
+	topPage := &Page{
+		Title: "Top", RelPath: "practices/top.md", Kind: "page",
+		Section: "practices", DateParsed: now,
+	}
+	pages := []*Page{practices, season1, chapter, topPage}
+	cfg := &config.Config{LanguageCode: "en"}
+	site, err := BuildTree(pages, cfg, "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Find the practices section in site.Pages (the original pointer, not a copy).
+	var practicesSec *Page
+	for _, p := range site.Pages {
+		if p.RelPath == "practices/_index.md" {
+			practicesSec = p
+			break
+		}
+	}
+	if practicesSec == nil {
+		t.Fatal("practices section not found in site.Pages")
+	}
+
+	// practices.RegularPages must be just [Top]; the chapter belongs to season-1.
+	titles := pageTitles(practicesSec.RegularPages)
+	want := []string{"Top"}
+	if len(titles) != len(want) || titles[0] != want[0] {
+		t.Errorf("practices.RegularPages: got %v, want %v (chapter belongs to season-1, not practices)", titles, want)
+	}
+
+	// practices.RegularPagesRecursive should still include all descendants
+	// (chapter + top).
+	if got, want := len(practicesSec.RegularPagesRecursive), 2; got != want {
+		t.Errorf("practices.RegularPagesRecursive: got %d, want %d (chapter + top)", got, want)
+	}
+
+	// chapter.Parent must point to season-1 (nearest _index.md ancestor).
+	if chapter.Parent == nil {
+		t.Fatal("chapter.Parent is nil")
+	}
+	if chapter.Parent.RelPath != "practices/season-1/_index.md" {
+		t.Errorf("chapter.Parent: got %q, want practices/season-1/_index.md", chapter.Parent.RelPath)
+	}
+
+	// season-1.RegularPages must include the chapter.
+	season1Titles := pageTitles(season1.RegularPages)
+	found := false
+	for _, t := range season1Titles {
+		if t == "Chapter 1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("season-1.RegularPages: got %v, want it to contain Chapter 1", season1Titles)
+	}
+}
