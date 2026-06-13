@@ -166,9 +166,18 @@ func (c *Context) TermsData() *DataAccessor {
 
 // GetPage mirrors Hugo's .Site.GetPage - finds a page by ref/path.
 // Usage: {{ .Site.GetPage "/posts/foo" }} or {{ .Site.GetPage "section" "name" }}
+//
+// Hugo's GetPage, when given a path with no matching page, does NOT always
+// return nil — for paths that look like valid page refs it can return a
+// non-nil "zero page" stub with empty fields (RelPermalink=""). Templates
+// that guard with {{ if ne $page nil }} therefore treat missing pages as
+// found, emitting e.g. <a href="">title</a> (which minifies to <a href>title</a>).
+// This is observable in zhurongshuo's products/index.html for Synton DB
+// (data/products.yaml entry with no matching content/products/*.md file).
+// To byte-match Hugo, we return a zero-valued Context stub for missing refs.
 func (s *SiteContext) GetPage(args ...string) *Context {
 	if len(args) == 0 {
-		return nil
+		return &Context{}
 	}
 	// Last arg is the path/ref
 	ref := args[len(args)-1]
@@ -184,7 +193,9 @@ func (s *SiteContext) GetPage(args ...string) *Context {
 			return p
 		}
 	}
-	return nil
+	// Hugo returns a non-nil zero page for unmatched refs (not nil), so that
+	// {{ if ne $page nil }} is true and templates can read empty fields.
+	return &Context{}
 }
 
 type AuthorContext struct {
@@ -456,6 +467,29 @@ func LinkPageRelationships(ctx *Context, p *content.Page, lookup map[*content.Pa
 		if c, ok := lookup[p.Parent]; ok {
 			ctx.Parent = c
 		}
+	}
+	// Hugo's auto-generated section/home pages (those without an _index.md
+	// frontmatter date) still expose a non-zero .Date computed from the
+	// newest descendant's Date/Lastmod. The RSS template gates
+	// <lastBuildDate> on {{ if not .Date.IsZero }}, so we must mirror this
+	// for sections like posts/ (no _index.md) to keep emitting
+	// <lastBuildDate>VALUE</lastBuildDate>. Sections that already have a
+	// frontmatter date (e.g. practices/_index.md) keep that date unchanged.
+	if (p.Kind == "section" || p.Kind == "home") && ctx.Date.IsZero() {
+		var newest time.Time
+		for _, item := range ctx.RegularPagesRecursive {
+			c := AsCtx(item)
+			if c == nil {
+				continue
+			}
+			if c.Lastmod.After(newest) {
+				newest = c.Lastmod
+			}
+			if c.Date.After(newest) {
+				newest = c.Date
+			}
+		}
+		ctx.Date = newest
 	}
 }
 

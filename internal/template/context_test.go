@@ -77,3 +77,52 @@ func TestLinkPageRelationships_SectionContextRegularPagesIsRecursive(t *testing.
 		}
 	}
 }
+
+// TestSiteGetPage_MissingReturnsNonNilZeroStub verifies that GetPage returns a
+// non-nil zero-valued Context stub for unmatched refs, matching Hugo's
+// observed behavior. Templates that guard with {{ if ne $page nil }} must
+// therefore treat missing pages as found, emitting e.g. <a href=""> for a
+// stub whose RelPermalink is "". This is what produces Hugo's <a href>Synton DB</a>
+// in zhurongshuo's products/index.html for the data-only product (no .md file).
+func TestSiteGetPage_MissingReturnsNonNilZeroStub(t *testing.T) {
+	site := &SiteContext{
+		Pages: PageSlice{
+			&Context{Title: "p", RelPermalink: "/posts/foo/"},
+		},
+	}
+	got := site.GetPage("/missing/path")
+	if got == nil {
+		t.Fatal("GetPage(missing): got nil, want non-nil zero Context stub")
+	}
+	if got.RelPermalink != "" {
+		t.Errorf("stub RelPermalink: got %q, want %q", got.RelPermalink, "")
+	}
+	if got.Title != "" {
+		t.Errorf("stub Title: got %q, want %q", got.Title, "")
+	}
+}
+
+// TestSiteGetPage_FoundReturnsMatchingPage verifies that GetPage returns the
+// matching page (unchanged) when one exists.
+func TestSiteGetPage_FoundReturnsMatchingPage(t *testing.T) {
+	page := &Context{Title: "Foo", RelPermalink: "/posts/foo/"}
+	site := &SiteContext{Pages: PageSlice{page}}
+	got := site.GetPage("/posts/foo")
+	if got == nil {
+		t.Fatal("GetPage(found): got nil, want the matching page")
+	}
+	if got != page {
+		t.Errorf("GetPage(found): got %p, want %p (same page)", got, page)
+	}
+}
+
+// TestSiteGetPage_EmptyArgsReturnsZeroStub verifies that GetPage with no args
+// returns a zero Context stub (not nil) to mirror Hugo's "non-nil for missing"
+// behavior.
+func TestSiteGetPage_EmptyArgsReturnsZeroStub(t *testing.T) {
+	site := &SiteContext{Pages: PageSlice{}}
+	got := site.GetPage()
+	if got == nil {
+		t.Fatal("GetPage(): got nil, want non-nil zero Context stub")
+	}
+}

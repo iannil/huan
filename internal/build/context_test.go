@@ -365,6 +365,111 @@ func TestBuildTermContext_SetsSectionToTags(t *testing.T) {
 	}
 }
 
+// TestBuildTaxonomyContext_SetsSectionToPlural verifies that the taxonomy
+// listing context (/tags/) has Section set to the taxonomy plural ("tags"),
+// matching Hugo's GA page-context output (section:"tags"). Templates that
+// reference {{ .Section }} must see the plural even though the page itself
+// is a taxonomy-list page, not a content page.
+func TestBuildTaxonomyContext_SetsSectionToPlural(t *testing.T) {
+	now := time.Now()
+	page := &content.Page{Title: "p", RelPath: "posts/a.md", Kind: "page", DateParsed: now, LastmodParsed: now}
+	pageCtx := &tmpl.Context{Title: "p", Date: now, Lastmod: now}
+	lookup := map[*content.Page]*tmpl.Context{page: pageCtx}
+	site := &content.Site{
+		Taxonomies: map[string]content.Taxonomy{
+			"tags": {"alpha": {page}},
+		},
+	}
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/", RegularPages: tmpl.PageSlice{pageCtx}}
+
+	ctx := BuildTaxonomyContext(siteCtx, lookup, site, &config.Config{})
+	if ctx == nil {
+		t.Fatal("expected non-nil taxonomy context")
+	}
+	if ctx.Section != "tags" {
+		t.Errorf("taxonomy Section: got %q, want %q", ctx.Section, "tags")
+	}
+}
+
+// TestBuildEmptyTaxonomyContext_SetsSectionToPlural verifies that the empty
+// taxonomy listing context (e.g. /categories/ when no categories exist) has
+// Section set to the plural passed in. Hugo's GA script for /categories/
+// emits section:"categories".
+func TestBuildEmptyTaxonomyContext_SetsSectionToPlural(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/"}
+	ctx := BuildEmptyTaxonomyContext(siteCtx, "Categories", "categories")
+	if ctx == nil {
+		t.Fatal("expected non-nil empty taxonomy context")
+	}
+	if ctx.Section != "categories" {
+		t.Errorf("empty taxonomy Section: got %q, want %q", ctx.Section, "categories")
+	}
+}
+
+// TestBuildEmptyTaxonomyContext_EmptyRegularPagesAndZeroDate verifies that the
+// empty taxonomy listing has empty RegularPages/Pages and a zero Date. This
+// matches Hugo's output for /categories/index.xml when no categories exist:
+// no <item>s and the <lastBuildDate> element is omitted entirely (because
+// Hugo's RSS template gates on {{ if not .Date.IsZero }}).
+func TestBuildEmptyTaxonomyContext_EmptyRegularPagesAndZeroDate(t *testing.T) {
+	siteCtx := &tmpl.SiteContext{
+		Title:        "T",
+		BaseURL:      "https://x/",
+		RegularPages: tmpl.PageSlice{&tmpl.Context{Title: "p"}},
+	}
+	ctx := BuildEmptyTaxonomyContext(siteCtx, "Categories", "categories")
+	if ctx == nil {
+		t.Fatal("expected non-nil empty taxonomy context")
+	}
+	if len(ctx.RegularPages) != 0 {
+		t.Errorf("empty taxonomy RegularPages: got %d, want 0 (taxonomy listing has terms, not site pages)", len(ctx.RegularPages))
+	}
+	if len(ctx.Pages) != 0 {
+		t.Errorf("empty taxonomy Pages: got %d, want 0", len(ctx.Pages))
+	}
+	if !ctx.Date.IsZero() {
+		t.Errorf("empty taxonomy Date: got %v, want zero (Hugo omits <lastBuildDate> for empty taxonomy)", ctx.Date)
+	}
+}
+
+// TestBuildTaxonomyContext_SetsDateToNewestTermStub verifies that the taxonomy
+// listing context's Date is set to the newest term stub's effective date.
+// Hugo's RSS template emits <lastBuildDate> only when .Date is non-zero, so
+// the tags listing (which has terms) must have a non-zero Date to match.
+func TestBuildTaxonomyContext_SetsDateToNewestTermStub(t *testing.T) {
+	earlier := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	later := time.Date(2026, 5, 27, 17, 7, 34, 0, time.UTC)
+
+	alphaPage := &content.Page{Title: "alpha-post", RelPath: "posts/a.md", Kind: "page", DateParsed: earlier, LastmodParsed: earlier}
+	betaPage := &content.Page{Title: "beta-post", RelPath: "posts/b.md", Kind: "page", DateParsed: later, LastmodParsed: later}
+
+	alphaCtx := &tmpl.Context{Title: "alpha-post", Date: earlier, Lastmod: earlier}
+	betaCtx := &tmpl.Context{Title: "beta-post", Date: later, Lastmod: later}
+
+	lookup := map[*content.Page]*tmpl.Context{alphaPage: alphaCtx, betaPage: betaCtx}
+	site := &content.Site{
+		Pages: []*content.Page{alphaPage, betaPage},
+		Taxonomies: map[string]content.Taxonomy{
+			"tags": {
+				"alpha": {alphaPage},
+				"beta":  {betaPage},
+			},
+		},
+	}
+	siteCtx := &tmpl.SiteContext{Title: "T", BaseURL: "https://x/", RegularPages: tmpl.PageSlice{alphaCtx, betaCtx}}
+
+	ctx := BuildTaxonomyContext(siteCtx, lookup, site, &config.Config{})
+	if ctx == nil {
+		t.Fatal("expected non-nil taxonomy context")
+	}
+	if ctx.Date.IsZero() {
+		t.Errorf("taxonomy Date: got zero, want non-zero (Hugo emits <lastBuildDate> for tags listing)")
+	}
+	if !ctx.Date.Equal(later) {
+		t.Errorf("taxonomy Date: got %v, want %v (newest stub effective date)", ctx.Date, later)
+	}
+}
+
 // TestRssLastBuildDate_EmptyForEmptyRegularPages verifies that
 // rssLastBuildDate returns "" when RegularPages is empty. This matches
 // Hugo's <lastBuildDate/> output for tags whose only pages are hidden.

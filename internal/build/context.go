@@ -319,9 +319,24 @@ func BuildTaxonomyContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*t
 	taxRelURL := "/tags/"
 	taxPermURL := siteCtx.BaseURL + "tags/"
 
+	// Hugo's RSS template gates <lastBuildDate> on {{ if not .Date.IsZero }}.
+	// For a taxonomy listing with terms, Hugo sets .Date to a non-zero value
+	// (effectively the newest term's effective date). Mirror this so the
+	// element is emitted with the correct value. For an empty taxonomy
+	// (BuildEmptyTaxonomyContext), .Date remains zero and the element is
+	// omitted entirely. sortedStubs[0] is the newest by Date (sort above).
+	var taxDate time.Time
+	if len(sortedStubs) > 0 {
+		if first := tmpl.AsCtx(sortedStubs[0]); first != nil {
+			taxDate = first.Date
+		}
+	}
+
 	return &tmpl.Context{
 		Kind:        "taxonomy",
 		Title:       "Tags",
+		Section:     "tags",
+		Date:        taxDate,
 		Site:        siteCtx,
 		Data: &tmpl.DataAccessor{
 			Terms:  tmpl.TermsList(dataTerms),
@@ -346,13 +361,15 @@ func BuildEmptyTaxonomyContext(siteCtx *tmpl.SiteContext, title, plural string) 
 	return &tmpl.Context{
 		Kind:          "taxonomy",
 		Title:         title,
+		Section:       plural,
 		Site:          siteCtx,
 		Data: &tmpl.DataAccessor{
 			Terms:  tmpl.TermsList{},
 			Plural: plural,
 		},
 		Scratch:       tmpl.NewScratch(),
-		RegularPages:  siteCtx.RegularPages,
+		RegularPages:  tmpl.PageSlice{},
+		Pages:         tmpl.PageSlice{},
 		RelPermalink:  relURL,
 		Permalink:     permURL,
 		OutputFormats: tmpl.DefaultPageOutputFormats(permURL, relURL),
@@ -398,10 +415,33 @@ func BuildTermContext(siteCtx *tmpl.SiteContext, lookup map[*content.Page]*tmpl.
 			title = orig
 		}
 	}
+	// Hugo's term-page .Date is non-zero when the term has any pages
+	// (including hidden/never-listed ones). It is effectively the newest
+	// tagged page's date. The RSS template gates <lastBuildDate> on
+	// {{ if not .Date.IsZero }}, and the emitted VALUE comes from
+	// $pages (= .Pages = listed only). So for a term whose only pages are
+	// hidden, .Date is non-zero (element emitted) but VALUE is empty
+	// (yields <lastBuildDate/>). We compute termDate from ALL tagged pages
+	// (the input pages param) to match this — using `listed` instead would
+	// wrongly omit the element for hidden-only tags like /tags/fanfan/.
+	var termDate time.Time
+	for _, item := range pages {
+		c := tmpl.AsCtx(item)
+		if c == nil {
+			continue
+		}
+		if c.Lastmod.After(termDate) {
+			termDate = c.Lastmod
+		}
+		if c.Date.After(termDate) {
+			termDate = c.Date
+		}
+	}
 	return &tmpl.Context{
 		Kind:        "term",
 		Title:       title,
 		Section:     "tags",
+		Date:        termDate,
 		Site:        siteCtx,
 		Data: &tmpl.DataAccessor{
 			Pages:  listed,

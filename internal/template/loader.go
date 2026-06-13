@@ -103,8 +103,8 @@ func (l *Loader) LoadAll() (*template.Template, error) {
     <description>Recent content {{ if ne .Title .Site.Title }}{{ with .Title }}in {{ . }} {{ end }}{{ end }}on {{ .Site.Title }}</description>
     <generator>Hugo</generator>
     <language>{{ site.Language.LanguageCode }}</language>{{ with .Site.Copyright }}
-    <copyright>{{ . }}</copyright>{{ end }}
-    <lastBuildDate>{{ rssLastBuildDate . | safeHTML }}</lastBuildDate>
+    <copyright>{{ . }}</copyright>{{ end }}{{ if not .Date.IsZero }}
+    <lastBuildDate>{{ rssLastBuildDate . | safeHTML }}</lastBuildDate>{{ end }}
     {{- with .OutputFormats.Get "RSS" }}
     {{ printf "<atom:link href=%q rel=\"self\" type=%q />" .Permalink .MediaType.Type | safeHTML }}
     {{- end }}
