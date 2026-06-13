@@ -18,7 +18,7 @@ huan 是一个用 Go 编写的静态站点生成器。阶段一目标是将 zhur
 | 项目定位 | 独立项目，一次性迁移，非 drop-in |
 | 配置格式 | `huan.yaml` |
 | 验证方式 | diff 管线，与 Hugo 输出逐字节对比 |
-| 插件架构 | 阶段一预留骨架，阶段二增量扩展 |
+| 插件架构 | 统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）；首个实例为 Cloudflare deploy 插件（[ADR 0002](adr/0002-cloudflare-deploy-plugin.md)） |
 
 ## 3. 项目结构
 
@@ -35,10 +35,11 @@ huan/
 │   ├── encrypt/           # 加密/涂黑系统
 │   ├── template/          # 模板加载、函数注册、渲染
 │   ├── taxonomy/          # 标签/分类系统
-│   ├── pipeline/          # 构建管线编排
+│   ├── build/             # 构建管线编排（原 pipeline，含原子 swap）
 │   ├── output/            # 文件写入、minify、sitemap/RSS
-│   ├── search/            # 搜索索引生成
-│   └── plugin/            # 插件接口定义（骨架）
+│   ├── serve/             # 开发服务器（HTTP + LiveReload）
+│   ├── plugin/            # 统一插件宿主（详见 §4.11 / ADR 0003）
+│   └── deploy/            # Deployer capability + cloudflare 实现（详见 ADR 0002）
 ├── pkg/                   # 可导出的公共库（阶段二用）
 ├── docs/                  # 文档
 ├── go.mod
@@ -523,50 +524,52 @@ type SearchEntry struct {
 - 清理 HTML 标签
 - 输出 JSON 数组
 
-### 4.11 plugin — 插件架构（骨架）
+### 4.11 plugin — 插件架构（统一插件系统）
 
-**阶段一只定义接口，不实现功能。**
+**详细决策见 [ADR 0003](adr/0003-unified-plugin-system.md)。** 本节为总图速览。
+
+stage 2 起把插件做成 huan 的一等扩展机制，覆盖 deploy / payment / i18n / membership 等所有未来扩展。统一插件宿主位于 `internal/plugin/`，**不**预定义所有 capability 接口（YAGNI），按需在领域包中新增。
 
 ```go
-// 插件接口
+// internal/plugin/plugin.go — 统一插件基接口 + Registry
 type Plugin interface {
-    Name() string
-    Init(config map[string]interface{}) error
+    Name() string  // "cloudflare" / "stripe" / ...
 }
 
-// 内容处理器插件（阶段二用）
-type ContentProcessor interface {
-    Plugin
-    Process(content *ContentContext) error
-}
+type Registry struct { /* name → Plugin */ }
 
-// 模板函数插件（阶段二用）
-type TemplateFunctionProvider interface {
-    Plugin
-    Functions() template.FuncMap
-}
-
-// 输出处理器插件（阶段二用，如动态渲染、API 网关）
-type OutputProcessor interface {
-    Plugin
-    Process(output *OutputContext) error
-}
-
-// 插件注册表
-type Registry struct {
-    plugins map[string]Plugin
-}
-
-func (r *Registry) Register(p Plugin)
-func (r *Registry) LoadDir(dir string) error  // 从目录加载插件
+func NewRegistry() *Registry
+func (r *Registry) Register(p Plugin) error          // 重名报错
+func (r *Registry) Get(name string) (Plugin, bool)
+func (r *Registry) All() []Plugin
+func Find[T any](r *Registry) []T                    // 按 capability 查询
 ```
 
-**阶段二扩展方向：**
-- `AuthPlugin` — JWT 鉴权，控制加密内容访问
-- `PaymentPlugin` — 付费内容校验
-- `MemberPlugin` — 会员等级管理
-- `DynamicRenderPlugin` — HTTP server，动态渲染
-- `TemplatePlugin` — 替换模板引擎
+```go
+// internal/deploy/types.go — Deployer 是首个 capability 接口
+type Deployer interface {
+    plugin.Plugin
+    Deploy(ctx context.Context, opts Options) (*Report, error)
+}
+```
+
+**核心约束**（详见 [ADR 0003](adr/0003-unified-plugin-system.md)）：
+- Plugin 基接口极简（只有 `Name()`）；配置由构造器吃进去，**不**加 `Init/Start/Stop`。
+- Capability 接口分散在领域包（`internal/deploy/`、未来的 `internal/payment/` 等），**不**集中在 `internal/plugin/types.go`。
+- 配置统一在 yaml 顶层 `plugins:<name>.*` 命名空间；凭证通过 `${VAR}` strict 插值注入。
+- CLI：per-capability verb（`huan deploy cloudflare [...]`）+ 统一管理命令（`huan plugin list/info`）。
+- 注册：编译期 hardcoded 在 `cmd/huan/plugins.go`（composition root），避免循环 import；**不**用 `init()` 自注册。
+
+**首期实施**：plugin 系统 + Cloudflare deploy 插件（Pages only）。详见 [ADR 0002](adr/0002-cloudflare-deploy-plugin.md)。
+
+**阶段二及以后扩展方向**（按需新增领域包与 capability 接口）：
+- `PaymentProvider` —— 付费（stripe / 微信 / 支付宝），runtime HTTP 回调
+- `MultiLanguageProvider` —— 自动多语言翻译，build 或 runtime
+- `MembershipProvider` —— 会员等级与鉴权，runtime
+- `ContentProcessor` / `TemplateFunctionProvider` / `OutputProcessor` —— build-time 内容/模板/输出扩展（原 §4.11 build-time 骨架，待 build-time 插件真要落地时再画）
+- `DynamicRenderPlugin` —— HTTP server 动态渲染
+
+加新插件 = 新建领域包 + 在 `cmd/huan/plugins.go` switch 加 case + yaml 加 `plugins.<name>.*`。**不动 `internal/plugin/`**。
 
 ## 5. 模板迁移清单
 

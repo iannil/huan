@@ -18,6 +18,8 @@
 | [`technical-plan.md`](technical-plan.md) | **项目蓝图总图** — 架构决策、模块设计、实施里程碑、Hugo 兼容现状 | 已落地 |
 | [`progress/CURRENT_STATE.md`](progress/CURRENT_STATE.md) | **当前实际进展** — 阶段一进度、剩余差异、stage 2 待办 | 持续更新 |
 | [`adr/0001-redefine-equivalence.md`](adr/0001-redefine-equivalence.md) | **ADR 0001：重新界定「100% 还原」为三维度等价** | Accepted |
+| [`adr/0002-cloudflare-deploy-plugin.md`](adr/0002-cloudflare-deploy-plugin.md) | **ADR 0002：Cloudflare 发布插件**（首 PR = Pages only） | Accepted |
+| [`adr/0003-unified-plugin-system.md`](adr/0003-unified-plugin-system.md) | **ADR 0003：统一插件系统**（plugin host / capability / 配置 / 注册） | Accepted |
 | [`standards/equivalence.md`](standards/equivalence.md) | **三维度等价标准** — 肉眼 / SEO / AI 三维度无差异 | 永久 |
 | [`superpowers/plans/2026-06-12-redefine-equivalence.md`](superpowers/plans/2026-06-12-redefine-equivalence.md) | 三维度等价标准实施 plan（2026-06-12） | 进行中 |
 | [`standards/documentation.md`](standards/documentation.md) | 文档规范 — 目录用途、命名、归档时机 | 永久 |
