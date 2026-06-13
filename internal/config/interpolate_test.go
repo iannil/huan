@@ -131,6 +131,74 @@ func TestInterpolate_UnsetVar_NestedError_ContainsKeyPath(t *testing.T) {
 	}
 }
 
+func TestInterpolate_DefaultEmpty_WhenVarUnset(t *testing.T) {
+	// ${VAR:-} with unset var → empty string, no error.
+	in := map[string]any{"token": "${DEFINITELY_NOT_SET_VAR_XYZ:-}"}
+	out, err := Interpolate(in)
+	if err != nil {
+		t.Fatalf("Interpolate: %v", err)
+	}
+	if got := out["token"]; got != "" {
+		t.Errorf("token = %q, want empty", got)
+	}
+}
+
+func TestInterpolate_DefaultLiteral_WhenVarUnset(t *testing.T) {
+	// ${VAR:-fallback} with unset var → "fallback".
+	in := map[string]any{"host": "${DEFINITELY_NOT_SET_VAR_XYZ:-localhost}"}
+	out, err := Interpolate(in)
+	if err != nil {
+		t.Fatalf("Interpolate: %v", err)
+	}
+	if got := out["host"]; got != "localhost" {
+		t.Errorf("host = %q, want localhost", got)
+	}
+}
+
+func TestInterpolate_DefaultIgnored_WhenVarSet(t *testing.T) {
+	// ${VAR:-fallback} with set var → uses env value, default ignored.
+	t.Setenv("HAS_VALUE", "production")
+	in := map[string]any{"env": "${HAS_VALUE:-fallback}"}
+	out, err := Interpolate(in)
+	if err != nil {
+		t.Fatalf("Interpolate: %v", err)
+	}
+	if got := out["env"]; got != "production" {
+		t.Errorf("env = %q, want production", got)
+	}
+}
+
+func TestInterpolate_MixedStrictAndDefault(t *testing.T) {
+	// Mixed: one strict var (set), one with default (unset).
+	t.Setenv("PRESENT", "yes")
+	in := map[string]any{"x": "${PRESENT}-${MISSING:-no}"}
+	out, err := Interpolate(in)
+	if err != nil {
+		t.Fatalf("Interpolate: %v", err)
+	}
+	if got := out["x"]; got != "yes-no" {
+		t.Errorf("x = %q, want yes-no", got)
+	}
+}
+
+func TestInterpolate_DefaultWithSpecialChars(t *testing.T) {
+	// Default value may contain spaces, dashes, slashes — anything but "}".
+	in := map[string]any{
+		"url": "${MISSING:-https://example.com/path}",
+		"note": "${MISSING:-a value with spaces}",
+	}
+	out, err := Interpolate(in)
+	if err != nil {
+		t.Fatalf("Interpolate: %v", err)
+	}
+	if got := out["url"]; got != "https://example.com/path" {
+		t.Errorf("url = %q", got)
+	}
+	if got := out["note"]; got != "a value with spaces" {
+		t.Errorf("note = %q", got)
+	}
+}
+
 func TestInterpolate_MultipleVarsInSameString(t *testing.T) {
 	t.Setenv("A", "foo")
 	t.Setenv("B", "bar")

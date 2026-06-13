@@ -4,15 +4,22 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 )
 
-// envPattern matches ${VAR_NAME} where VAR_NAME starts with uppercase letter
-// or underscore, followed by uppercase letters/digits/underscores.
+// envPattern matches ${VAR_NAME} or ${VAR_NAME:-default}.
 //
-// The uppercase restriction is intentional: it prevents accidental matching
-// of shell-style expressions in arbitrary content while still covering all
-// conventional env var names (CLOUDFLARE_API_TOKEN, GH_SHA, etc.).
-var envPattern = regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)\}`)
+// VAR_NAME starts with an uppercase letter or underscore, followed by
+// uppercase letters/digits/underscores. The uppercase restriction is
+// intentional: it prevents accidental matching of shell-style expressions
+// in arbitrary content while still covering all conventional env var names
+// (CLOUDFLARE_API_TOKEN, GH_SHA, etc.).
+//
+// The optional ":-default" suffix (POSIX shell syntax) provides a fallback
+// value used when VAR_NAME is unset, instead of raising ErrEnvVarNotSet.
+// The default may be any text except "}" (so ${VAR:-} is a legal empty
+// default, but ${VAR:-${OTHER}} is not — nested interpolation is unsupported).
+var envPattern = regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}`)
 
 // ErrEnvVarNotSet is returned when a ${VAR} reference cannot be resolved
 // because the env var is not set. Strict mode treats this as a fail-fast
@@ -28,7 +35,14 @@ func (e *ErrEnvVarNotSet) Error() string {
 
 // Interpolate walks the parsed yaml tree (map[string]any / []any / string)
 // and replaces ${VAR} occurrences in string leaves with env var values.
-// Returns an error if any ${VAR} references an unset env var (strict mode).
+// Returns an error if any ${VAR} (without default) references an unset env
+// var (strict mode).
+//
+// To make a field tolerate a missing env var, use ${VAR:-default}: when VAR
+// is unset, the literal default (which may be empty) is substituted instead
+// and no error is raised. This is the recommended way to mark optional
+// plugin credentials — strict-by-default for the common case, opt-in lenient
+// for fields whose consumers validate presence themselves.
 //
 // Type preservation: ${VAR} only makes sense in string fields. If used in
 // int/bool fields, the resulting yaml unmarshal will fail with a type error.
@@ -89,9 +103,21 @@ func interpolateString(s string) (string, error) {
 		if resolveErr != nil {
 			return match
 		}
-		varName := match[2 : len(match)-1]
+		// match is "${...}"; strip "${" prefix and "}" suffix to get inner.
+		inner := match[2 : len(match)-1]
+		varName := inner
+		defaultValue := ""
+		hasDefault := false
+		if idx := strings.Index(inner, ":-"); idx >= 0 {
+			varName = inner[:idx]
+			defaultValue = inner[idx+2:]
+			hasDefault = true
+		}
 		value, ok := os.LookupEnv(varName)
 		if !ok {
+			if hasDefault {
+				return defaultValue
+			}
 			resolveErr = &ErrEnvVarNotSet{VarName: varName}
 			return match
 		}
