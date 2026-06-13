@@ -649,20 +649,26 @@ func sortFunc(slice interface{}, args ...string) ([]interface{}, error) {
 	result := make([]interface{}, len(items))
 	copy(result, items)
 
-	// If a field name is provided as the first arg, sort by that field.
+	// Sort key: if a field name is given as the first arg, sort by that field;
+	// otherwise (Hugo's `sort $seq` without a field), sort by the element
+	// itself. Without this branch, huan returned the slice unchanged whenever
+	// no field was provided, which broke book/practice list page part ordering
+	// (templates use `sort ($scratch.Get "partSlugs")` with no field arg).
+	keyOf := func(v interface{}) interface{} { return v }
 	if len(args) > 0 && args[0] != "" {
 		field := args[0]
-		// Sort ascending by the field, using stable order.
-		// Use Sprintf-based comparison so numbers and strings work.
-		for i := 1; i < len(result); i++ {
-			for j := i; j > 0; j-- {
-				a := extractField(result[j], field)
-				b := extractField(result[j-1], field)
-				if compare(a, b) < 0 {
-					result[j], result[j-1] = result[j-1], result[j]
-				} else {
-					break
-				}
+		keyOf = func(v interface{}) interface{} { return extractField(v, field) }
+	}
+	// Insertion sort (stable). compare() handles mixed string/number cases
+	// via fmt.Sprintf, matching Hugo's loose-typing sort behavior.
+	for i := 1; i < len(result); i++ {
+		for j := i; j > 0; j-- {
+			a := keyOf(result[j])
+			b := keyOf(result[j-1])
+			if compare(a, b) < 0 {
+				result[j], result[j-1] = result[j-1], result[j]
+			} else {
+				break
 			}
 		}
 	}

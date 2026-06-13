@@ -153,3 +153,48 @@ func TestPlainify_HandlesEmptyAndNil(t *testing.T) {
 		t.Errorf("plainify(nil) = %q, want empty", got)
 	}
 }
+
+// TestSortFunc_NoFieldArgSortsByValue verifies that sort called without a field
+// argument sorts the slice by element value (matching Hugo's behavior). Hugo's
+// sort: "Returns the given sequence sorted in ascending order." Without a field
+// arg, the elements themselves are the sort key.
+func TestSortFunc_NoFieldArgSortsByValue(t *testing.T) {
+	fn := getFunc(t, "sort").(func(interface{}, ...string) ([]interface{}, error))
+	// Note: huan builds the input as a []interface{} from Scratch. Use that.
+	in := []interface{}{"part-02", "part-01", "part-03"}
+	out, err := fn(in)
+	if err != nil {
+		t.Fatalf("sort error: %v", err)
+	}
+	want := []interface{}{"part-01", "part-02", "part-03"}
+	if len(out) != len(want) {
+		t.Fatalf("len mismatch: got %v, want %v", out, want)
+	}
+	for i, v := range out {
+		if v != want[i] {
+			t.Errorf("sort without field arg: idx %d got %v, want %v (full: %v)", i, v, want[i], out)
+		}
+	}
+}
+
+// TestSortFunc_NoFieldArgSortsChinese verifies that sort without field arg
+// at least produces a deterministic order for CJK strings (Hugo's sort falls
+// back to byte-level when no collator is wired in for the template fn).
+func TestSortFunc_NoFieldArgSortsChinese(t *testing.T) {
+	fn := getFunc(t, "sort").(func(interface{}, ...string) ([]interface{}, error))
+	in := []interface{}{"三", "二", "一"}
+	out, err := fn(in)
+	if err != nil {
+		t.Fatalf("sort error: %v", err)
+	}
+	// Hugo byte-level: 一(U+4E00) < 三(U+4E09) < 二(U+4E8C)
+	want := []interface{}{"一", "三", "二"}
+	if len(out) != len(want) {
+		t.Fatalf("len mismatch: got %v, want %v", out, want)
+	}
+	for i, v := range out {
+		if v != want[i] {
+			t.Errorf("sort CJK: idx %d got %v, want %v (full: %v)", i, v, want[i], out)
+		}
+	}
+}
