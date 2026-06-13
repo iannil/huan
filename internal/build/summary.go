@@ -222,7 +222,6 @@ func hugoCountWord(word string) int {
 var (
 	hugoHTMLTagRe       = regexp.MustCompile(`^</?[A-Za-z]+>?$`)
 	hugoHTMLAttrRe      = regexp.MustCompile(`^[A-Za-z]+=["']`)
-	hugoWordTagStripRe  = regexp.MustCompile(`<[^>]+>`)
 )
 
 // hugoIsProbablyHTMLToken matches Hugo's regexps for tokens that should be
@@ -232,9 +231,29 @@ func hugoIsProbablyHTMLToken(s string) bool {
 }
 
 // stripHTMLTagsInWord strips inline HTML tags within a single whitespace-
-// separated token (Hugo's tpl.StripHTML). Whitespace is preserved.
+// separated token (Hugo's tpl.StripHTML). Uses stateful char-by-char stripping
+// (not a regex) so that an unclosed `<tag` fragment at the end of a token
+// (which arises in Hugo's summary algorithm because segments are sliced at
+// the byte offset of `<` from `</p>`) is also stripped. A regex-based
+// stripper requiring a closing `>` would leave the trailing `<em` behind,
+// inflating the rune count and breaking summary truncation byte-equivalence.
 func stripHTMLTagsInWord(s string) string {
-	return hugoWordTagStripRe.ReplaceAllString(s, "")
+	var sb strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
 }
 
 // commonPrefixLen returns the length of the longest common byte prefix of a and b.
