@@ -1,7 +1,65 @@
 # 当前实际进展
 
-> 最后更新：2026-06-12  ·  分支：master
+> 最后更新：2026-06-13  ·  分支：master
 > 本文档替代 `docs/technical-plan.md` 第 8.4 节"剩余差异"——后者作为冻结的设计参考，**实际最新状态以此文档为准**。
+
+## Stage 3 — grill-me 完成度确认（2026-06-13，最新）
+
+按用户要求"对 100% 还原进行完成度确认（肉眼 / SEO / AI 三维度）"启动 grill-me 流程。**结果颠覆了 stage 2 主要完成 的结论**——之前的 baseline 一开始就 broken。
+
+### 三维度最终状态 ✅
+
+| 维度 | 数字 | 状态 |
+|---|---|---|
+| **SEO** | **0 differing** | ✅ **PASS** |
+| **AI** | **0 differing** | ✅ **PASS** |
+| normalized | 6 differing | 4 个 chroma lexer 版本差 + 2 个非可见 artifact |
+| byte | 6 differing | 同上 |
+| Files only in Hugo / huan | 0 / 0 | ✅ |
+| Identical files | **2026** / 2032 | 99.7% |
+
+剩余 6 个 diff 全部是 chroma v2.26.1（huan）vs Hugo bundled chroma 版本差，或非可见 artifact（products/index.xml RSS 描述缩进、sitemap.xml URL 排序）。**肉眼 / SEO / AI 三维度全部无差异**，详见 [equivalence.md §4](../standards/equivalence.md#4-接受为永久差异的项)。
+
+### Stage 3 关键发现 + 修复
+
+#### 发现 1：zhurongshuo 本地 layout 被截断 → stage 1/2 数字全失真
+
+- `layouts/_default/single.html` working tree 被截断到 12 行（HEAD 是 67 行完整的）
+- 导致本地 Hugo 跑出来 96% 页面缺 body，huan 读同样 layout 也缺 body
+- 之前所有 stage 1/2 的 diff 数字（"905 same" 等）都是基于 broken baseline 的"假性相同"
+- 修复：`git checkout HEAD -- layouts/_default/single.html`（在 zhurongshuo 仓库）
+- **教训**：任何对比工作开始前必须实证 baseline 自身正确（对比线上 / HEAD / 已知 good 状态）
+
+#### 发现 2：4 个 slug collision 全部是源内容 typo
+
+- `posts/2025/02/2203.md`（slug=2202，应为 2203）
+- `posts/2023/04/1402.md`（slug=1401，应为 1402）
+- `practices/season-5/.../epilogue.md`（slug=introduction，应为 epilogue）
+- `practices/season-4/the-transformation-of-traffic-stations/chapter-07.md`（slug=chapter-06，应为 chapter-07）
+
+修法：改源 content frontmatter，不是 port Hugo 的 collision resolution（Hugo 是"默默挑一个不报错"，没有公开算法）。
+
+#### Stage 3 完成的工作
+
+| 任务 | 文件 | 备注 |
+|---|---|---|
+| B1/B2 slug collision（4 文件） | zhurongshuo content | 改源 frontmatter |
+| C entity encoding 双逃逸 bug | `internal/template/funcs.go::plainify` | 改返回 `template.HTML` 避免 Go template auto-escape |
+| A chroma port 到 huan | `internal/markdown/renderer.go` + go.mod | 加 `github.com/alecthomas/chroma/v2`，自定义 goldmark NodeRenderer |
+| search.json 生成（额外发现） | `internal/template/funcs.go::replaceREFunc` | 改签名为 `interface{}` 以接受 template.HTML |
+| E1 canonify 跳过 code/pre | `internal/output/canonify.go::applyCanonifyOutsideCode` | regex split 区段 skip |
+| E2 hugoSlugify 边界修复 + emoji 短码 | `internal/markdown/renderer.go` | `_` 保留 / Unicode letter 保留 / 不 Trim trailing dash / 多行 heading 取最后段 / emoji 短码跳 code 区 |
+
+### 待办（commit + 推送）
+
+1. **zhurongshuo 仓库**：commit 5 个源文件改动（4 slug fix + CLAUDE.md）—— layout 已 restored to HEAD 不在 modified 列表
+2. **huan 仓库**：commit 7 个文件改动（chroma + plainify + replaceRE + canonify + renderer + tests）
+
+### 历史
+
+stage 1/2 的 phase-by-phase 进度（包括 phase 5d/e/f 等细节）保留在下方作为历史记录，但其"stage 2 主要等价工作完成"的结论**已被 stage 3 推翻**——基于 broken baseline 的完成度判定无效。stage 3 才是真正的完成度确认。
+
+---
 
 ## 阶段一进度总览
 
@@ -16,37 +74,22 @@
 | 7. Minify + 输出优化 | ✅ | `internal/output/minify.go` |
 | 8. 验证 + 修正（Hugo diff 管线） | ✅ | `scripts/diff-*.sh` |
 | 9. 开发服务器（serve） | ✅ | `internal/serve`（17 commits，2026-06-12 完成） |
-
-**Hugo 输出一致性快照**（带 ±75 文件噪声，详见经验教训）：
-- Hugo 总文件数：2029  ·  huan 总文件数：2036
-- byte-diff：约 905 完全一致 / 1124 差异（噪声 ±75）
-- **新等价标准**：以 [`docs/standards/equivalence.md`](../standards/equivalence.md) 为准，byte-diff 仅作雷达
+| 10. chroma 语法高亮 port | ✅ | `internal/markdown/renderer.go`（stage 3） |
+| 11. 三维度 PASS（SEO + AI 全 0 diff） | ✅ | stage 3 grill-me 完成度确认 |
 
 ---
 
-## 当前活跃工作
+## 历史记录（stage 1/2，已被 stage 3 推翻）
 
-无。**stage 1 已于 2026-06-12 完成**——三维度等价标准（[ADR 0001](../adr/0001-redefine-equivalence.md)）落地，4 项必修/应修差异（#1 WordCount / #2 RSS items 顺序 / #3 RSS description 截断 / #5 general summary 截断）全部解决，#4 products 换行接受为永久差异。三维度验证管线（`./scripts/diff-build.sh`）建立并 gate 通过。stage 2 待启动（详见下方）。
+> ⚠️ 以下"stage 2 主要等价工作完成"等结论基于 broken baseline，实际完成度以 stage 3 为准。
 
----
+### Stage 1 已完成（2026-06-12）
 
-## 已完成 — 原 5 类差异处理结果（2026-06-12 收尾）
+stage 1 收尾时三维度等价标准（[ADR 0001](../adr/0001-redefine-equivalence.md)）落地，4 项必修/应修差异（#1 WordCount / #2 RSS items 顺序 / #3 RSS description 截断 / #5 general summary 截断）全部解决，#4 products 换行接受为永久差异。三维度验证管线建立并 gate 通过。
 
-5 类差异已按三维度标准全部处理：
+### Stage 2 历史 phase 进度
 
-1. 字数统计精度 → ✅ 已修（Phase 3 Port Hugo WordCount + Phase 3.5 div float64）
-2. RSS items 顺序 → ✅ 已修（Phase 4 sortPagesByDateDesc tiebreaker）
-3. RSS description 截断 → ✅ 已修（Phase 5 TruncateHTMLByWords word-boundary + Phase 5.5 TruncateHTMLToBlockBoundary）
-4. products summary 换行 → ✅ 接受为永久差异（详见 equivalence.md §4）
-5. general summary 截断 → ✅ 已修（同 #3）
-
----
-
-## Stage 2 候选工作清单（2026-06-12 stage 1 收尾 + grill-me 复核修订）
-
-stage 1 收尾跑 diff-build.sh 时发现的差异。原 3 项遗留经 grill-me 全量复核后修订为本清单。
-
-> **修订记录（2026-06-12 grill-me 复核）**：原清单 3 项里 #1「meta description 换行压缩」方向描述反了（实际是 huan 多行、Hugo 折叠），#2「RSS items 数量差」与 #3「lastBuildDate 格式差」均不存在（前者是 grep 命令误用、后者实证 byte-identical）。下列为全量调查（1265 个 differing .html/.xml 文件）归纳的真实差异。
+stage 2 各 phase 的具体进展详见下方原记录。stage 3 grill-me 后重新审视，发现这些 phase 大多是在修真问题但被 broken baseline 掩盖了实际效果——直到 layout 修复后才暴露真实差异规模。
 
 > **修订记录（2026-06-12 stage 2 phase 2 启动前调查）**：原候选 #2「RSS 中文 URL 编码（464 文件）」全量复核后发现是误判——实际 0 个文件有单纯 URL 编码差。204 个 RSS differing 文件分类：187 个 items 顺序差（中文排序根因）+ 17 个 items 内容差（独立问题）。原 #3 books part 顺序与 items 顺序同源，合并为新 #2/#3。
 

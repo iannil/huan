@@ -1,6 +1,7 @@
 package template
 
 import (
+	"html/template"
 	"testing"
 )
 
@@ -77,7 +78,7 @@ func TestMathFuncs_ModStaysInt(t *testing.T) {
 func TestPlainify_NoTagsShortcut(t *testing.T) {
 	// Input with no < or > returned as-is.
 	in := "plain text no tags"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != in {
 		t.Errorf("plainify no-tags shortcut: got %q, want %q", got, in)
 	}
@@ -87,7 +88,7 @@ func TestPlainify_PBlockBoundaryBecomesNewline(t *testing.T) {
 	// </p> → \n (via placeholder)
 	in := "<p>first</p><p>second</p>"
 	want := "first\nsecond\n"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != want {
 		t.Errorf("plainify </p> boundary:\n  got:  %q\n  want: %q", got, want)
 	}
@@ -96,7 +97,7 @@ func TestPlainify_PBlockBoundaryBecomesNewline(t *testing.T) {
 func TestPlainify_BrBecomesNewline(t *testing.T) {
 	in := "<p>line1<br>line2</p>"
 	want := "line1\nline2\n"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != want {
 		t.Errorf("plainify <br>:\n  got:  %q\n  want: %q", got, want)
 	}
@@ -106,7 +107,7 @@ func TestPlainify_NonPTagsDoNotGetNewline(t *testing.T) {
 	// <h2>...</h2> does NOT get placeholder; surrounding \n becomes space.
 	in := "<h2>title</h2>\n<p>body</p>"
 	want := "title body\n"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != want {
 		t.Errorf("plainify non-p tags:\n  got:  %q\n  want: %q", got, want)
 	}
@@ -116,7 +117,7 @@ func TestPlainify_DedupsConsecutiveWhitespace(t *testing.T) {
 	// \n\n → \n, "   " → " ", but mixed \n + space → first one wins.
 	in := "<p>a</p>\n\n\n<p>b</p>"
 	want := "a\nb\n"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != want {
 		t.Errorf("plainify dedup:\n  got:  %q\n  want: %q", got, want)
 	}
@@ -129,7 +130,7 @@ func TestPlainify_PreservesLeadingTrailingWhitespace(t *testing.T) {
 	// Net: ` x\n` (one leading space, no trailing space).
 	in := "\n  <p>x</p>  "
 	want := " x\n"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != want {
 		t.Errorf("plainify preserves edges:\n  got:  %q\n  want: %q", got, want)
 	}
@@ -139,18 +140,37 @@ func TestPlainify_RealWorldZhurongshuoSummary(t *testing.T) {
 	// zhurongshuo general/_index.md rendered: blockquote + h2 + h3 + paragraphs.
 	in := "<blockquote>\n<p>法不净空，觉无性也。（2010-10-18）</p>\n</blockquote>\n<h2 id=\"一存在\">一、存在</h2>\n<h3 id=\"11动态存在\">1.1、动态存在</h3>\n<p>可能性基底时刻...</p>"
 	want := " 法不净空，觉无性也。（2010-10-18）\n一、存在 1.1、动态存在 可能性基底时刻...\n"
-	got := plainify(in)
+	got := string(plainify(in))
 	if got != want {
 		t.Errorf("plainify zhurongshuo summary:\n  in:   %q\n  got:  %q\n  want: %q", in, got, want)
 	}
 }
 
 func TestPlainify_HandlesEmptyAndNil(t *testing.T) {
-	if got := plainify(""); got != "" {
+	if got := string(plainify("")); got != "" {
 		t.Errorf("plainify(\"\") = %q, want empty", got)
 	}
-	if got := plainify(nil); got != "" {
+	if got := string(plainify(nil)); got != "" {
 		t.Errorf("plainify(nil) = %q, want empty", got)
+	}
+}
+
+func TestPlainify_ReturnsHTMLNotEscaped(t *testing.T) {
+	// plainify must return template.HTML so consumers like
+	// `<meta name=description content="{{ .Summary | plainify }}">` don't get
+	// the value auto-escaped by Go template (which would turn the `&` in
+	// `&quot;` into `&amp;`, breaking byte-parity with Hugo).
+	// Regression: goldmark body has `&quot;`; plainify must preserve it as-is.
+	in := "<p>Robert Frost, &quot;Mending Wall&quot;</p>"
+	want := "Robert Frost, &quot;Mending Wall&quot;\n"
+	got := plainify(in)
+	if string(got) != want {
+		t.Errorf("plainify must preserve entities (not auto-escape):\n  got:  %q\n  want: %q", got, want)
+	}
+	// Verify return type is template.HTML (not plain string) — this is what
+	// prevents Go template from auto-escaping.
+	if _, ok := interface{}(got).(template.HTML); !ok {
+		t.Errorf("plainify must return template.HTML, got %T", got)
 	}
 }
 

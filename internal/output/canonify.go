@@ -25,44 +25,20 @@ var canonifyBareRootPattern = regexp.MustCompile(`((?:href|src)=)/([\s>])`)
 //
 // Handles both quoted and unquoted (post-minify) attribute values.
 // Skips protocol-relative URLs (//example.com) and absolute http(s) URLs.
+//
+// Skips <code> and <pre> regions: URLs inside code blocks are raw text content
+// (e.g., a code sample showing `<link href=/api/foo />`), not actual HTML
+// attributes. Hugo's canonifyURLs does not rewrite inside code/pre either.
 func Canonify(html string, opts CanonifyOptions) string {
 	if opts.BaseURL == "" {
 		return html
 	}
 	base := strings.TrimRight(opts.BaseURL, "/")
 
-	// First: quoted values
-	html = canonifyQuotedPattern.ReplaceAllStringFunc(html, func(match string) string {
-		parts := canonifyQuotedPattern.FindStringSubmatch(match)
-		if parts == nil {
-			return match
-		}
-		// parts[2] looks like `/foo/bar"` - strip the leading / before prepending base
-		path := strings.TrimPrefix(parts[2], `/`)
-		if strings.HasPrefix(path, "/") { // protocol-relative //
-			return match
-		}
-		return parts[1] + base + "/" + path
-	})
+	// Segmented rewrite: walk HTML, apply patterns only outside code/pre.
+	html = applyCanonifyOutsideCode(html, base)
 
-	// Second: bare values (post-minify)
-	html = canonifyBarePattern.ReplaceAllStringFunc(html, func(match string) string {
-		parts := canonifyBarePattern.FindStringSubmatch(match)
-		if parts == nil {
-			return match
-		}
-		// parts[2] is the path starting with / - strip it before prepending base
-		path := strings.TrimPrefix(parts[2], `/`)
-		if strings.HasPrefix(path, "/") { // protocol-relative
-			return match
-		}
-		return parts[1] + base + "/" + path
-	})
-
-	// Third: bare root path (href=/ followed by space or >)
-	html = canonifyBareRootPattern.ReplaceAllString(html, "${1}" + base + "/${2}")
-
-	// Fourth: inject Hugo generator meta tag (home page only)
+	// Inject Hugo generator meta tag (home page only)
 	if opts.IsHome {
 		html = injectGenerator(html)
 	}
@@ -70,6 +46,78 @@ func Canonify(html string, opts CanonifyOptions) string {
 	// Finally: minify JSON-LD script contents (Hugo does this).
 	html = minifyJSONLD(html)
 
+	return html
+}
+
+// codeOpenRe matches opening <code> or <pre> tags (with any attributes, post-minify).
+// codeCloseRe matches the corresponding close tags.
+var (
+	codeRegionOpenRe  = regexp.MustCompile(`<(?:code|pre)(?:\s[^>]*)?>`)
+	codeRegionCloseRe = regexp.MustCompile(`</(?:code|pre)>`)
+)
+
+// applyCanonifyOutsideCode splits the HTML into segments separated by
+// <code>/<pre> regions, applies canonify to OUTSIDE segments only, and emits
+// inside segments verbatim. Inside code/pre, content is escaped text
+// representing source code samples — URLs in there are not real HTML
+// attributes and must not be rewritten.
+//
+// Implementation: use a combined regex to split at code/pre boundaries. The
+// split preserves the tags themselves (they end up in the "outside" segments
+// at their boundaries, which is fine since the bare/quoted patterns don't
+// match the tags themselves).
+func applyCanonifyOutsideCode(html, base string) string {
+	// regionRe matches a full <code>...</code> or <pre>...</pre> block (greedy
+	// is OK because we treat anything inside as "raw text" — if a code block
+	// contains another open tag, that's literal text).
+	regionRe := regexp.MustCompile(`(?s)<(?:code|pre)(?:\s[^>]*)?>.*?</(?:code|pre)>`)
+
+	var sb strings.Builder
+	lastEnd := 0
+	for _, m := range regionRe.FindAllStringIndex(html, -1) {
+		start, end := m[0], m[1]
+		// Canonify the outside text before this region.
+		if start > lastEnd {
+			sb.WriteString(canonifySegment(html[lastEnd:start], base))
+		}
+		// Emit the code/pre region verbatim.
+		sb.WriteString(html[start:end])
+		lastEnd = end
+	}
+	// Canonify any trailing outside text.
+	if lastEnd < len(html) {
+		sb.WriteString(canonifySegment(html[lastEnd:], base))
+	}
+	return sb.String()
+}
+
+// canonifySegment applies the three canonify patterns to a code-free HTML segment.
+func canonifySegment(html, base string) string {
+	html = canonifyQuotedPattern.ReplaceAllStringFunc(html, func(match string) string {
+		parts := canonifyQuotedPattern.FindStringSubmatch(match)
+		if parts == nil {
+			return match
+		}
+		path := strings.TrimPrefix(parts[2], `/`)
+		if strings.HasPrefix(path, "/") {
+			return match
+		}
+		return parts[1] + base + "/" + path
+	})
+
+	html = canonifyBarePattern.ReplaceAllStringFunc(html, func(match string) string {
+		parts := canonifyBarePattern.FindStringSubmatch(match)
+		if parts == nil {
+			return match
+		}
+		path := strings.TrimPrefix(parts[2], `/`)
+		if strings.HasPrefix(path, "/") {
+			return match
+		}
+		return parts[1] + base + "/" + path
+	})
+
+	html = canonifyBareRootPattern.ReplaceAllString(html, "${1}"+base+"/${2}")
 	return html
 }
 

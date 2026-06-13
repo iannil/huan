@@ -203,10 +203,16 @@ var stripHTMLReplacerPre = strings.NewReplacer(
 //
 // Do NOT collapse-whitespace to a single space here — that breaks byte-level
 // equivalence with Hugo for the `<meta name=description content="...">` use case.
-func plainify(v interface{}) string {
+//
+// Returns template.HTML (not string) so the output bypasses Go template's
+// auto-escape. This matches Hugo's plainify behavior — Hugo's plainify also
+// returns safe HTML. Without this, `&quot;` (from goldmark body) becomes
+// `&amp;quot;` after auto-escape, breaking description meta tag byte-parity
+// (tdewolff minify can't normalize the double-escaped form back to ASCII `"`).
+func plainify(v interface{}) template.HTML {
 	s := toString(v)
 	if !strings.ContainsAny(s, "<>") {
-		return s
+		return template.HTML(s)
 	}
 
 	pre := stripHTMLReplacerPre.Replace(s)
@@ -230,7 +236,7 @@ func plainify(v interface{}) string {
 	if buf.Len() > 0 {
 		s = buf.String()
 	}
-	return s
+	return template.HTML(s)
 }
 
 // toString converts any value to a string for template functions that expect strings.
@@ -814,9 +820,16 @@ func unionFunc(slices ...interface{}) []interface{} {
 	return result
 }
 
-func replaceREFunc(pattern, repl, src string) string {
-	re := regexp.MustCompile(pattern)
-	return re.ReplaceAllString(src, repl)
+func replaceREFunc(pattern, repl interface{}, src interface{}) string {
+	// Accept interface{} because Hugo's plainify returns template.HTML, and
+	// templates like `{{ $x | plainify | replaceRE ... }}` pipe HTML-typed
+	// values here. With strict string params, Go template errors:
+	//   "wrong type for value; expected string; got template.HTML"
+	p := toString(pattern)
+	r := toString(repl)
+	s := toString(src)
+	re := regexp.MustCompile(p)
+	return re.ReplaceAllString(s, r)
 }
 
 func findREFunc(pattern, src string) []string {
