@@ -442,18 +442,21 @@ func LinkPageRelationships(ctx *Context, p *content.Page, lookup map[*content.Pa
 			ctx.Pages = append(ctx.Pages, c)
 		}
 	}
-	// Hugo's .RegularPages in section/home context is recursive: it includes
-	// every regular page beneath the section (including those in nested
-	// subsections). zhurongshuo's posts/ is organized by year/month/day
-	// subdirs, so the section's direct children are subsections — p.RegularPages
-	// would be empty. For section/home, wire ctx.RegularPages from
-	// p.RegularPagesRecursive. For regular pages, p.RegularPages stays as-is
-	// (empty, matching Hugo's per-page .RegularPages).
-	regularPagesSrc := p.RegularPages
-	if p.Kind == "section" || p.Kind == "home" {
-		regularPagesSrc = p.RegularPagesRecursive
-	}
-	for _, child := range regularPagesSrc {
+	// Hugo's .RegularPages reflects a page's NEAREST section ancestor only.
+	// content.BuildTree already populates p.RegularPages with the correct set:
+	//   - For a section/home, p.RegularPages = regular pages whose nearest
+	//     _index.md (or auto-created section) ancestor IS this section.
+	//     For zhurongshuo's posts/ (no _index.md anywhere in the tree) every
+	//     posts/**/*.md attaches directly to posts, so posts.RegularPages
+	//     already contains all 20 posts recursively. For practices/ and
+	//     books/ (which DO have intermediate _index.md), only the top-level
+	//     leaf pages attach — chapter pages belong to their book/season
+	//     section, NOT practices. Hugo's practices.RegularPages == 0.
+	//   - For a regular page, p.RegularPages is empty (matches Hugo's
+	//     per-page .RegularPages).
+	// p.RegularPagesRecursive carries the full descendant set when a template
+	// explicitly asks for the recursive view.
+	for _, child := range p.RegularPages {
 		if c, ok := lookup[child]; ok {
 			ctx.RegularPages = append(ctx.RegularPages, c)
 		}
