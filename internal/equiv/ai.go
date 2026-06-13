@@ -8,7 +8,7 @@ import (
 
 // AIFields is the set of HTML fields that affect LLM crawler friendliness.
 type AIFields struct {
-	MainText string          // innerText of <main>; pages without <main> yield empty (zhurongshuo templates use <main> so this is sufficient)
+	MainText string          // innerText of <main> > <article> > <div class="main"> (first non-empty wins)
 	Outline  []Heading       // h1-h6 in document order
 	JSONLD   []string        // same content as SEOFields.JSONLD
 	Semantic map[string]bool // which semantic elements are present
@@ -22,12 +22,22 @@ func ExtractAI(htmlSrc string) AIFields {
 	if err != nil {
 		return out
 	}
-	walkAI(doc, &out)
+	var mainText, articleText, divMainText string
+	walkAI(doc, &out, &mainText, &articleText, &divMainText)
+	// Priority: <main> > <article> > <div class="main">
+	switch {
+	case mainText != "":
+		out.MainText = mainText
+	case articleText != "":
+		out.MainText = articleText
+	default:
+		out.MainText = divMainText
+	}
 	out.MainText = strings.TrimSpace(out.MainText)
 	return out
 }
 
-func walkAI(n *html.Node, out *AIFields) {
+func walkAI(n *html.Node, out *AIFields, mainText, articleText, divMainText *string) {
 	if n == nil {
 		return
 	}
@@ -49,13 +59,34 @@ func walkAI(n *html.Node, out *AIFields) {
 				collectNavLinks(c, out)
 			}
 		}
-	}
-	if n.Type == html.ElementNode && strings.ToLower(n.Data) == "main" {
-		out.MainText = collapseWS(textOf(n))
+		// Extract body text with priority: <main> > <article> > <div class="main">
+		if tag == "main" && *mainText == "" {
+			*mainText = collapseWS(textOf(n))
+		}
+		if tag == "article" && *articleText == "" {
+			*articleText = collapseWS(textOf(n))
+		}
+		if tag == "div" && hasClass(n, "main") && *divMainText == "" {
+			*divMainText = collapseWS(textOf(n))
+		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		walkAI(c, out)
+		walkAI(c, out, mainText, articleText, divMainText)
 	}
+}
+
+// hasClass reports whether the element has the given CSS class.
+func hasClass(n *html.Node, class string) bool {
+	for _, a := range n.Attr {
+		if a.Key == "class" {
+			for _, c := range strings.Fields(a.Val) {
+				if c == class {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func collectNavLinks(n *html.Node, out *AIFields) {

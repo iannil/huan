@@ -19,16 +19,17 @@ const (
 
 // Report is the output of a single mode comparison over a pair of dirs.
 type Report struct {
-	Mode       Mode
-	Identical  int
-	Differing  []string // relative paths
-	MissingInA []string // files only in B
-	ExtraInA   []string // files only in A
+	Mode        Mode
+	Identical   int
+	Differing   []string // relative paths (non-whitelisted)
+	Whitelisted []string // relative paths that matched the allowlist
+	MissingInA  []string // files only in B
+	ExtraInA    []string // files only in A
 }
 
 // Pass returns true if this mode's gate is satisfied.
-// byte mode always passes (radar only); others require zero differing files
-// AND zero missing/extra files.
+// byte mode always passes (radar only); others require zero non-whitelisted
+// differing files AND zero missing/extra files.
 func (r Report) Pass() bool {
 	if r.Mode == ModeByte {
 		return true
@@ -37,8 +38,9 @@ func (r Report) Pass() bool {
 }
 
 // CompareDirs runs the given mode across two parallel directory trees.
-// Files considered: .html / .htm / .xml.
-func CompareDirs(mode Mode, dirA, dirB string) (Report, error) {
+// Files considered: .html / .htm / .xml. allowlist is a set of relative paths
+// that are accepted as permanent differences (not counted as failures).
+func CompareDirs(mode Mode, dirA, dirB string, allowlist map[string]bool) (Report, error) {
 	r := Report{Mode: mode}
 	filesA, err := collectFiles(dirA)
 	if err != nil {
@@ -73,6 +75,8 @@ func CompareDirs(mode Mode, dirA, dirB string) (Report, error) {
 		}
 		if compareContent(mode, string(a), string(b)) {
 			r.Identical++
+		} else if allowlist[f] {
+			r.Whitelisted = append(r.Whitelisted, f)
 		} else {
 			r.Differing = append(r.Differing, f)
 		}
@@ -130,6 +134,6 @@ func (r Report) FormatSummary() string {
 	if !r.Pass() {
 		status = "FAIL"
 	}
-	return fmt.Sprintf("[%s] mode=%s identical=%d differing=%d missing=%d extra=%d",
-		status, r.Mode, r.Identical, len(r.Differing), len(r.MissingInA), len(r.ExtraInA))
+	return fmt.Sprintf("[%s] mode=%s identical=%d differing=%d whitelisted=%d missing=%d extra=%d",
+		status, r.Mode, r.Identical, len(r.Differing), len(r.Whitelisted), len(r.MissingInA), len(r.ExtraInA))
 }

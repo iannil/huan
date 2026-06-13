@@ -1,0 +1,8 @@
+# Permanent differences accepted per docs/standards/equivalence.md §4
+# One relative path per line. Lines starting with # are comments.
+practices/season-3/fundamentals-of-remote-work/part-04/chapter-13/index.html
+practices/season-5/effective-constraints/part-02/chapter-03/index.html
+practices/season-5/effective-constraints/part-03/chapter-07/index.html
+practices/season-5/effective-constraints/part-06/chapter-15/index.html
+products/index.xml
+sitemap.xml

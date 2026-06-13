@@ -40,23 +40,23 @@ normalize 规则：
 - `<link rel="canonical">` 的 href
 - `<meta name="robots">` 的 content
 - 所有 `<h1>` / `<h2>` / `<h3>` 的文本（按出现顺序）
-- `<script type="application/ld+json">` 的内容（JSON-LD，sort keys 后对比）
+- `<script type="application/ld+json">` 的内容（JSON-LD，sort keys + compact marshal 后对比）
 - `<a>` 的 href 与 rel="nofollow" 标记
 - 站点级：`sitemap.xml` 文件内容、`robots.txt` 文件内容
 
-**等价判据**：所有字段逐项等价（JSON-LD 用 `sort_keys + indent=2` 规范化后字节对比）。
+**等价判据**：所有字段逐项等价（JSON-LD 用 `sort_keys + compact marshal` 规范化后字节对比）。
 
 ### 2.3 AI 抓取无差异
 
 **测量**：从 HTML 提取 AI 友好度关键字段，逐字段对比。
 
 提取的字段集：
-- `<main>` 或 `<article>` 的 innerText（主体内容）
+- `<main>` 或 `<article>` 的 innerText（主体内容；zhurongshuo 模板不含 `<main>` / `<article>`，实际提取 `<div class="main">` 的 innerText）
 - heading outline：所有 `<h1>`-`<h6>` 的层级 + 文本（按出现顺序）
-- `<script type="application/ld+json">` 内容（与 SEO 维度复用）
+- `<script type="application/ld+json">` 内容（与 SEO 维度复用，compact marshal 后对比）
 - `<nav>` 的链接结构（内部链接 graph）
 - 语义化标签存在性：`<header>` / `<main>` / `<article>` / `<section>` / `<nav>` / `<footer>` / `<aside>`
-- 站点级：`llms.txt`（如果存在）
+- 站点级：`llms.txt`（如果存在；zhurongshuo 当前不生成此文件，暂不检查）
 
 **等价判据**：所有字段逐项等价。
 
@@ -66,7 +66,7 @@ normalize 规则：
 
 | 项 | 维度影响 | 类型 | 说明 |
 |---|---|---|---|
-| （stage 1 范畴暂无） | — | — | — |
+| robots.txt | SEO：更完善的安全规则 | 改进 | huan 生成的 robots.txt 包含更多安全相关的 Disallow/Allow 规则（/admin/、/private/、/.cloudflare/、/docs/ 等），优于 Hugo 的精简版本 |
 
 stage 1 收尾后，所有「更好」的偏离由本表统一登记。任何未登记的偏离视为回归。
 
@@ -79,7 +79,6 @@ stage 1 收尾后，所有「更好」的偏离由本表统一登记。任何未
 | chroma lexer 版本差（4 文件：season-3 chapter-13 / season-5 effective-constraints chapter-03,07,15） | 肉眼：代码块内 token 嵌套略有不同；SEO/AI：均不读 token | ✅ 是 | 2026-06-13 |
 | products/index.xml RSS description 缩进 | 肉眼：不读 RSS；SEO/AI：RSS description 字段经 extractor 规范化后等价 | ✅ 是 | 2026-06-13 |
 | sitemap.xml items 顺序 + lastmod | SEO：极小影响（搜索引擎读 sitemap 但顺序不关键） | ✅ 是 | 2026-06-13 |
-| robots.txt | SEO：微 artifact，不影响 crawl | ✅ 是 | 2026-06-13 |
 | search.json | SEO/AI：内部搜索索引，非外部消费 | ✅ 是 | 2026-06-13 |
 
 **stage 3 修复（不再算永久差异）**：
@@ -92,3 +91,4 @@ stage 1 收尾后，所有「更好」的偏离由本表统一登记。任何未
 - 2026-06-12：初版，由 ADR 0001 落地。
 - 2026-06-13: stage 2 phase 5d/e/f 后追加 5 项永久差异（chroma / sitemap / robots.txt / search.json / entity encoding 边缘 case）。
 - 2026-06-13（下午）: **stage 3 grill-me 完成度确认后重写**——发现 stage 2 的"完成"判定基于 broken baseline（zhurongshuo 本地 layout 截断 → 96% 页面缺 body）。修复 layout 后真实差异 80 个，经 stage 3 chroma port + slug collision fix + plainify HTML return + canonify skip code + hugoSlugify 边界修复后收敛到 7 个 byte-diff（4 chroma 版本差 + products/index.xml + robots.txt + sitemap.xml）。**三维度全部 PASS（SEO 0 / AI 0）**，肉眼无差异。详见 [`docs/progress/CURRENT_STATE.md`](../progress/CURRENT_STATE.md) §Stage 3。
+- 2026-06-13（晚）: **grill-me 审计更新**——修复 diff-build.sh exit 0 假 PASS bug；增强 AI extractor 支持 `<article>` + `<div class="main">` 兜底；新增白名单机制（`scripts/allowed-diffs.txt`）；robots.txt 从永久差异移至 §3「甚至更好」；JSON-LD / llms.txt / innerText 标准描述与实现对齐。重跑全量验证：**三维度全 PASS + 构建确定性确认 + 全量测试通过**。

@@ -18,6 +18,7 @@ set -euo pipefail
 PROJECT_DIR="/Users/rong.zhu/Code/zhurongshuo"
 HUAN_BIN="/Users/rong.zhu/Code/huan/huan"
 HUAN_REPO_DIR="/Users/rong.zhu/Code/huan"
+ALLOWLIST="$HUAN_REPO_DIR/scripts/allowed-diffs.txt"
 HUGO_DIR="/tmp/hugo-baseline"
 HUAN_DIR="/tmp/huan-output"
 DIFF_DIR="/tmp/huan-diff"
@@ -123,14 +124,13 @@ fi
 if [ "$needs_build" -eq 1 ]; then
     echo "Building equiv-check..."
     (cd "$HUAN_REPO_DIR" && go build -o "$EQUIV_BIN" ./cmd/equiv-check/) || {
-        echo "FAILED to build equiv-check; skipping 3-dim check"
-        # Don't fail the script — byte-diff summary above is still useful
-        exit 0
+        echo "FAILED to build equiv-check; aborting"
+        exit 1
     }
 fi
 
 # Run all three modes; normalized/seo/ai failures exit 1
-"$EQUIV_BIN" -a "$HUAN_DIR" -b "$HUGO_DIR" --mode all || {
+"$EQUIV_BIN" -a "$HUAN_DIR" -b "$HUGO_DIR" --mode all --allowlist "$ALLOWLIST" || {
     echo "Three-dimension equivalence check FAILED"
     exit 1
 }
