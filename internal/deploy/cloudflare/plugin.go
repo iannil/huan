@@ -38,7 +38,11 @@ func (p *Plugin) Config() Config { return p.cfg }
 //
 // Mixed targets like ["pages", "r2"] return an error — invoke each separately.
 func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Report, error) {
-	traceID := newTraceIDForDeploy()
+	// Generate trace ID up front so early-return Reports have non-empty
+	// TraceID. Previously newTraceIDForDeploy() returned "" and let Logger
+	// auto-generate, which meant pre-logger-failure Reports had no correlation
+	// id (audit L1).
+	traceID := deploy.NewTraceID()
 	logger := deploy.NewLogger(traceID)
 
 	target, err := singleTarget(opts.Targets)
@@ -200,13 +204,18 @@ func r2ResultToReport(traceID string, r *R2SyncResult, err error) *deploy.Report
 	return report
 }
 
+// dryRunReport builds a Report for Pages dry-run. Semantics per audit L6:
+// dry-run does not check remote, so we can't say which files would be skipped
+// vs uploaded. All files show up as Attempted; Succeeded/Skipped/Failed all
+// zero. The trace_id correlates to the structured log events which carry the
+// detailed "would upload" / "would skip" breakdown.
 func dryRunReport(traceID string, assets []Asset) *deploy.Report {
 	return &deploy.Report{
 		TraceID:   traceID,
 		Target:    "pages",
 		Attempted: len(assets),
-		Skipped:   len(assets), // dry-run: nothing actually uploaded; all "would be skipped" from CF perspective
 		Succeeded: 0,
+		Skipped:   0,
 		Failed:    0,
 	}
 }
@@ -239,10 +248,9 @@ func joinTargets(targets []string) string {
 	return out
 }
 
-// newTraceIDForDeploy generates a fresh trace id for this deploy invocation.
-// Mirrors deploy.Logger's trace id generation but standalone so callers can
-// inspect the trace id before constructing a logger.
+// newTraceIDForDeploy is deprecated; use deploy.NewTraceID() directly.
+// Kept as a no-op stub so any remaining callers compile cleanly; will be
+// removed once we grep-verify no callers remain.
 func newTraceIDForDeploy() string {
-	// Logger auto-generates one if empty; just pass empty.
-	return ""
+	return deploy.NewTraceID()
 }

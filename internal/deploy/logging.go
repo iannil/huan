@@ -53,7 +53,7 @@ func NewLogger(traceID string) *Logger {
 // traceID is auto-generated when empty, matching NewLogger's contract.
 func NewLoggerWithWriter(traceID string, w io.Writer) *Logger {
 	if traceID == "" {
-		traceID = newTraceID()
+		traceID = NewTraceID()
 	}
 	l := &Logger{
 		traceID: traceID,
@@ -61,6 +61,19 @@ func NewLoggerWithWriter(traceID string, w io.Writer) *Logger {
 	}
 	l.enc = json.NewEncoder(l.out)
 	return l
+}
+
+// NewTraceID generates a random 16-byte hex-encoded id (32 chars). Exported
+// so callers can pre-generate a trace id and use it both in early-return
+// Report values and in the Logger. Previously Logger auto-generated one
+// internally, which left early-return Reports with empty TraceID.
+func NewTraceID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// rand.Read should never fail; fall back to timestamp if it does.
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }
 
 // TraceID returns the trace id used for all lines from this logger.
@@ -111,13 +124,8 @@ func (l *Logger) LogFunctionEnd(spanID string, duration time.Duration, payload m
 	l.Log(spanID, EventFunctionEnd, payload)
 }
 
-// newTraceID generates a random 16-byte hex-encoded id (32 chars).
-// Used when callers don't supply one.
+// newTraceID is kept as a private alias for NewTraceID so existing internal
+// references don't break. New code should call NewTraceID directly.
 func newTraceID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// rand.Read should never fail; fall back to timestamp if it does.
-		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
+	return NewTraceID()
 }

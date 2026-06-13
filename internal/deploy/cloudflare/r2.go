@@ -315,7 +315,18 @@ func (s *R2Syncer) walkLocal(ctx context.Context, mappings []SyncMapping, result
 			if err != nil {
 				return err
 			}
-			if d.IsDir() || d.Type() == os.ModeSymlink {
+			if d.IsDir() {
+				return nil
+			}
+			if d.Type() == os.ModeSymlink {
+				// Per audit L7: log skipped symlinks so users aren't
+				// surprised when expected content doesn't appear in R2.
+				s.logger.Log("r2-walk-skip", deploy.EventPoint, map[string]any{
+					"path":  path,
+					"from":  m.From,
+					"to":    m.To,
+					"reason": "symlink",
+				})
 				return nil
 			}
 			rel, err := filepath.Rel(m.From, path)

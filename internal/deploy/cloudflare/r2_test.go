@@ -497,7 +497,9 @@ func TestR2Sync_SymlinkSkipped(t *testing.T) {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 
-	syncer := NewR2SyncerWithClient(mock, "b", newR2TestLogger())
+	var buf bytes.Buffer
+	logger := deploy.NewLoggerWithWriter("symlink-test", &buf)
+	syncer := NewR2SyncerWithClient(mock, "b", logger)
 	result, err := syncer.Sync(context.Background(),
 		[]SyncMapping{{From: dir, To: "img"}},
 		R2SyncOptions{},
@@ -510,6 +512,14 @@ func TestR2Sync_SymlinkSkipped(t *testing.T) {
 	}
 	if _, exists := mock.objects["img/link.jpg"]; exists {
 		t.Errorf("symlink was uploaded")
+	}
+	// Audit L7: skipped symlinks should be logged for observability.
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "r2-walk-skip") {
+		t.Errorf("log missing r2-walk-skip event:\n%s", logOutput)
+	}
+	if !strings.Contains(logOutput, "link.jpg") {
+		t.Errorf("log missing symlink path:\n%s", logOutput)
 	}
 }
 
@@ -600,7 +610,7 @@ func TestR2Sync_PluginDispatch_R2Target(t *testing.T) {
 		Pages:     PagesConfig{Project: "p", Branch: "main"},
 		// R2 intentionally empty
 	})
-	_, err := p.Deploy(context.Background(), deploy.Options{
+	report, err := p.Deploy(context.Background(), deploy.Options{
 		Targets: []string{"r2"},
 	})
 	if err == nil {
@@ -608,6 +618,13 @@ func TestR2Sync_PluginDispatch_R2Target(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "r2.* config") {
 		t.Errorf("err = %q", err.Error())
+	}
+	// Audit L1: Report.TraceID must be non-empty even on early-return errors.
+	if report == nil {
+		t.Fatal("report is nil")
+	}
+	if report.TraceID == "" {
+		t.Error("Report.TraceID empty on early-return; want non-empty for correlation")
 	}
 }
 
