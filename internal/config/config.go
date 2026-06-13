@@ -26,6 +26,7 @@ type Config struct {
 	RSS          RSSConfig         `yaml:"rss"`
 	Outputs      OutputsConfig     `yaml:"outputs"`
 	AI           AIConfig          `yaml:"ai"`
+	Plugins      map[string]map[string]any `yaml:"plugins"`
 
 	// Computed (not from YAML)
 	BaseURLTemplate template.URL
