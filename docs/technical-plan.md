@@ -93,18 +93,6 @@ params:
   googleAnalytics: "G-KKJ5ZEG1NB"
   cdnURL: "https://r2.zhurongshuo.com"
 
-  encryptGroups:
-    default:
-      hint: "受保护内容"
-      mode: "full"
-    teach:
-      hint: "私人课内容"
-      mode: "full"
-    kachuai:
-      hint: "卡揣内容"
-      mode: "random"
-      ratio: 50
-
 menu:
   main:
     - name: "首页"
@@ -151,7 +139,6 @@ outputs:
 | Hugo (TOML) | huan (YAML) | 说明 |
 |-------------|-------------|------|
 | `[params]` | `params:` | 扁平化参数 |
-| `[params.encryptGroups]` | `params.encryptGroups:` | 加密组配置 |
 | `[[menu.main]]` | `menu.main:` | 菜单数组 |
 | `[markup.goldmark]` | `markup.goldmark:` | Markdown 渲染配置 |
 | `pagerSize` | `paginate:` | 分页大小 |

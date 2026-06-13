@@ -47,8 +47,8 @@ Hugo is excellent, but for [zhurongshuo.com](https://zhurongshuo.com)'s needs it
 
 1. **Strip Hugo down to the subset zhurongshuo actually uses.** No theme system, no taxonomies-of-taxonomies, no multiple output formats beyond HTML/RSS/sitemap/search — just the parts that ship to production.
 2. **Treat CJK content as a first-class citizen.** `hasCJKLanguage`, word counting, summary length, and heading ID generation all account for Chinese text without configuration.
-3. **Bake encryption into the core.** zhurongshuo uses page-level access control (`access: protected`), random-ratio content redaction, and per-group encryption — these are built into huan rather than bolted on.
-4. **Stay verifiable against Hugo.** A diff pipeline (`scripts/diff-build.sh`) byte-compares huan's output against Hugo's. The 905/2028 (44.5%) byte-identical baseline is tracked as a regression gate.
+3. **AI-friendly by default.** Built-in `llms.txt`, content API (`/api/{section}.json`), and per-page Markdown mirrors — designed for LLM crawlers and AI consumers, not just SEO bots.
+4. **Stay verifiable against Hugo.** A diff pipeline (`scripts/diff-build.sh`) byte-compares huan's output against Hugo's. The 2026/2032 (99.7%) byte-identical baseline (stage 3) is tracked as a regression gate.
 5. **Keep the dev loop fast.** `huan serve` rebuilds atomically (no 404s during rebuild) and broadcasts a LiveReload signal that refreshes the browser within ~1 second of saving a Markdown file.
 
 ---
@@ -92,10 +92,6 @@ Hugo is excellent, but for [zhurongshuo.com](https://zhurongshuo.com)'s needs it
 - **Minify**: HTML / CSS / JS / JSON / SVG / XML via `tdewolff/minify`
 - **canonifyURLs**: root-relative URLs post-processed into absolute URLs
 - **i18n**: YAML-based message bundles (e.g. `zh-cn.yaml`)
-
-### Encryption & redaction (removed in v0.2.0)
-
-The page-level encryption and `redact` shortcode were removed in v0.2.0 because zhurongshuo never enabled them in practice. See [ADR 0005](docs/adr/0005-remove-encrypt-and-v02-feature-batch.md) for rationale. `huan.yaml`'s `params.encryptGroups` is now a dead config (kept for backward compat, not consumed).
 
 ### Deploy & release
 
@@ -239,8 +235,7 @@ huan/
 │   ├── config/            # huan.yaml parser
 │   ├── content/           # content loader + tree + frontmatter
 │   ├── markdown/          # goldmark pipeline
-│   ├── shortcode/         # redact / audio / img
-│   ├── encrypt/           # page-level encryption + redaction
+│   ├── shortcode/         # audio / img (redact removed in v0.2.0)
 │   ├── template/          # html/template loader + funcmap
 │   ├── taxonomy/          # tags / categories
 │   ├── pagination/

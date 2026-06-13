@@ -33,7 +33,7 @@
 - 配置格式 `huan.yaml`（YAML），非 drop-in 替换 Hugo
 - 验证方式：`./scripts/diff-build.sh` 多模式对比（byte 雷达 + normalized / seo / ai 三维度门禁），三维度任一失败则阻断合并
 - 插件架构：**统一插件系统**（[ADR 0003](../docs/adr/0003-unified-plugin-system.md)）—— `internal/plugin/` 顶层 host（Plugin{Name()} + Registry + Find[T]），capability 接口分散在领域包（首个 `internal/deploy/types.go::Deployer`），yaml 顶层 `plugins:<name>.*`，`${VAR}` strict 插值，CLI `huan deploy <name>` + `huan plugin list/info`，编译期 hardcoded 注册在 `cmd/huan/plugins.go`。**首期只画 `Deployer`，不预画 `PaymentProvider` 等（YAGNI）**。Cloudflare deploy 插件是首个实例（[ADR 0002](../docs/adr/0002-cloudflare-deploy-plugin.md)）。**三个 target 全部实施完毕**：pages（PR1，blake3+5-endpoint+dual-token）/ r2（PR2，minio-go+MD5 etag+prune）/ worker（PR3，multipart modules API）。13 commits / ~7300 行 / ~140 测试 PASS 含 `-race`
-- **v0.2.0 移除 `internal/encrypt/` + `shortcode/redact.go`**（zhurongshuo 未启用，详见 [ADR 0005](../docs/adr/0005-remove-encrypt-and-v02-feature-batch.md)）。`huan.yaml` 的 `params.encryptGroups` 保留为 dead config（不消费但不报错）。加密密文生成器 `scripts/encrypt-content.js` 留在 zhurongshuo 项目
+- **v0.2.0 移除 `internal/encrypt/` + `shortcode/redact.go`**（zhurongshuo 未启用，详见 [ADR 0005](../docs/adr/0005-remove-encrypt-and-v02-feature-batch.md)）。**v0.2.3 进一步移除 `huan.yaml` 的 `params.encryptGroups` dead config**（反转 ADR 0005 §1.2，详见 [ADR 0006](../docs/adr/0006-remove-encryptgroups-dead-config.md)）—— zhurongshuo 仓库的 yaml 已先行清理，huan 仓库本次跟上。加密密文生成器 `scripts/encrypt-content.js` 不存在（huan 仓库无 / zhurongshuo 仓库也无）
 - serve 模式用临时目录 `os.MkdirTemp("", "huan-serve-*")`，绝不污染 `docs/` 生产输出
 - rebuild 用原子 swap（sibling staging dir + rename），保证 rebuild 期间无 404
 - `BuildSite` 非并发安全，rebuild 通过 `atomic.Bool` 串行化 + pending 合并
