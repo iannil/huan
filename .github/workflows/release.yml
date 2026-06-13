@@ -1,0 +1,81 @@
+name: Release
+
+# Trigger on v* tag push (e.g., v0.2.0) — automatically creates a GitHub
+# Release with cross-compiled artifacts attached. Also expose workflow_dispatch
+# so the workflow can be run manually against an already-pushed tag (useful
+# for back-filling releases for tags pushed before this workflow existed).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (must already exist, format vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: write  # required by gh release create
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag (with format validation)
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          # Prefer explicit workflow_dispatch input; fall back to the tag ref
+          # that triggered the run. Validate format to guard against injection
+          # in downstream ref: and run: usages.
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          if ! echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid tag format: $tag (expected vX.Y.Z)"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout (at tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: false
+
+      - name: Build release artifacts
+        run: |
+          # huan release writes to release/<version>/ (no 'v' prefix).
+          # go run ensures we use the version pinned at the tag, not a stale local binary.
+          go run ./cmd/huan release
+          # VERSION file content tells us the path; strip trailing newline.
+          version="$(tr -d '\n' < internal/version/VERSION)"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid VERSION content: $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_ENV"
+          echo "Artifacts built at release/$version/:"
+          ls -la "release/$version/"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ env.version }}
+        run: |
+          # If a release already exists for this tag (e.g., workflow re-run),
+          # add the artifacts instead of failing.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading artifacts"
+            gh release upload "$TAG" "release/$VERSION/"* --clobber
+          else
+            gh release create "$TAG" "release/$VERSION/"* \
+              --title "$TAG" \
+              --notes "Automated release for $TAG. See release/$VERSION/huan_${VERSION}_checksums.txt for SHA256 verification."
+          fi
