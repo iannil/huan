@@ -254,8 +254,12 @@ func TestWorker_R2Binding_Serialized(t *testing.T) {
 	if b["name"] != "R2_BUCKET" {
 		t.Errorf("name = %v", b["name"])
 	}
-	if b["bucket"] != "zhurongshuo" {
-		t.Errorf("bucket = %v", b["bucket"])
+	if b["bucket_name"] != "zhurongshuo" {
+		t.Errorf("bucket_name = %v", b["bucket_name"])
+	}
+	// CF modules API rejects "bucket"; ensure we don't emit it.
+	if _, has := b["bucket"]; has {
+		t.Errorf("r2_bucket binding unexpectedly emitted legacy %q field", "bucket")
 	}
 }
 
@@ -375,7 +379,7 @@ func TestWorker_BindingRelevantFieldOnly(t *testing.T) {
 		Name:   "w",
 		Script: scriptPath,
 		Bindings: []WorkerBinding{
-			// r2_bucket should ONLY emit {type, name, bucket}.
+			// r2_bucket should ONLY emit {type, name, bucket_name}.
 			{Type: "r2_bucket", Name: "R2_BUCKET", Bucket: "zhurongshuo"},
 		},
 	}, DeployWorkerOptions{})
@@ -394,11 +398,11 @@ func TestWorker_BindingRelevantFieldOnly(t *testing.T) {
 	if b["name"] != "R2_BUCKET" {
 		t.Errorf("name = %v", b["name"])
 	}
-	if b["bucket"] != "zhurongshuo" {
-		t.Errorf("bucket = %v", b["bucket"])
+	if b["bucket_name"] != "zhurongshuo" {
+		t.Errorf("bucket_name = %v", b["bucket_name"])
 	}
 	// CRITICAL: unrelated fields MUST be absent.
-	for _, absent := range []string{"namespace_id", "id", "text"} {
+	for _, absent := range []string{"namespace_id", "id", "text", "bucket"} {
 		if _, has := b[absent]; has {
 			t.Errorf("r2_bucket binding has unexpected %q = %v", absent, b[absent])
 		}

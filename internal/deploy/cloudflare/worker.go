@@ -193,10 +193,14 @@ type workerMetadata struct {
 // handles this correctly — a switch case that only sets Bucket for
 // r2_bucket leaves NamespaceID/ID/Text as zero strings, which omitempty
 // skips. No bug, just adding this comment to lock the contract.
+//
+// Field name vs JSON tag note: CF modules API requires "bucket_name" for
+// r2_bucket bindings (returns [10021] if given "bucket"). The Go field
+// is named Bucket for readability; the json tag controls wire format.
 type workerBindingJSON struct {
 	Type        string `json:"type"`
 	Name        string `json:"name"`
-	Bucket      string `json:"bucket,omitempty"`
+	Bucket      string `json:"bucket_name,omitempty"`
 	NamespaceID string `json:"namespace_id,omitempty"`
 	ID          string `json:"id,omitempty"`
 	Text        string `json:"text,omitempty"` // for vars / secret_text

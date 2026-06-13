@@ -109,6 +109,53 @@ func TestParseConfig_ErrorMessagesActionable(t *testing.T) {
 	}
 }
 
+// TestParseConfig_PropagatesAccountIDToR2 verifies that plugins.cloudflare.accountId
+// is propagated to r2.accountId when the latter is not set explicitly. R2 needs
+// accountId to construct its S3 endpoint, but requiring users to duplicate
+// ${CLOUDFLARE_ACCOUNT_ID} under r2: is redundant — it's the same CF account.
+func TestParseConfig_PropagatesAccountIDToR2(t *testing.T) {
+	raw := map[string]any{
+		"accountId": "acc-123",
+		"apiToken":  "tok",
+		"pages":     map[string]any{"project": "p", "branch": "main"},
+		"r2": map[string]any{
+			"accessKeyId":     "k",
+			"secretAccessKey": "s",
+			"bucket":          "b",
+		},
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.R2.AccountID != "acc-123" {
+		t.Errorf("R2.AccountID = %q, want %q (propagated from top-level)", cfg.R2.AccountID, "acc-123")
+	}
+}
+
+// TestParseConfig_R2AccountIDExplicitWins verifies that an explicit r2.accountId
+// is not overwritten by propagation.
+func TestParseConfig_R2AccountIDExplicitWins(t *testing.T) {
+	raw := map[string]any{
+		"accountId": "top-level",
+		"apiToken":  "tok",
+		"pages":     map[string]any{"project": "p", "branch": "main"},
+		"r2": map[string]any{
+			"accountId":       "explicit",
+			"accessKeyId":     "k",
+			"secretAccessKey": "s",
+			"bucket":          "b",
+		},
+	}
+	cfg, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.R2.AccountID != "explicit" {
+		t.Errorf("R2.AccountID = %q, want %q (explicit override)", cfg.R2.AccountID, "explicit")
+	}
+}
+
 func TestLoadConfigFromFile(t *testing.T) {
 	dir := t.TempDir()
 	yamlContent := []byte(`accountId: acc-from-file

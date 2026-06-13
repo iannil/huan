@@ -199,6 +199,14 @@ func ParseConfig(raw map[string]any) (Config, error) {
 	if cfg.Pages.Branch == "" {
 		return cfg, fmt.Errorf("pages.branch is required")
 	}
+	// Propagate top-level accountId into R2.AccountID when not set explicitly.
+	// R2 needs accountId to construct the S3 endpoint (<id>.r2.cloudflarestorage.com),
+	// but it's the same CF account as plugins.cloudflare.accountId — requiring users
+	// to duplicate ${CLOUDFLARE_ACCOUNT_ID} under r2: is redundant and error-prone.
+	// Explicit r2.accountId still wins.
+	if cfg.R2.AccountID == "" && cfg.AccountID != "" {
+		cfg.R2.AccountID = cfg.AccountID
+	}
 	return cfg, nil
 }
 
