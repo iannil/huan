@@ -3,6 +3,8 @@ package template
 import (
 	"sort"
 	"time"
+
+	"github.com/iannil/huan/internal/i18n"
 )
 
 // PageSlice is a sortable, chainable slice of page contexts.
@@ -153,9 +155,30 @@ type DateGroup struct {
 }
 
 // GroupByDate groups pages by year, returning groups in descending order.
+// Within each group, pages are sorted by Date desc with Title desc (via the
+// site collator) as tiebreaker — matching Hugo's observed behavior. Hugo's
+// GroupByDate groups pages by the formatted date key (reverse chronological
+// order across groups), and within each group applies a Date desc → Title
+// desc → Path desc ordering (effectively the reverse of DefaultPageSort's
+// tiebreakers, since GroupByDate sorts by Date desc as primary key).
+//
+// For zhurongshuo, two posts can share the exact same Date timestamp (e.g.
+// post 0801 and 0802 both at 2021-08-08T12:27:45+08:00). Hugo's tiebreaker
+// for these is the reverse of the site collator's Title comparison.
 func (p PageSlice) GroupByDate(layout string) []DateGroup {
 	groups := map[string]PageSlice{}
 	var keys []string
+	// Detect site language for collator. Use the first page with a non-nil
+	// Site; fall back to empty (English) for synthetic test contexts.
+	langCode := ""
+	for _, v := range p {
+		c := asCtx(v)
+		if c != nil && c.Site != nil && c.Site.LanguageCode != "" {
+			langCode = c.Site.LanguageCode
+			break
+		}
+	}
+	coll := i18n.BuildCollator(langCode)
 	for _, v := range p {
 		c := asCtx(v)
 		if c == nil || c.Date.IsZero() {
@@ -171,7 +194,33 @@ func (p PageSlice) GroupByDate(layout string) []DateGroup {
 
 	result := make([]DateGroup, 0, len(keys))
 	for _, k := range keys {
-		result = append(result, DateGroup{Key: k, Pages: groups[k]})
+		pages := groups[k]
+		// Sort within group: Date desc → Title desc (collator) → Path desc.
+		// This matches Hugo's empirical behavior for tied dates.
+		sort.SliceStable(pages, func(i, j int) bool {
+			a, b := asCtx(pages[i]), asCtx(pages[j])
+			if a == nil || b == nil {
+				return false
+			}
+			// Date desc: newer sorts first
+			if !a.Date.Equal(b.Date) {
+				return a.Date.After(b.Date)
+			}
+			// Tiebreak: Title desc via collator (reverse of DefaultPageSort's asc)
+			if c := coll.CompareString(a.Title, b.Title); c != 0 {
+				return c > 0
+			}
+			// Final tiebreak: File.Path desc
+			apath, bpath := "", ""
+			if a.File != nil {
+				apath = a.File.Path
+			}
+			if b.File != nil {
+				bpath = b.File.Path
+			}
+			return apath > bpath
+		})
+		result = append(result, DateGroup{Key: k, Pages: pages})
 	}
 	return result
 }

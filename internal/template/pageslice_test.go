@@ -81,3 +81,45 @@ func TestPageSlice_SortDefault_EmptySliceIsNoop(t *testing.T) {
 		t.Errorf("SortDefault on empty: got len %d, want 0", len(ps))
 	}
 }
+
+// TestPageSlice_GroupByDate_SortsByDateDescWithinGroup verifies that
+// pages within each date group are sorted by Date desc (matching Hugo's
+// behavior). Hugo's GroupByDate produces groups in reverse chronological
+// order, and within each group pages are also ordered by Date desc with
+// Path desc as tiebreaker.
+func TestPageSlice_GroupByDate_SortsByDateDescWithinGroup(t *testing.T) {
+	t1 := mustParseTime(t, "2023-04-14T12:34:42+08:00")
+	t2 := mustParseTime(t, "2023-04-14T12:34:42+08:00") // same Date
+	t3 := mustParseTime(t, "2023-10-06T19:00:24+08:00")
+	site := &SiteContext{LanguageCode: "zh-cn"}
+	p1 := &Context{Title: "选择权", File: &FileInfo{Path: "posts/2023/04/1401.md", BaseFileName: "1401"}, Date: t1, RelPermalink: "/posts/2023/04/1401/", Site: site}
+	p2 := &Context{Title: "有选择权", File: &FileInfo{Path: "posts/2023/04/1402.md", BaseFileName: "1402"}, Date: t2, RelPermalink: "/posts/2023/04/1402/", Site: site}
+	p3 := &Context{Title: "处理观念", File: &FileInfo{Path: "posts/2023/10/0605.md", BaseFileName: "0605"}, Date: t3, RelPermalink: "/posts/2023/10/0605/", Site: site}
+
+	in := PageSlice{p1, p2, p3} // input order: p1, p2, p3
+	groups := in.GroupByDate("2006")
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+	g := groups[0]
+	// Within group: Date desc, tiebreak by RelPermalink desc
+	// p3 (10-06) first, then p2 (path /1402/ > /1401/), then p1
+	wantOrder := []string{"处理观念", "有选择权", "选择权"}
+	if len(g.Pages) != len(wantOrder) {
+		t.Fatalf("expected %d pages, got %d", len(wantOrder), len(g.Pages))
+	}
+	for i, want := range wantOrder {
+		c := AsCtx(g.Pages[i])
+		if c == nil || c.Title != want {
+			t.Errorf("idx %d: got %v, want %s", i, c, want)
+		}
+	}
+}
+
+func mustParseTime(t *testing.T, s string) time.Time {
+	v, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("parse %q: %v", s, err)
+	}
+	return v
+}
