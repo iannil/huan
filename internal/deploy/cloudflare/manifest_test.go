@@ -211,6 +211,7 @@ func TestBatch_SingleBatchUnderLimit(t *testing.T) {
 }
 
 func TestBatch_MultipleBatches(t *testing.T) {
+	// All Size=0, so count is the only constraint.
 	assets := make([]Asset, MaxFilesPerBatch*2+5)
 	batches := Batch(assets)
 	if len(batches) != 3 {
@@ -233,6 +234,65 @@ func TestBatch_ExactMultiple(t *testing.T) {
 	batches := Batch(assets)
 	if len(batches) != 2 {
 		t.Errorf("got %d batches, want 2", len(batches))
+	}
+}
+
+// TestBatch_SplitsBySizeWhenSizeConstraintHitsFirst verifies the new
+// MaxBatchSize (40 MiB) constraint from audit C3.
+//
+// With 1 MiB files: MaxBatchSize / 1MiB = 40. Iter 40: currentSize=39MiB,
+// 39+1=40 not > 40, append (40 files). Iter 41: 40+1=41 > 40, flush.
+// So batch 0 = 40 files (exactly at limit); batch 1 = remainder.
+func TestBatch_SplitsBySizeWhenSizeConstraintHitsFirst(t *testing.T) {
+	const fileSize = 1024 * 1024 // 1 MiB
+	const fileCount = 60         // 60 MiB total -> 2 batches (40 + 20)
+	assets := make([]Asset, fileCount)
+	for i := range assets {
+		assets[i].Size = fileSize
+	}
+	batches := Batch(assets)
+	if len(batches) != 2 {
+		t.Fatalf("got %d batches, want 2 (size constraint)", len(batches))
+	}
+	if len(batches[0]) != 40 {
+		t.Errorf("batch 0 file count = %d, want 40 (exactly at size limit)", len(batches[0]))
+	}
+	var size0 int64
+	for _, a := range batches[0] {
+		size0 += a.Size
+	}
+	if size0 != 40*fileSize {
+		t.Errorf("batch 0 size = %d, want %d", size0, 40*fileSize)
+	}
+	if len(batches[1]) != 20 {
+		t.Errorf("batch 1 file count = %d, want 20", len(batches[1]))
+	}
+}
+
+// TestBatch_SingleFileOverSizeLimit handled at BuildManifest, not Batch.
+// Batch assumes BuildManifest already rejected oversized files.
+func TestBatch_FilesExactly40MiB_FitsInOneBucket(t *testing.T) {
+	// 40 files * 1 MiB = 40 MiB exactly = MaxBatchSize. Should fit.
+	const fileSize = 1024 * 1024
+	assets := make([]Asset, 40)
+	for i := range assets {
+		assets[i].Size = fileSize
+	}
+	batches := Batch(assets)
+	if len(batches) != 1 {
+		t.Errorf("got %d batches, want 1 (exactly at size limit)", len(batches))
+	}
+}
+
+func TestBatch_Over40MiBWith41Files_SplitsIntoTwo(t *testing.T) {
+	const fileSize = 1024 * 1024 // 1 MiB
+	assets := make([]Asset, 41)
+	for i := range assets {
+		assets[i].Size = fileSize
+	}
+	batches := Batch(assets)
+	if len(batches) != 2 {
+		t.Errorf("got %d batches, want 2 (size limit exceeded)", len(batches))
 	}
 }
 

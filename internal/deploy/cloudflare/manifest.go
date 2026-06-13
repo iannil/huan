@@ -12,10 +12,16 @@ import (
 // Hard limits enforced by Cloudflare Pages (per wrangler constants.ts).
 // Manifest build rejects inputs exceeding these so we fail fast in the
 // manifest stage rather than mid-upload.
+//
+// "bucket" here = one POST /pages/assets/upload request body, NOT per-
+// deployment total. A 20,000-file deployment is split into many buckets
+// of at most MaxFilesPerBatch files or MaxBatchSize bytes (whichever hits
+// first) per ADR §14.4.
 const (
-	MaxFileCount     = 20000 // total files per deployment
-	MaxFileSize      = 25 * 1024 * 1024 // 25 MiB per file
-	MaxFilesPerBatch = 2000  // files per upload bucket (POST /pages/assets/upload)
+	MaxFileCount     = 20000              // total files per deployment
+	MaxFileSize      = 25 * 1024 * 1024   // 25 MiB per file
+	MaxFilesPerBatch = 2000               // files per upload bucket (POST request)
+	MaxBatchSize     = 40 * 1024 * 1024   // bytes per upload bucket (POST request)
 )
 
 // Asset describes one file in a Pages deployment manifest.
@@ -141,19 +147,36 @@ func BuildManifest(publishDir string) ([]Asset, error) {
 	return assets, nil
 }
 
-// Batch splits assets into chunks of at most MaxFilesPerBatch, suitable for
-// POST /pages/assets/upload. Returns nil if input is empty.
+// Batch splits assets into chunks suitable for POST /pages/assets/upload.
+// Each chunk satisfies BOTH constraints:
+//   - len(chunk) <= MaxFilesPerBatch (2000)
+//   - sum(chunk[i].Size) <= MaxBatchSize (40 MiB)
+//
+// Whichever constraint hits first triggers a new bucket. Per ADR §14.4 /
+// wrangler constants.ts: "bucket" = one POST request body, not per-
+// deployment total.
+//
+// Returns nil if input is empty.
 func Batch(assets []Asset) [][]Asset {
 	if len(assets) == 0 {
 		return nil
 	}
 	var batches [][]Asset
-	for i := 0; i < len(assets); i += MaxFilesPerBatch {
-		end := i + MaxFilesPerBatch
-		if end > len(assets) {
-			end = len(assets)
+	var current []Asset
+	var currentSize int64
+	for _, a := range assets {
+		if len(current) >= MaxFilesPerBatch || currentSize+a.Size > MaxBatchSize {
+			if len(current) > 0 {
+				batches = append(batches, current)
+			}
+			current = nil
+			currentSize = 0
 		}
-		batches = append(batches, assets[i:end])
+		current = append(current, a)
+		currentSize += a.Size
+	}
+	if len(current) > 0 {
+		batches = append(batches, current)
 	}
 	return batches
 }

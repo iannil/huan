@@ -248,14 +248,18 @@ hash = blake3(base64(content) + ext).hex()[:32]
 - **HTTP POST 并行**（I/O-bound）：硬上限 **3**（与 wrangler 默认值一致），**不可**通过 CLI 提速。原因是 CF gateway 对单 project 的高并发上传会返回 5xx。
 - 遇 429 / 5xx gateway：按 §9 走 retry 退避 + 自动降 HTTP 并发到 1。
 
-**14.4 资源硬上限**（manifest 阶段即检查，不进入上传阶段）：
-- 单文件大小上限：**25 MiB**。
-- 单 bucket 大小上限：**40 MiB**。
-- 单 bucket 文件数上限：**2000**。
-- 总文件数上限：**20,000**。
-- 命中任一上限 → manifest 阶段直接 error，列出超限文件清单。
+**14.4 资源硬上限**（manifest / Batch 阶段即检查，不进入上传阶段）：
 
-来源：`cloudflare/workers-sdk` 仓库 `packages/wrangler/src/pages/constants.ts`。
+**「bucket」= 一次 `POST /pages/assets/upload` 请求体**（NOT per-deployment total）。20,000 文件的 deployment 会被切成多个 bucket 分多次 POST。
+
+- 单文件大小上限：**25 MiB**（manifest 阶段检查，BuildManifest 报错）。
+- 单 bucket 文件数上限：**2000**（Batch 阶段检查）。
+- 单 bucket 字节上限：**40 MiB**（Batch 阶段检查，与文件数取先到为准）。
+- 总文件数上限：**20,000**（manifest 阶段检查）。
+- 命中任一上限 → 对应阶段直接 error，列出超限清单。
+
+来源：`cloudflare/workers-sdk` 仓库 `packages/wrangler/src/pages/constants.ts`：
+`MAX_ASSET_COUNT_DEFAULT=20000` / `MAX_ASSET_SIZE=25MiB` / `MAX_BUCKET_SIZE=40MiB` / `MAX_BUCKET_FILE_COUNT=2000`。
 
 ## 备选方案（已否决）
 
