@@ -27,7 +27,7 @@ func newDeployCmd() *cobra.Command {
 func newDeployCloudflareCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cloudflare [target]",
-		Short: "Deploy via Cloudflare (Pages in PR1; R2/Worker in later PRs)",
+		Short: "Deploy via Cloudflare (Pages in PR1; R2 in PR2; Worker in PR3)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runDeployCloudflare,
 	}
@@ -37,6 +37,7 @@ func newDeployCloudflareCmd() *cobra.Command {
 	cmd.Flags().Int("concurrency", 0, "max CPU-bound goroutines for hashing/base64 (0 = min(GOMAXPROCS, 8))")
 	cmd.Flags().String("commit-sha", "", "commit SHA to attach to the deployment (default: git HEAD)")
 	cmd.Flags().String("commit-message", "", "commit message to attach (default: git log -1)")
+	cmd.Flags().Bool("prune", false, "(r2 only) delete remote objects not present in local sync set")
 	return cmd
 }
 
@@ -81,6 +82,7 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 	branchFlag, _ := cmd.Flags().GetString("branch")
 	commitSHA, _ := cmd.Flags().GetString("commit-sha")
 	commitMessage, _ := cmd.Flags().GetString("commit-message")
+	pruneFlag, _ := cmd.Flags().GetBool("prune")
 
 	outputDir := filepath.Join(sourceDir, cfg.PublishDir)
 
@@ -94,6 +96,9 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 			Branch:        branchFlag,
 			CommitSHA:     commitSHA,
 			CommitMessage: commitMessage,
+		},
+		R2: &deploy.R2Options{
+			Prune: pruneFlag,
 		},
 	}
 

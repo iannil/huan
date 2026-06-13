@@ -31,24 +31,44 @@ func (p *Plugin) Config() Config { return p.cfg }
 // Deploy implements deploy.Deployer. It dispatches to the appropriate sub-
 // target based on opts.Targets.
 //
-// PR1 only supports Target=["pages"]. Other targets return a clear "not
-// implemented in this PR" error so callers don't waste time uploading the
-// wrong thing.
+// Supported targets:
+//   - "pages" — Cloudflare Pages direct-upload (PR1)
+//   - "r2"    — R2 bucket sync via S3-compatible API (PR2)
+//   - "worker" — Worker modules upload (PR3, not yet implemented)
+//
+// Mixed targets like ["pages", "r2"] return an error — invoke each separately.
 func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Report, error) {
 	traceID := newTraceIDForDeploy()
 	logger := deploy.NewLogger(traceID)
 
-	// PR1 only supports target ["pages"]. Either no "pages" in targets or any
-	// non-pages target means we cannot proceed.
-	if !contains(opts.Targets, "pages") || hasUnsupportedTarget(opts.Targets) {
+	target, err := singleTarget(opts.Targets)
+	if err != nil {
 		return &deploy.Report{
 			TraceID: traceID,
 			Target:  joinTargets(opts.Targets),
-			Failed:  0,
-		}, fmt.Errorf("cloudflare plugin PR1 only supports target \"pages\"; got %v (r2/worker arrive in later PRs)", opts.Targets)
+		}, err
 	}
 
-	// Build manifest from output dir.
+	switch target {
+	case "pages":
+		return p.deployPages(ctx, opts, logger, traceID)
+	case "r2":
+		return p.deployR2(ctx, opts, logger, traceID)
+	case "worker":
+		return &deploy.Report{
+			TraceID: traceID,
+			Target:  "worker",
+		}, fmt.Errorf("cloudflare plugin: target \"worker\" not yet implemented (PR3)")
+	default:
+		return &deploy.Report{
+			TraceID: traceID,
+			Target:  target,
+		}, fmt.Errorf("cloudflare plugin: unknown target %q", target)
+	}
+}
+
+// deployPages runs the Pages direct-upload protocol.
+func (p *Plugin) deployPages(ctx context.Context, opts deploy.Options, logger *deploy.Logger, traceID string) (*deploy.Report, error) {
 	if opts.OutputDir == "" {
 		return nil, fmt.Errorf("deploy: output dir is required")
 	}
@@ -68,10 +88,8 @@ func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Repor
 	// Resolve deploy-time pages options: branch override + commit metadata.
 	branch := p.cfg.Pages.Branch
 	pagesOpts := opts.Pages
-	if pagesOpts != nil {
-		if pagesOpts.Branch != "" {
-			branch = pagesOpts.Branch
-		}
+	if pagesOpts != nil && pagesOpts.Branch != "" {
+		branch = pagesOpts.Branch
 	}
 	var commit *CommitMeta
 	if pagesOpts != nil {
@@ -98,6 +116,71 @@ func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Repor
 	return report, nil
 }
 
+// deployR2 runs the R2 sync algorithm.
+func (p *Plugin) deployR2(ctx context.Context, opts deploy.Options, logger *deploy.Logger, traceID string) (*deploy.Report, error) {
+	if !p.cfg.HasR2Configured() {
+		return &deploy.Report{
+			TraceID: traceID,
+			Target:  "r2",
+		}, fmt.Errorf("cloudflare plugin: r2 target requires r2.* config under plugins.cloudflare")
+	}
+	if len(p.cfg.R2.Sync) == 0 {
+		return &deploy.Report{
+			TraceID: traceID,
+			Target:  "r2",
+		}, fmt.Errorf("cloudflare plugin: r2.sync mappings are required (at least one {from, to} entry)")
+	}
+
+	syncer, err := NewR2Syncer(p.cfg.R2, logger)
+	if err != nil {
+		return &deploy.Report{
+			TraceID: traceID,
+			Target:  "r2",
+		}, fmt.Errorf("init r2 syncer: %w", err)
+	}
+
+	result, err := syncer.Sync(ctx, p.cfg.R2.Sync, R2SyncOptions{
+		Prune:       opts.R2 != nil && opts.R2.Prune,
+		DryRun:      opts.DryRun,
+		Concurrency: opts.Concurrency,
+	})
+	if err != nil {
+		return r2ResultToReport(traceID, result, err), err
+	}
+	return r2ResultToReport(traceID, result, nil), nil
+}
+
+// r2ResultToReport adapts R2SyncResult into the deploy.Report shape so callers
+// (CLI) see a consistent contract.
+func r2ResultToReport(traceID string, r *R2SyncResult, err error) *deploy.Report {
+	if r == nil {
+		r = &R2SyncResult{}
+	}
+	report := &deploy.Report{
+		TraceID:   traceID,
+		Target:    "r2",
+		Attempted: r.Attempted,
+		Succeeded: r.Succeeded,
+		Failed:    r.Failed,
+		Skipped:   r.Skipped,
+	}
+	if err != nil {
+		report.Failures = append(report.Failures, deploy.FileFailure{
+			Path:  "",
+			Stage: "sync",
+			Error: err.Error(),
+		})
+	}
+	for _, f := range r.Failures {
+		report.Failures = append(report.Failures, deploy.FileFailure{
+			Path:  f.LocalPath,
+			Stage: f.Stage,
+			Error: f.Error,
+		})
+	}
+	return report
+}
+
 func dryRunReport(traceID string, assets []Asset) *deploy.Report {
 	return &deploy.Report{
 		TraceID:   traceID,
@@ -109,25 +192,17 @@ func dryRunReport(traceID string, assets []Asset) *deploy.Report {
 	}
 }
 
-// contains checks if haystack contains needle.
-func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
+// singleTarget validates that opts.Targets has exactly one supported target
+// and returns it. Mixed targets (e.g. ["pages", "r2"]) are rejected so callers
+// don't accidentally deploy part of a build to one target.
+func singleTarget(targets []string) (string, error) {
+	if len(targets) == 0 {
+		return "", fmt.Errorf("cloudflare plugin: no target specified (use one of: pages, r2, worker)")
 	}
-	return false
-}
-
-// hasUnsupportedTarget returns true if any target is not "pages". Used by
-// Deploy to reject mixed targets like ["pages", "r2"] in PR1.
-func hasUnsupportedTarget(targets []string) bool {
-	for _, t := range targets {
-		if t != "pages" {
-			return true
-		}
+	if len(targets) > 1 {
+		return "", fmt.Errorf("cloudflare plugin: multiple targets %v not supported (invoke each separately)", targets)
 	}
-	return false
+	return targets[0], nil
 }
 
 // joinTargets returns a comma-joined string of targets for Report.Target.

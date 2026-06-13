@@ -63,6 +63,10 @@ type Options struct {
 	// Pages carries Cloudflare-Pages-specific options. Nil when Targets does
 	// not include "pages".
 	Pages *PagesOptions
+
+	// R2 carries Cloudflare-R2-specific options. Nil when Targets does not
+	// include "r2".
+	R2 *R2Options
 }
 
 // PagesOptions carries Cloudflare Pages invocation-time parameters. Most
@@ -78,6 +82,13 @@ type PagesOptions struct {
 	// Cloudflare accepts the deployment without commit metadata.
 	CommitSHA    string
 	CommitMessage string
+}
+
+// R2Options carries Cloudflare R2 invocation-time parameters.
+type R2Options struct {
+	// Prune enables deletion of remote objects whose keys aren't present in
+	// the local sync set. Default false (per ADR 0002 §6 — keep orphans).
+	Prune bool
 }
 
 // Report summarizes a deploy invocation. It is JSON-marshaled to stdout on

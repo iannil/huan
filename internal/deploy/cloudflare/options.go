@@ -15,8 +15,68 @@ type Config struct {
 	AccountID string      `yaml:"accountId" json:"accountId"`
 	APIToken  string      `yaml:"apiToken"  json:"apiToken"`
 	Pages     PagesConfig `yaml:"pages"     json:"pages"`
-	// R2 R2Config `yaml:"r2"`      // PR2
+	R2        R2Config    `yaml:"r2"        json:"r2"`
 	// Worker WorkerConfig `yaml:"worker"`  // PR3
+}
+
+// R2Config captures Cloudflare R2 (S3-compatible) settings.
+type R2Config struct {
+	// AccountID is used to construct the S3 endpoint URL
+	// (<accountID>.r2.cloudflarestorage.com). Required unless Endpoint is set.
+	AccountID string `yaml:"accountId" json:"accountId"`
+
+	// AccessKeyID and SecretAccessKey are S3-style credentials for R2.
+	// Generate in CF dashboard under R2 > Manage R2 API Tokens.
+	AccessKeyID     string `yaml:"accessKeyId" json:"accessKeyId"`
+	SecretAccessKey string `yaml:"secretAccessKey" json:"secretAccessKey"`
+
+	// Bucket is the R2 bucket name (pre-created in CF dashboard per ADR 0002 §10).
+	Bucket string `yaml:"bucket" json:"bucket"`
+
+	// Endpoint overrides the default R2 URL pattern (for testing).
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+
+	// Sync is the list of local-to-remote path mappings. Each entry uploads
+	// files from local `From` directory to remote `To` key prefix.
+	// Example: {from: "static/images", to: "images"} uploads static/images/a.jpg
+	// to bucket key "images/a.jpg".
+	Sync []SyncMapping `yaml:"sync" json:"sync"`
+}
+
+// SyncMapping declares one local-to-remote path mapping for R2 sync.
+type SyncMapping struct {
+	// From is the local directory (or single file) to upload.
+	From string `yaml:"from" json:"from"`
+
+	// To is the remote key prefix (without trailing slash).
+	// For directory mappings, files become <To>/<relative-path>.
+	// For single-file mappings, To becomes the key directly.
+	To string `yaml:"to" json:"to"`
+}
+
+// validate checks that all required R2 fields are present.
+func (c R2Config) validate() error {
+	// AccountID is required unless Endpoint overrides.
+	if c.AccountID == "" && c.Endpoint == "" {
+		return fmt.Errorf("r2.accountId is required (or set r2.endpoint for testing)")
+	}
+	if c.AccessKeyID == "" {
+		return fmt.Errorf("r2.accessKeyId is required (typically ${CLOUDFLARE_R2_ACCESS_KEY_ID})")
+	}
+	if c.SecretAccessKey == "" {
+		return fmt.Errorf("r2.secretAccessKey is required (typically ${CLOUDFLARE_R2_SECRET_ACCESS_KEY})")
+	}
+	if c.Bucket == "" {
+		return fmt.Errorf("r2.bucket is required")
+	}
+	return nil
+}
+
+// HasR2Configured returns true if the R2 block looks intentional (any field set).
+// Used by Plugin.Deploy to decide whether to error or skip when target="r2".
+func (c Config) HasR2Configured() bool {
+	r := c.R2
+	return r.AccountID != "" || r.AccessKeyID != "" || r.Bucket != "" || len(r.Sync) > 0
 }
 
 // PagesConfig captures Cloudflare Pages project settings.
