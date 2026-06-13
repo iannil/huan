@@ -2,7 +2,9 @@ package build
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -101,36 +103,50 @@ func TruncateHTMLByWords(htmlStr string, n int) string {
 }
 
 // TruncateHTMLToBlockBoundary truncates HTML following Hugo's actual summary
-// algorithm. For zhurongshuo (Markdown content, media.Type.SubType = markdown),
-// Hugo uses `</p>` as the paragraph tag and walks paragraph-by-paragraph
-// accumulating word count.
+// algorithm (resources/page/page_markup.go:ExtractSummaryFromHTML).
 //
-// Source: github.com/gohugoio/hugo resources/page/page_markup.go,
-// ExtractSummaryFromHTML. The relevant loop:
+// Hugo's algorithm walks paragraph-by-paragraph (using `</p>` as the
+// paragraph-tag terminator for Markdown content), counting words in each
+// segment between consecutive `</p>` boundaries. The segment between two
+// `</p>`s may contain other block elements (e.g. `<h2>`), all of which
+// contribute to that segment's word count.
 //
-//	for j := wrapperStart; j < high; {
+// Hugo's exact source loop (paraphrased):
+//
+//	for j := 0; j < len(input); {
 //	    closingIndex := strings.Index(input[j:], "</p>")
 //	    if closingIndex == -1 { break }
 //	    s := input[j : j+closingIndex]
-//	    // Count words in this paragraph (Hugo: strings.Fields semantics +
-//	    // CJK per-rune counting via countWord/StripHTML).
-//	    // Accumulate; if count >= numWords, set SummaryHigh = j+closingIndex+5
-//	    // (length of "</p>" is 4, +3 for "p" + 2 = +5? Actually +len("p")+3).
-//	    // Skip past </p>: j += closingIndex + len("p") + 2.
+//	    var wi int
+//	    for i, r := range s {
+//	        if unicode.IsSpace(r) || (i+utf8.RuneLen(r) == len(s)) {
+//	            word := s[wi:i]   // NOTE: i is the byte offset of the current rune,
+//	                              // so this EXCLUDES the current (last) rune when
+//	                              // the end-of-segment trigger fires.
+//	            count += countWord(word, isCJK)
+//	            wi = i
+//	            if count >= numWords { break }
+//	        }
+//	    }
+//	    if count >= numWords {
+//	        return input[:j+closingIndex+len("</p>")]
+//	    }
+//	    j += closingIndex + len("p") + 2  // advance past </p> (skips "</p>" minus 1 char)
 //	}
-//	// If no paragraph reached numWords, summary = everything (high).
 //
-// Key behaviors:
+// Two non-obvious quirks this preserves:
 //
-//  1. Crosses paragraph boundaries when paragraph 1's word count < numWords
-//     (it accumulates into paragraph 2, 3, ...).
-//  2. When the count reaches numWords AT OR BEFORE the end of paragraph K,
-//     returns input[:end_of_paragraph_K] — the entire paragraph K, never a
-//     mid-paragraph truncation.
-//  3. If no paragraph ever reaches numWords, returns the entire input.
+//  1. End-of-segment word is s[wi:i] where i is byte offset of the LAST rune,
+//     so the last rune of each segment is excluded from its own word. This
+//     means each CJK-only paragraph contributes runeCount-1 to the cumulative
+//     count (not runeCount).
+//  2. Between `</p>`s, intermediate block elements (`<h2>`, etc.) contribute
+//     their text to the next segment's word count, since the segment spans
+//     from the previous `</p>` to the next `</p>`.
 //
-// This differs from a naive "extend forward to next block close tag" approach
-// because Hugo never extends beyond the paragraph where the count was reached.
+// Hugo's countWord for CJK strips HTML tags and counts every rune (multi-
+// byte) per whitespace-separated field. HTML-tag-like tokens (matched by
+// `^</?[A-Za-z]+>?$` or `^[A-Za-z]+=...`) count as 0 words.
 func TruncateHTMLToBlockBoundary(htmlStr string, n int) string {
 	if n <= 0 {
 		return htmlStr
@@ -145,25 +161,80 @@ func TruncateHTMLToBlockBoundary(htmlStr string, n int) string {
 		if closingIndex == -1 {
 			break
 		}
-		// Extract this paragraph's content (without the closing tag).
-		paragraphContent := htmlStr[j : j+closingIndex]
-		// Count words in this paragraph (HTML tags stripped, then CJK-aware
-		// per-rune counting — same as CountWordsInPlain).
-		plain := StripHTMLTagsForSummary(paragraphContent)
-		count += CountWordsInPlain(plain)
+		// Segment includes everything from j to the next </p>.
+		// This may contain other block tags (<h2>, <h3>, etc.) from
+		// the previous paragraph's close up to the next paragraph's close.
+		segment := htmlStr[j : j+closingIndex]
+		// Iterate runes Hugo-style. On each whitespace or end-of-segment,
+		// take s[wi:i] as a word (where i is byte offset of current rune).
+		var wi int
+		for i, r := range segment {
+			isEnd := i+utf8.RuneLen(r) == len(segment)
+			if unicode.IsSpace(r) || isEnd {
+				word := segment[wi:i]
+				count += hugoCountWord(word)
+				wi = i
+				if count >= n {
+					break
+				}
+			}
+		}
 		if count >= n {
-			// Stop at the end of this paragraph. Summary = input up to and
-			// including </p>.
 			return htmlStr[:j+closingIndex+len(paragraphClose)]
 		}
-		// Advance past this </p>.
-		j += closingIndex + len(paragraphClose)
+		// Advance past </p>: Hugo's source uses `j += closingIndex + len(ptag.tagName) + 2`
+		// which is `closingIndex + 1 + 2 = closingIndex + 3`. This skips "</p" but
+		// leaves the trailing ">" as the start of the next segment (which the
+		// regex-based isProbablyHTMLToken then ignores as an HTML token).
+		j += closingIndex + len("p") + 2
 	}
 
 	// No paragraph reached numWords — return entire input. This matches
 	// Hugo's behavior of setting SummaryHigh = high when the loop falls
 	// through without an early return.
 	return htmlStr
+}
+
+// hugoCountWord counts a single whitespace-separated token the way Hugo's
+// ExtractSummaryFromHTML does. For CJK content (zhurongshuo isCJKLanguage=true),
+// HTML tags are stripped and each multi-byte rune counts as 1 word (with
+// all-ASCII tokens counting as 1 word). HTML-tag-shaped tokens (e.g. "<p>",
+// "<h2>", "href=") count as 0 words.
+func hugoCountWord(word string) int {
+	word = strings.TrimSpace(word)
+	if len(word) == 0 {
+		return 0
+	}
+	if hugoIsProbablyHTMLToken(word) {
+		return 0
+	}
+	// Strip HTML tags inside the word (Hugo calls tpl.StripHTML).
+	stripped := stripHTMLTagsInWord(word)
+	runeCount := utf8.RuneCountInString(stripped)
+	if len(stripped) == runeCount {
+		// All-ASCII token: counts as 1 word.
+		return 1
+	}
+	// Contains multi-byte (CJK etc.) runes: count every rune.
+	return runeCount
+}
+
+var (
+	hugoHTMLTagRe       = regexp.MustCompile(`^</?[A-Za-z]+>?$`)
+	hugoHTMLAttrRe      = regexp.MustCompile(`^[A-Za-z]+=["']`)
+	hugoWordTagStripRe  = regexp.MustCompile(`<[^>]+>`)
+)
+
+// hugoIsProbablyHTMLToken matches Hugo's regexps for tokens that should be
+// ignored during word counting (HTML tags and attribute-shaped fragments).
+func hugoIsProbablyHTMLToken(s string) bool {
+	return s == ">" || hugoHTMLTagRe.MatchString(s) || hugoHTMLAttrRe.MatchString(s)
+}
+
+// stripHTMLTagsInWord strips inline HTML tags within a single whitespace-
+// separated token (Hugo's tpl.StripHTML). Whitespace is preserved.
+func stripHTMLTagsInWord(s string) string {
+	return hugoWordTagStripRe.ReplaceAllString(s, "")
 }
 
 // commonPrefixLen returns the length of the longest common byte prefix of a and b.

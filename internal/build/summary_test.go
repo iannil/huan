@@ -1,6 +1,9 @@
 package build
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCountWordsInPlain_CoversAllCJKRanges(t *testing.T) {
 	cases := []struct {
@@ -193,5 +196,29 @@ func TestTruncateHTMLToBlockBoundary_NoParagraphCloseReturnsAll(t *testing.T) {
 	want := "<strong>alpha beta gamma delta epsilon</strong>"
 	if got != want {
 		t.Errorf("no-block-close fallback:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+// TestTruncateHTMLToBlockBoundary_MatchesHugoOffByOne verifies huan's summary
+// truncation matches Hugo's actual ExtractSummaryFromHTML algorithm exactly,
+// including Hugo's quirky last-rune handling.
+//
+// Hugo's algorithm iterates by rune and on each "end of segment" trigger,
+// the word s[wi:i] EXCLUDES the current rune (so each segment loses 1 rune
+// from its word count). For chapter-15 of effective-constraints, this means
+// Hugo stops AFTER the 3rd </p> (not after the 2nd), because cumulative
+// count after 2 blocks is 118 (not 120), only reaching 127 at the end of
+// the segment containing the <h2> + start of the 3rd paragraph.
+func TestTruncateHTMLToBlockBoundary_MatchesHugoOffByOne(t *testing.T) {
+	html := "<p>在复杂的软件工程世界里，记忆是不可靠的。可靠的是系统、流程和检查清单。本章，就是你与AI协作的“系统化清单”。</p>\n" +
+		"<p>它将全书的核心指令，按照四大约束领域，进行了重新组织和精炼，确保你在任何需要的时候，都能在30秒内，找到最适合当前场景的“咒语”。</p>\n" +
+		"<h2 id=\"151-架构约束指令速查\">15.1 架构约束指令速查</h2>\n" +
+		"<p>核心目标：在项目早期，或进行重大设计时，为AI设定不可逾越的“边界”和“规则”。</p>"
+	summary := TruncateHTMLToBlockBoundary(html, 120)
+	wantEnd := "</p>\n<h2 id=\"151-架构约束指令速查\">15.1 架构约束指令速查</h2>\n" +
+		"<p>核心目标：在项目早期，或进行重大设计时，为AI设定不可逾越的“边界”和“规则”。</p>"
+	if !strings.HasSuffix(summary, wantEnd) {
+		t.Errorf("summary did not match expected truncation point\n got end: ...%q\n want end: ...%q",
+			summary[max(0, len(summary)-200):], wantEnd[max(0, len(wantEnd)-200):])
 	}
 }
