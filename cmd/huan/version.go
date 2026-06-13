@@ -14,7 +14,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Display version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("huan %s\n", version.String())
+			fmt.Printf("huan %s\n", version.StringWithVCS())
 		},
 	}
 }
@@ -24,7 +24,17 @@ func newEnvCmd() *cobra.Command {
 		Use:   "env",
 		Short: "Display version and environment info",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("huan %s\n", version.String())
+			fmt.Printf("huan %s\n", version.StringWithVCS())
+			vcs := version.VCS()
+			if vcs.Available {
+				dirty := "clean"
+				if vcs.Dirty {
+					dirty = "dirty"
+				}
+				fmt.Printf("vcs %s %s %s\n", vcs.SHA, vcs.CommitTime, dirty)
+			} else {
+				fmt.Println("vcs (unavailable)")
+			}
 			fmt.Printf("go %s\n", runtime.Version())
 			fmt.Printf("platform %s/%s\n", runtime.GOOS, runtime.GOARCH)
 			if info, ok := debug.ReadBuildInfo(); ok {
@@ -35,3 +45,4 @@ func newEnvCmd() *cobra.Command {
 		},
 	}
 }
+
