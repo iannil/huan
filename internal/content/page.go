@@ -12,6 +12,8 @@ type Page struct {
 	// Frontmatter fields
 	Title         string   `yaml:"title"`
 	Date          string   `yaml:"date"`
+	PublishDate   string   `yaml:"publishDate"`
+	ExpiryDate    string   `yaml:"expiryDate"`
 	Lastmod       string   `yaml:"lastmod"`
 	Draft         bool     `yaml:"draft"`
 	Hidden        bool     `yaml:"hidden"`
@@ -46,9 +48,11 @@ type Page struct {
 	Plain        string
 	WordCount    int
 	ReadingTime  int
-	DateParsed   time.Time
-	LastmodParsed time.Time
-	Weight       int
+	DateParsed       time.Time
+	PublishDateParsed time.Time
+	ExpiryDateParsed  time.Time
+	LastmodParsed    time.Time
+	Weight           int
 
 	// Raw markdown body (before rendering)
 	RawContent   string

@@ -73,6 +73,16 @@ func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*
 	// Date parsing
 	p.Date = strField(fm, "date")
 	p.DateParsed = parseDate(p.Date)
+
+	p.PublishDate = strField(fm, "publishDate")
+	p.PublishDateParsed = parseDate(p.PublishDate)
+	if p.PublishDateParsed.IsZero() {
+		p.PublishDateParsed = p.DateParsed
+	}
+
+	p.ExpiryDate = strField(fm, "expiryDate")
+	p.ExpiryDateParsed = parseDate(p.ExpiryDate)
+
 	if lm := strField(fm, "lastmod"); lm != "" {
 		p.Lastmod = lm
 		p.LastmodParsed = parseDate(lm)

@@ -28,6 +28,11 @@ func main() {
 		RunE:  runBuild,
 	}
 	buildCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
+	buildCmd.Flags().BoolP("buildFuture", "F", false, "include content with publishDate in the future")
+	buildCmd.Flags().BoolP("buildExpired", "E", false, "include expired content")
+	buildCmd.Flags().StringP("destination", "d", "", "filesystem path to write files to (overrides publishDir)")
+	buildCmd.Flags().StringP("baseURL", "b", "", "hostname to the root (overrides baseURL)")
+	buildCmd.Flags().Bool("minify", false, "minify output (overrides config)")
 
 	serveCmd := &cobra.Command{
 		Use:   "serve",
@@ -42,7 +47,7 @@ func main() {
 	serveCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
 	serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 
-	rootCmd.AddCommand(buildCmd, serveCmd)
+	rootCmd.AddCommand(buildCmd, serveCmd, newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -54,13 +59,35 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
 	outputDir := filepath.Join(sourceDir, cfg.PublishDir)
+	if dest, _ := cmd.Flags().GetString("destination"); dest != "" {
+		outputDir = dest
+	}
 
 	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
+	includeFuture, _ := cmd.Flags().GetBool("buildFuture")
+	includeExpired, _ := cmd.Flags().GetBool("buildExpired")
+
+	var minifyOverride *bool
+	if cmd.Flags().Changed("minify") {
+		m, _ := cmd.Flags().GetBool("minify")
+		minifyOverride = &m
+	}
+
+	var baseURLOverride string
+	if bu, _ := cmd.Flags().GetString("baseURL"); bu != "" {
+		baseURLOverride = bu
+	}
+
 	_, err = build.BuildSite(build.Options{
-		SourceDir:     sourceDir,
-		OutputDir:     outputDir,
-		IncludeDrafts: includeDrafts,
+		SourceDir:        sourceDir,
+		OutputDir:        outputDir,
+		IncludeDrafts:    includeDrafts,
+		IncludeFuture:    includeFuture,
+		IncludeExpired:   includeExpired,
+		BaseURLOverride:  baseURLOverride,
+		MinifyOverride:   minifyOverride,
 	})
 	return err
 }

@@ -25,9 +25,12 @@ type Options struct {
 	SourceDir        string
 	OutputDir        string // absolute path
 	IncludeDrafts    bool
+	IncludeFuture    bool
+	IncludeExpired   bool
 	InjectLiveReload bool   // serve-only; when true, LiveReloadURL must be set (Task E1 will use this)
 	LiveReloadURL    string // empty disables injection
 	BaseURLOverride  string // serve-only; when non-empty, overrides cfg.BaseURL so in-site links point to the dev server
+	MinifyOverride   *bool  // nil = use config Minify; non-nil = force this value
 	Logf             func(format string, args ...any)
 }
 
@@ -65,6 +68,13 @@ func BuildSite(opts Options) (*Result, error) {
 	if opts.BaseURLOverride != "" {
 		cfg.BaseURL = opts.BaseURLOverride
 	}
+
+	// --minify flag overrides config
+	if opts.MinifyOverride != nil {
+		cfg.Minify = *opts.MinifyOverride
+	}
+
+	now := time.Now()
 
 	logf("Building site: %s\n", cfg.Title)
 	logf("  Source:      %s\n", opts.SourceDir)
@@ -254,6 +264,12 @@ func BuildSite(opts Options) (*Result, error) {
 	errors := 0
 	for _, p := range site.Pages {
 		if p.Draft && !opts.IncludeDrafts {
+			continue
+		}
+		if !opts.IncludeFuture && !p.PublishDateParsed.IsZero() && p.PublishDateParsed.After(now) {
+			continue
+		}
+		if !opts.IncludeExpired && !p.ExpiryDateParsed.IsZero() && p.ExpiryDateParsed.Before(now) {
 			continue
 		}
 		if p.Build.Render == "never" {
