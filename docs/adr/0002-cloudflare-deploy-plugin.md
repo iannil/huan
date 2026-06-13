@@ -21,6 +21,15 @@
   - §9 retry：补充「遇 gateway 5xx 自动降 HTTP 并发到 1」语义。
   - §14.3 concurrency：拆分为「文件 hash 并行（默认 `min(GOMAXPROCS,8)`，`--concurrency` 覆盖）」与「HTTP POST 并行（硬上限 3，不可调）」两层。
   - 新增 §14.4 资源硬上限（25 MiB/file、40 MiB/bucket、2000/bucket、20000 total，manifest 阶段即检查）。
+- **2026-06-13（同日四次修订）**：实施后审计（`/grill-me audit`）发现 4 个 CRITICAL + 7 个 HIGH + 7 个 MEDIUM/LOW 与 ADR 不符或潜在 bug。8 个 commit 落地修复，主要变更：
+  - §6 新增 §6.1「Prune 范围与责任」：明确 prune 仅在配置的 `to:` 前缀下删除；用户责任不共享 bucket；每删一条输出 r2-prune 结构化日志。
+  - §9 retry：明确「HTTP POST 并行硬上限 3」由 `internal/deploy/cloudflare/concurrency.go::Limiter` 实施（dual-semaphore + atomic.Bool degrade）。任意 5xx 触发 `Degrade()`，永久降到 1 并发（不可恢复）。
+  - §14.3 concurrency：澄清 `opts.Concurrency` 在 CLI 层（`cmd/huan/deploy.go`）填充默认值 `min(GOMAXPROCS, 8)`；plugin 层永不收到 0。
+  - §14.4 资源硬上限：明确「bucket = per POST request body」，由 `Batch()` 双约束切分（文件数 ≤2000 OR 字节 ≤40MiB，先到为准）。
+  - §8 Worker：route 字段只填 `zone_name`（与 wrangler 一致），不再同时填 `zone`；binding 字段映射表锁定（r2_bucket→bucket，kv_namespace→namespace_id，d1→id，vars/secret_text→text）。
+  - 新增 §16「审计修复决策」（见下）。
+
+## 背景
 
 ## 背景
 
@@ -294,6 +303,46 @@ hash = blake3(base64(content) + ext).hex()[:32]
 | Build 耦合 | 总是先 build | 不能复用预构建产物，CI 不友好 |
 | 测试 | 仅 integration | 每次烧配额，离线不能跑 |
 | 资源创建 | 自动创建 | 误扣费风险、抢占用户控制权 |
+
+### 16. 审计修复决策（2026-06-13 晚）
+
+实施后审计发现 4 CRITICAL + 7 HIGH + 7 MEDIUM/LOW 与本 ADR 不符或潜在 bug。修复策略：β 范围（CRITICAL + HIGH + MEDIUM/LOW）+ b 形态（5 个 group commit + 3 个 MEDIUM/LOW commit）。决策树：
+
+| # | 分叉点 | 决策 | 否决的备选 |
+|---|---|---|---|
+| Q1 | 审计修复范围 | **(β)** CRITICAL + HIGH + MEDIUM/LOW 全修 | 只修 CRITICAL / 全修 / 只记录 |
+| Q2 | 提交策略 | **(b)** 按 group 分 8 个 commit | 单大 commit / 按 severity 分 2 commit |
+| Q3.1 | HTTP 并行 knob 暴露 | **(α)** 不暴露；HTTP=3 内部硬编码 + 自动降级 | 加 `--http-concurrency=N` flag |
+| Q3.2 | gateway 5xx 检测 | **(δ)** 任何 5xx 触发降级 | 只 502/503/504 触发 |
+| Q3.3 | 降级语义 | **(ζ)** 一次性不可逆 | 成功 N 次后恢复 |
+| Q3.4 | CPU 并行默认值 | **(θ)** CLI 层填默认 | plugin 层填默认 |
+| Q4.1 | C3 40MiB bucket 上限 | **(α)** Batch() 按 count+size 双约束切分 | 加 per-deployment 总 size 上限 |
+| Q4.2 | C4 check-missing 分片 | **(γ)** 不分片（wrangler 实证一次性） | 分片到 2000 hashes/chunk |
+| Q4.3 | deployment 总 size 检查 | **(ε)** 不加 | 加 warning 但不阻断 |
+| Q5 | H3 R2 prune scope | **(α+γ)** 文档化 + per-delete 结构化日志 | 强制 `--prune-confirmed` / prefix 重叠校验 |
+| Q6.1 | H6 binding 字段污染 | **(α)** 无 bug，加注释锁定契约 | config-time 校验 |
+| Q6.2 | H5 route zone 字段 | **(γ)** 只填 `zone_name`，删 `zone` | 都填 / 都不填 / 用户选 |
+| Q7.1 | C1 `log.SetOutput` 处理 | **(α)** 删除，接受 minio 默认日志 | 包装转发 / 临时静默 |
+| Q7.2 | H4 ctx.Err 集成 | **(ε)** Limiter.Acquire 内部处理 | 加显式 ctx.Err() check |
+| Q7.3 | H7 CLI 测试覆盖 | **(θ)** 中等：fail-fast + maskSensitive + capabilityLabels | 最小 / 完整 |
+
+**关键决策原理**：
+
+1. **HTTP 并行 knob 不暴露** —— ADR §14.3 明文「HTTP POST 并行硬上限 3 + 不可通过 CLI 提速」。加 `--http-concurrency` 直接违反 ADR；用户调 HTTP 并行的场景几乎为零（CF gateway 是黑盒，用户不知道该设几）。
+
+2. **任何 5xx 触发降级** —— 降级是无害操作（变慢，不出错）；欠反应代价是「持续撞限流导致大批量失败」。过激反应成本远低于欠反应。
+
+3. **降级一次性不可逆** —— ADR §9 原文「不再恢复」；deploy 通常分钟级，全程 1 并发可接受；可恢复语义要选 N 值，N 设错就持续撞限流。
+
+4. **CPU 并行默认值在 CLI 层填** —— plugin 层不该知道 GOMAXPROCS（runtime 细节）；CLI 是用户契约层，flag 默认值该在 CLI 解析时确定。
+
+5. **C4 撤回** —— Plan agent 实证 wrangler 一次性 POST 所有 hashes（20k hashes ~640KB，CF 接受）。分片会多 9 个 round-trip，无协议收益。
+
+6. **H3 文档化而非校验** —— 代码本身正确（`listAll` 只列配置的 `to:` 前缀，前缀外的对象 prune 看不到）。加 prefix 重叠校验会误伤合法 nested mapping（`to: blog` + `to: blog/images`）。
+
+7. **H6 无 bug** —— 实证 `omitempty` + switch-case 已正确处理字段污染；audit 报告过度谨慎。加注释锁定契约。
+
+8. **H5 只填 zone_name** —— wrangler 实证只填 `zone_name`；同时填 `zone`+`zone_name` 可能被 CF 当 ambiguous 拒绝。
 
 ## 影响
 
