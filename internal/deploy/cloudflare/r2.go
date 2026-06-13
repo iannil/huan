@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,8 +72,11 @@ func NewR2Syncer(cfg R2Config, logger *deploy.Logger) (*R2Syncer, error) {
 		return nil, fmt.Errorf("init minio client: %w", err)
 	}
 	minioClient.SetAppInfo("huan", "0.1.0")
-	// Silence minio's verbose internal logging; structured logs go through our logger.
-	log.SetOutput(io.Discard)
+	// Audit C1: previously called log.SetOutput(io.Discard) here, which
+	// mutates the global stdlib log writer for the entire huan process.
+	// That silences any other code that uses stdlib log (build, serve,
+	// future plugins). Removed — minio's warnings are rare and informative
+	// (token refresh failures, S3 protocol errors); we want to see them.
 	return &R2Syncer{
 		client: &minioObjectClient{c: minioClient},
 		bucket: cfg.Bucket,
