@@ -314,7 +314,10 @@ func TestWorker_VarsBinding_TextSerialized(t *testing.T) {
 	}
 }
 
-func TestWorker_RouteWithZone_BothFieldsPopulated(t *testing.T) {
+func TestWorker_RouteWithZone_OnlyZoneName(t *testing.T) {
+	// Audit H5: previously sent both `zone` and `zone_name` with same value;
+	// CF Workers modules API v4 expects only `zone_name` (matching wrangler).
+	// Sending both could trigger ambiguous-zone rejection.
 	mock := newMockWorkerServer(t)
 	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
 	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
@@ -343,11 +346,61 @@ func TestWorker_RouteWithZone_BothFieldsPopulated(t *testing.T) {
 	if r["pattern"] != "r2.zhurongshuo.com/*" {
 		t.Errorf("pattern = %v", r["pattern"])
 	}
-	if r["zone"] != "zhurongshuo.com" {
-		t.Errorf("zone = %v", r["zone"])
-	}
 	if r["zone_name"] != "zhurongshuo.com" {
 		t.Errorf("zone_name = %v", r["zone_name"])
+	}
+	// CRITICAL: `zone` field MUST be absent (audit H5).
+	if _, hasZone := r["zone"]; hasZone {
+		t.Errorf("route JSON has 'zone' field = %v; want absent (CF v4 uses zone_name only)", r["zone"])
+	}
+}
+
+// TestWorker_BindingRelevantFieldOnly verifies audit H6 contract: when user
+// provides extra yaml fields not relevant to the binding type, the JSON
+// output contains only the field(s) the type uses. Driven by omitempty on
+// workerBindingJSON + switch-case in buildWorkerMetadata that only sets
+// relevant fields.
+func TestWorker_BindingRelevantFieldOnly(t *testing.T) {
+	mock := newMockWorkerServer(t)
+	logger := deploy.NewLoggerWithWriter("t", &bytes.Buffer{})
+	c := NewClient("acc", "tok", logger).WithBaseURL(mock.URL).WithHTTPClient(mock.Client())
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "w.js")
+	_ = os.WriteFile(scriptPath, []byte("// hi"), 0o644)
+
+	d := NewWorkerDeployer(c, logger)
+	_, err := d.Deploy(context.Background(), WorkerConfig{
+		Name:   "w",
+		Script: scriptPath,
+		Bindings: []WorkerBinding{
+			// r2_bucket should ONLY emit {type, name, bucket}.
+			{Type: "r2_bucket", Name: "R2_BUCKET", Bucket: "zhurongshuo"},
+		},
+	}, DeployWorkerOptions{})
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	meta := decodeMetadata(t, mock.parts["metadata"]["content"])
+	bindings, _ := meta["bindings"].([]any)
+	if len(bindings) != 1 {
+		t.Fatalf("bindings = %v", bindings)
+	}
+	b := bindings[0].(map[string]any)
+	if b["type"] != "r2_bucket" {
+		t.Errorf("type = %v", b["type"])
+	}
+	if b["name"] != "R2_BUCKET" {
+		t.Errorf("name = %v", b["name"])
+	}
+	if b["bucket"] != "zhurongshuo" {
+		t.Errorf("bucket = %v", b["bucket"])
+	}
+	// CRITICAL: unrelated fields MUST be absent.
+	for _, absent := range []string{"namespace_id", "id", "text"} {
+		if _, has := b[absent]; has {
+			t.Errorf("r2_bucket binding has unexpected %q = %v", absent, b[absent])
+		}
 	}
 }
 

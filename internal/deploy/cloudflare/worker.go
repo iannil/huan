@@ -175,6 +175,16 @@ type workerMetadata struct {
 	Routes            []workerRouteJSON     `json:"routes,omitempty"`
 }
 
+// workerBindingJSON is the JSON shape CF Workers modules API expects for one
+// binding entry. All optional fields are omitempty, so switch-case in
+// buildWorkerMetadata only needs to set the field(s) relevant to that type;
+// zero values for unrelated fields are automatically omitted from the JSON.
+//
+// Audit H6 investigation: previously worried that "default case sets all
+// fields" would pollute the JSON. Empirically verified that omitempty
+// handles this correctly — a switch case that only sets Bucket for
+// r2_bucket leaves NamespaceID/ID/Text as zero strings, which omitempty
+// skips. No bug, just adding this comment to lock the contract.
 type workerBindingJSON struct {
 	Type        string `json:"type"`
 	Name        string `json:"name"`
@@ -186,8 +196,11 @@ type workerBindingJSON struct {
 
 type workerRouteJSON struct {
 	Pattern string `json:"pattern"`
-	Zone    string `json:"zone,omitempty"`
-	// ZoneName is what CF actually wants in newer API versions.
+	// ZoneName is what CF Workers modules API v4 expects. wrangler's
+	// metadata JSON uses zone_name (not zone); we follow that convention.
+	// Audit H5: previously sent both zone and zone_name with the same
+	// value, which could be rejected by CF as ambiguous. Now sends only
+	// zone_name.
 	ZoneName string `json:"zone_name,omitempty"`
 }
 
@@ -228,7 +241,6 @@ func buildWorkerMetadata(mainModule, compatDate string, bindings []WorkerBinding
 			Pattern: r.Pattern,
 		}
 		if r.Zone != "" {
-			rj.Zone = r.Zone
 			rj.ZoneName = r.Zone
 		}
 		md.Routes = append(md.Routes, rj)
