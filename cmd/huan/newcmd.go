@@ -13,9 +13,19 @@ import (
 
 func newNewCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "new <path>",
+		Use:   "new <kind>/<path>",
 		Short: "Create new content from archetype",
-		Args:  cobra.ExactArgs(1),
+		Long: `Create new content from archetype.
+
+The path is relative to content/. The first path segment is the archetype
+kind: huan looks for archetypes/<kind>.md, falling back to archetypes/default.md,
+then a built-in default. Examples:
+
+  huan new posts/my-post.md         → archetypes/posts.md (or default.md)
+  huan new book-chapter/v1/ch01.md  → archetypes/book-chapter.md (or default.md)
+  huan new my-post.md               → archetypes/default.md
+`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runNew(args[0])
 		},
@@ -47,20 +57,52 @@ func runNew(relPath string) error {
 	return nil
 }
 
+// renderArchetype selects the archetype template for relPath and renders it.
+// Selection order: archetypes/<kind>.md → archetypes/default.md → built-in.
+// kind is the top-level path segment (the content section).
 func renderArchetype(relPath string) (string, error) {
-	archetypePath := filepath.Join(sourceDir, "archetypes", "default.md")
-	tmpl, err := os.ReadFile(archetypePath)
-	if err != nil {
-		return defaultArchetype(relPath), nil
+	kind := archetypeKind(relPath)
+	if kind != "" && kind != "default" {
+		if tmpl, ok := readArchetype(kind); ok {
+			return renderArchetypeTemplate(tmpl, relPath), nil
+		}
 	}
+	if tmpl, ok := readArchetype("default"); ok {
+		return renderArchetypeTemplate(tmpl, relPath), nil
+	}
+	return defaultArchetype(relPath), nil
+}
 
+// readArchetype returns the template content for the given kind and true if
+// archetypes/<kind>.md exists.
+func readArchetype(kind string) (string, bool) {
+	tmpl, err := os.ReadFile(filepath.Join(sourceDir, "archetypes", kind+".md"))
+	if err != nil {
+		return "", false
+	}
+	return string(tmpl), true
+}
+
+// archetypeKind extracts the archetype kind from a content-relative path:
+// the first path segment. Returns "" when relPath has no directory part.
+//   "posts/my-post.md"          → "posts"
+//   "books/v1/ch01.md"          → "books"
+//   "my-post.md"                → ""
+func archetypeKind(relPath string) string {
+	relPath = filepath.ToSlash(relPath)
+	idx := strings.IndexByte(relPath, '/')
+	if idx <= 0 {
+		return ""
+	}
+	return relPath[:idx]
+}
+
+func renderArchetypeTemplate(tmpl, relPath string) string {
 	name := strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath))
 	now := time.Now().Format(time.RFC3339)
-
-	out := string(tmpl)
-	out = strings.ReplaceAll(out, "{{ .Date }}", now)
+	out := strings.ReplaceAll(tmpl, "{{ .Date }}", now)
 	out = renderNameTemplate(out, name)
-	return out, nil
+	return out
 }
 
 func defaultArchetype(relPath string) string {
