@@ -47,7 +47,7 @@ func main() {
 	serveCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
 	serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 
-	rootCmd.AddCommand(buildCmd, serveCmd, newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd())
+	rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), newPluginCmd(), newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
