@@ -518,6 +518,41 @@ func TestPages_MissingBranch_Errors(t *testing.T) {
 	}
 }
 
+// TestPages_AssetPathMissingLeadingSlash_ErrorsFast verifies audit M1:
+// DeployPages rejects asset paths without leading slash before any network
+// call. BuildManifest already enforces this for huan-built manifests, but
+// programmatic callers can construct Asset slices directly.
+func TestPages_AssetPathMissingLeadingSlash_ErrorsFast(t *testing.T) {
+	fastBackoff(t)
+	m := newMockServer(t)
+	logger := deploy.NewLoggerWithWriter("noslash", io.Discard)
+	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
+	p := NewPagesDeployer(c, logger)
+
+	content := []byte("<html></html>")
+	assets := []Asset{{
+		Path:    "index.html", // intentionally missing leading slash
+		Hash:    Hash(content, "html"),
+		Size:    int64(len(content)),
+		Content: content,
+	}}
+	_, err := p.DeployPages(context.Background(), DeployPagesOptions{
+		Project: "myproj",
+		Branch:  "main",
+		Assets:  assets,
+	})
+	if err == nil {
+		t.Fatal("want error for asset path missing leading slash")
+	}
+	if !strings.Contains(err.Error(), "leading slash") {
+		t.Errorf("err = %q, want mention 'leading slash'", err.Error())
+	}
+	// No HTTP calls should have happened — fail-fast at validation.
+	if got := atomic.LoadInt32(&m.uploadTokenCount); got != 0 {
+		t.Errorf("uploadTokenCount = %d, want 0 (fail-fast before any HTTP)", got)
+	}
+}
+
 func TestPages_BatchedUpload_ManyAssets(t *testing.T) {
 	fastBackoff(t)
 	m := newMockServer(t)

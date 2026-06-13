@@ -463,6 +463,32 @@ func TestR2Sync_SingleFileMapping_UsesToAsKey(t *testing.T) {
 	}
 }
 
+// TestR2Sync_SingleFileMapping_TrailingSlashAppendsBasename verifies audit
+// M7 fix: {from: "logo.png", to: "brand/"} should produce key "brand/logo.png"
+// (treating trailing slash as directory intent), not "brand/" (literal).
+func TestR2Sync_SingleFileMapping_TrailingSlashAppendsBasename(t *testing.T) {
+	mock := newMockR2Client()
+	dir := t.TempDir()
+	filePath := writeLocalFixture(t, dir, "logo.png", []byte("logo-bytes"))
+
+	syncer := NewR2SyncerWithClient(mock, "b", newR2TestLogger())
+	_, err := syncer.Sync(context.Background(),
+		[]SyncMapping{{From: filePath, To: "brand/"}},
+		R2SyncOptions{},
+	)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	wantKey := "brand/logo.png"
+	if _, ok := mock.objects[wantKey]; !ok {
+		t.Errorf("missing key %q; got %v", wantKey, sortedObjectKeys(mock.objects))
+	}
+	// And make sure the buggy literal "brand/" is NOT present.
+	if _, ok := mock.objects["brand/"]; ok {
+		t.Errorf("found buggy literal key 'brand/' in remote; should be 'brand/logo.png'")
+	}
+}
+
 func TestR2Sync_SymlinkSkipped(t *testing.T) {
 	mock := newMockR2Client()
 	dir := t.TempDir()

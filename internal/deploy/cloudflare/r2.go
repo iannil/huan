@@ -332,8 +332,16 @@ func (s *R2Syncer) walkLocal(ctx context.Context, mappings []SyncMapping, result
 }
 
 // addFile reads one local file, computes MD5 + content-type, and adds to map.
-// to is the destination prefix; rel is the path relative to walk root.
-// For single-file mappings, rel is empty and basename(to) is used as key.
+//
+// Key derivation rules:
+//   - Directory mapping (rel != ""): key = TrimSuffix(to, "/") + "/" + rel
+//   - Single-file mapping (rel == ""):
+//     - If `to` ends with "/": treat as directory; key = to + Base(path)
+//     - Else: key is the literal `to` (with any leading "/" trimmed)
+//
+// Audit M7: previously a single-file mapping with trailing-slash `to`
+// (e.g. {from: "logo.png", to: "brand/"}) produced key "brand/" (literal
+// trailing slash). Now appends Base(path) to match S3 sync conventions.
 func (s *R2Syncer) addFile(path, to, rel string, out map[string]localEntry) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -343,8 +351,12 @@ func (s *R2Syncer) addFile(path, to, rel string, out map[string]localEntry) erro
 
 	var key string
 	if rel == "" {
-		// Single-file mapping: use basename of "to" as key.
-		key = strings.TrimPrefix(to, "/")
+		if strings.HasSuffix(to, "/") {
+			// Trailing slash → directory intent; append basename of source.
+			key = to + filepath.Base(path)
+		} else {
+			key = strings.TrimPrefix(to, "/")
+		}
 	} else {
 		// Compose: to + "/" + rel (with forward slashes).
 		to = strings.TrimSuffix(to, "/")

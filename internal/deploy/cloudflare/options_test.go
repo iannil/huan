@@ -132,3 +132,36 @@ pages:
 		t.Errorf("Pages.Project = %q", cfg.Pages.Project)
 	}
 }
+
+// TestWorkerConfig_Validate_CompatibilityDate exercises audit M2 fix:
+// compatibility_date must be YYYY-MM-DD format when set; empty is allowed
+// (deployer fills default "2024-01-01").
+func TestWorkerConfig_Validate_CompatibilityDate(t *testing.T) {
+	cases := []struct {
+		name string
+		date string
+		ok   bool
+	}{
+		{"empty allowed (default applied at deploy)", "", true},
+		{"valid ISO date", "2024-01-01", true},
+		{"valid recent date", "2026-06-13", true},
+		{"slashes rejected", "2024/01/01", false},
+		{"time rejected", "2024-01-01T00:00:00Z", false},
+		{"relative rejected", "yesterday", false},
+		{"month out of range", "2024-13-01", false},
+		{"day out of range", "2024-01-32", false},
+		{"two-digit year", "24-01-01", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := WorkerConfig{Name: "w", Script: "x.js", CompatibilityDate: tc.date}
+			err := cfg.validate()
+			if tc.ok && err != nil {
+				t.Errorf("date %q: want nil, got %v", tc.date, err)
+			}
+			if !tc.ok && err == nil {
+				t.Errorf("date %q: want error, got nil", tc.date)
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +79,21 @@ func (p *PagesDeployer) DeployPages(ctx context.Context, opts DeployPagesOptions
 	}
 	if opts.Branch == "" {
 		return report, fmt.Errorf("pages: branch required")
+	}
+
+	// Validate that every Asset.Path has a leading slash (CF API requirement).
+	// BuildManifest enforces this for huan-built manifests, but programmatic
+	// callers can construct Asset slices directly — fail-fast here rather
+	// than getting a confusing CF 4xx mid-deploy.
+	for _, a := range opts.Assets {
+		if !strings.HasPrefix(a.Path, "/") {
+			report.Failures = append(report.Failures, deploy.FileFailure{
+				Path:  a.Path,
+				Stage: "validate",
+				Error: "manifest path missing leading slash (CF requires leading slash on deployment keys)",
+			})
+			return report, fmt.Errorf("pages: asset path %q missing leading slash", a.Path)
+		}
 	}
 
 	p.logger.Log("pages-deploy", deploy.EventFunctionStart, map[string]any{

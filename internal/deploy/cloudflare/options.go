@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -132,14 +133,19 @@ type WorkerRoute struct {
 }
 
 // validate checks that all required Worker fields are present. CompatibilityDate
-// defaults to "2024-01-01" at deploy time, not here (so plugin info reflects
-// user intent).
+// is validated for format (YYYY-MM-DD) when set; empty is allowed (defaults to
+// "2024-01-01" at deploy time).
 func (c WorkerConfig) validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("worker.name is required")
 	}
 	if c.Script == "" {
 		return fmt.Errorf("worker.script is required (path to single-file ES module .js)")
+	}
+	if c.CompatibilityDate != "" {
+		if _, err := time.Parse("2006-01-02", c.CompatibilityDate); err != nil {
+			return fmt.Errorf("worker.compatibilityDate %q invalid (want YYYY-MM-DD): %w", c.CompatibilityDate, err)
+		}
 	}
 	return nil
 }
