@@ -23,6 +23,7 @@
 | [`adr/0003-unified-plugin-system.md`](adr/0003-unified-plugin-system.md) | **ADR 0003：统一插件系统**（plugin host / capability / 配置 / 注册） | Accepted |
 | [`adr/0004-release-command.md`](adr/0004-release-command.md) | **ADR 0004：本地打包发布命令 `huan release`** | Accepted |
 | [`adr/0005-remove-encrypt-and-v02-feature-batch.md`](adr/0005-remove-encrypt-and-v02-feature-batch.md) | **ADR 0005：v0.2 系列决策**（remove encrypt + toc/export/sync + CI release） | Accepted |
+| [`adr/0006-remove-encryptgroups-dead-config.md`](adr/0006-remove-encryptgroups-dead-config.md) | **ADR 0006：v0.2.3 移除 `encryptGroups` dead config**（反转 ADR 0005 §1.2） | Accepted |
 | [`standards/equivalence.md`](standards/equivalence.md) | **三维度等价标准** — 肉眼 / SEO / AI 三维度无差异 | 永久 |
 | [`standards/documentation.md`](standards/documentation.md) | 文档规范 — 目录用途、命名、归档时机 | 永久 |
 | [`templates/progress-template.md`](templates/progress-template.md) | 进行中工作模板 | 引用 |
@@ -150,6 +151,7 @@ huan/
 
 | 版本 | 日期 | commit | 关键变更 |
 |---|---|---|---|
+| **v0.2.3** | 2026-06-14 | — | 移除 `huan.yaml` 的 `encryptGroups` dead config + 全文档同步（反转 ADR 0005 §1.2），详见 [ADR 0006](adr/0006-remove-encryptgroups-dead-config.md) |
 | **v0.2.2** | 2026-06-13 | `393ba19` | CI 自动建 GitHub Release（`.github/workflows/release.yml`），详见 [ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md) |
 | **v0.2.1** | 2026-06-13 | `afe89a9` | `huan toc/export/sync` 子命令 + multi-archetype `huan new`（zhurongshuo Phase 1） |
 | **v0.2.0** | 2026-06-13 | `5c220e2` | 移除未启用的 `internal/encrypt/` + `shortcode/redact.go`（-593 行） |

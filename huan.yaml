@@ -23,18 +23,6 @@ params:
   googleAnalytics: "G-KKJ5ZEG1NB"
   cdnURL: "https://r2.zhurongshuo.com"
 
-  encryptGroups:
-    default:
-      hint: "受保护内容"
-      mode: "full"
-    teach:
-      hint: "私人课内容"
-      mode: "full"
-    kachuai:
-      hint: "卡揣内容"
-      mode: "random"
-      ratio: 50
-
   author:
     name: "祝融"
 

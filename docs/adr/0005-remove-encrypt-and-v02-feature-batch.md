@@ -32,7 +32,9 @@
 
 #### 1.2 `huan.yaml` 的 `params.encryptGroups` 保留为 dead config
 
-- **选定**：不删 yaml 配置块，让 huan 不再消费它（`internal/config` 不再解析 EncryptGroups 字段）
+> **⚠️ Superseded by [ADR 0006](0006-remove-encryptgroups-dead-config.md)，2026-06-14**：v0.2.3 反转本决策，彻底删除 `huan.yaml` 的 `encryptGroups` 11 行 + 同步全套文档。本节内容作为 v0.2.0–v0.2.2 期间的历史决策保留，不再反映当前状态。
+
+- **选定**（v0.2.0 时）：不删 yaml 配置块，让 huan 不再消费它（`internal/config` 不再解析 EncryptGroups 字段）
 - **否决**：
   - 同时删 yaml 配置 —— 用户（zhurongshuo）的 huan.yaml 还在用，删了会 git diff 噪声；用户可自行决定何时清理
   - huan.yaml 启动时报错 "encryptGroups no longer supported" —— 违反向后兼容；`params.*` 本来就是开放 map，多余字段无害
