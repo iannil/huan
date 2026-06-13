@@ -67,6 +67,9 @@ normalize 规则：
 | 项 | 维度影响 | 类型 | 说明 |
 |---|---|---|---|
 | robots.txt | SEO：更完善的安全规则 | 改进 | huan 生成的 robots.txt 包含更多安全相关的 Disallow/Allow 规则（/admin/、/private/、/.cloudflare/、/docs/ 等），优于 Hugo 的精简版本 |
+| llms.txt | AI：原生支持 | 新增 | huan 生成 `/llms.txt`（llmstxt.org 标准），AI crawler 可消费站点结构。Hugo 不输出此文件 |
+| /api/{section}.json | AI：原生支持 | 新增 | huan 按 section 输出结构化内容 API（title/url/date/summary/plain/tags），AI 可直接消费 |
+| index.md 镜像 | AI：原生支持 | 新增 | huan 在每个 HTML 页面旁输出原始 markdown（`/path/index.md`），AI crawler 可读源格式 |
 
 stage 1 收尾后，所有「更好」的偏离由本表统一登记。任何未登记的偏离视为回归。
 

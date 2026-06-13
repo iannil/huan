@@ -25,6 +25,7 @@ type Config struct {
 	Sitemap      SitemapConfig     `yaml:"sitemap"`
 	RSS          RSSConfig         `yaml:"rss"`
 	Outputs      OutputsConfig     `yaml:"outputs"`
+	AI           AIConfig          `yaml:"ai"`
 
 	// Computed (not from YAML)
 	BaseURLTemplate template.URL
@@ -117,6 +118,13 @@ type OutputsConfig struct {
 	Term     []string `yaml:"term"`
 }
 
+// AIConfig controls AI-friendly output features.
+type AIConfig struct {
+	LlmsTxt        bool `yaml:"llmsTxt"`
+	ContentAPI     bool `yaml:"contentAPI"`
+	MarkdownMirror bool `yaml:"markdownMirror"`
+}
+
 // BuildConfig mirrors Hugo's build frontmatter directive.
 type BuildConfig struct {
 	List             string `yaml:"list"`     // never, always
@@ -168,6 +176,11 @@ func Defaults() *Config {
 			Section:  []string{"HTML", "RSS"},
 			Taxonomy: []string{"HTML", "RSS"},
 			Term:     []string{"HTML", "RSS"},
+		},
+		AI: AIConfig{
+			LlmsTxt:        true,
+			ContentAPI:     true,
+			MarkdownMirror: true,
 		},
 	}
 }

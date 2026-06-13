@@ -313,6 +313,18 @@ func BuildSite(opts Options) (*Result, error) {
 		}
 		renderedCount++
 
+		// Markdown mirror: copy source .md alongside HTML for AI consumption
+		if cfg.AI.MarkdownMirror && p.Kind == "page" {
+			mdRelPath := strings.TrimSuffix(p.URL, "/") + "/index.md"
+			mdRelPath = strings.TrimPrefix(mdRelPath, "/")
+			data, err := os.ReadFile(p.FilePath)
+			if err != nil {
+				logf("  WARN: mirror md %s: %v\n", p.FilePath, err)
+			} else if err := writer.Write(mdRelPath, string(data)); err != nil {
+				logf("  WARN: write md %s: %v\n", mdRelPath, err)
+			}
+		}
+
 		// RSS output for home and section pages
 		if p.Kind == "home" || p.Kind == "section" {
 			if rssName := ResolveRSSOutput(p); rssName != "" {
@@ -435,6 +447,20 @@ func BuildSite(opts Options) (*Result, error) {
 			}
 		} else {
 			logf("  WARN: search: %v\n", err)
+		}
+	}
+
+	// Generate llms.txt for AI crawlers
+	if cfg.AI.LlmsTxt {
+		if err := output.GenerateLlmsTxt(opts.OutputDir, opts.SourceDir, cfg); err != nil {
+			logf("  WARN: llms.txt: %v\n", err)
+		}
+	}
+
+	// Generate /api/{section}.json for AI consumption
+	if cfg.AI.ContentAPI {
+		if err := output.GenerateContentAPI(opts.OutputDir, site, cfg, opts.IncludeDrafts, opts.IncludeFuture, opts.IncludeExpired, now); err != nil {
+			logf("  WARN: content api: %v\n", err)
 		}
 	}
 

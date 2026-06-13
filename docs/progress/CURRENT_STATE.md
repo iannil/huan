@@ -1,9 +1,30 @@
 # 当前实际进展
 
-> 最后更新：2026-06-13（grill-me 审计后更新） · 分支：master
+> 最后更新：2026-06-13（stage 2 AI 友好功能上线） · 分支：master
 > 本文档替代 `docs/technical-plan.md` 第 8.4 节"剩余差异"——后者作为冻结的设计参考，**实际最新状态以此文档为准**。
 
-## Stage 3 — grill-me 完成度确认（2026-06-13，最新）
+## Stage 2 — AI 友好输出（2026-06-13，最新）
+
+huan 定位从"zhurongshuo 专用 Hugo 替代"扩展为"AI 友好优先的通用 SSG"。stage 2 聚焦三个 AI 消费者需要的新增输出：
+
+| 功能 | 路径 | 配置 | 默认 |
+|---|---|---|---|
+| Markdown 镜像 | `{url}/index.md` | `ai.markdownMirror` | true |
+| llms.txt | `/llms.txt` | `ai.llmsTxt` | true |
+| 内容 API | `/api/{section}.json` | `ai.contentAPI` | true |
+
+**设计决策（grill-me 共识）**：
+- 不做插件架构（YAGNI）——三个功能和 RSS/sitemap/search.json 同类，直接加到 `internal/output/`
+- llms.txt 混合模式：auto 从 config 生成 + `layouts/llms.txt` override
+- 内容 API 扁平挂载（`/api/{section}.json`），完整字段（title/url/date/summary/plain/tags）
+- Markdown 镜像同 HTML draft/future/expired 过滤，只镜像 page kind
+- 不做：认证 / 支付 / 会员 / 动态渲染 / 搜索系统 / pipeline 重构
+
+**验证**：三维度等价 PASS（无回归），新增文件不在 Hugo 对比范围。详见 [equivalence.md §3](../standards/equivalence.md#3-甚至更好登记簿)。
+
+---
+
+## Stage 3 — grill-me 完成度确认（2026-06-13）
 
 按用户要求"对 100% 还原进行完成度确认（肉眼 / SEO / AI 三维度）"启动 grill-me 流程。**结果颠覆了 stage 2 主要完成 的结论**——之前的 baseline 一开始就 broken。
 
