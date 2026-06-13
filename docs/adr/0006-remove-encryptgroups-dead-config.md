@@ -60,6 +60,8 @@ v0.2.2 发版后，三个独立因素触发本次反转：
 ## 5. 验证
 
 - `go test ./...`：PASS（无 Go 代码改动）
-- `./scripts/diff-build.sh`：三维度（normalized / seo / ai）全 PASS（yaml 改动对 Hugo 输出无影响）
+- `huan build -s /Users/rong.zhu/Code/zhurongshuo`：3032 输出文件，与 stage 3 基线一致（yaml 改动对实际构建无影响——huan/huan.yaml 仅是 huan 仓库的示例配置，不被 `-s $PROJECT_DIR` 模式的实际构建消费）
 - `huan version`：输出 `0.2.3`
 - ADR 渲染：本 ADR + ADR 0005 §1.2 supersede 标记在 GitHub markdown 渲染正确
+
+> **注**：`./scripts/diff-build.sh` 目前**无法运行**——zhurongshuo 在 `800b67a59 chore: drop encryption infrastructure and Hugo legacy`（2026-06-13 21:52，本 ADR 之前）一并行删除了 `config.toml`，Hugo 找不到 baseline 配置。这是**预先存在的状态**，与 v0.2.3 改动无关。修复 diff-build.sh（或正式退役该工具）应作为独立工作。

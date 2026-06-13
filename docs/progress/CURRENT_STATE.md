@@ -9,7 +9,7 @@ v0.1.0 发版后连续三个版本，详见 [ADR 0005](../adr/0005-remove-encryp
 
 | 版本 | commit | 关键变更 | 验证 |
 |---|---|---|---|
-| **v0.2.3** | _(本 commit)_ | 移除 `huan.yaml` 的 `encryptGroups` dead config 11 行 + 全文档同步（反转 ADR 0005 §1.2）；ADR 0006 新建 | `./scripts/diff-build.sh` 三维度 PASS（无回归）；`huan version` 输出 `0.2.3` |
+| **v0.2.3** | _(本 commit)_ | 移除 `huan.yaml` 的 `encryptGroups` dead config 11 行 + 全文档同步（反转 ADR 0005 §1.2）；ADR 0006 新建 | `go test ./...` 全 PASS；`huan build -s zhurongshuo` 3032 文件（与 stage 3 基线一致）；`huan version` 输出 `0.2.3`。**注**：`diff-build.sh` 因 zhurongshuo `800b67a59` 删除 `config.toml` 而无法运行（预先存在状态，与本 commit 无关） |
 | **v0.2.2** | `393ba19` | `.github/workflows/release.yml`：`v*` tag push 自动 `go run ./cmd/huan release` + `gh release create`；workflow_dispatch 支持 back-fill | v0.2.2 tag push 后 CI 自动产出 GitHub Release 含 5 tarball + checksums + manifest |
 | **v0.2.1** | `afe89a9` | `huan toc/export/sync` 子命令 + multi-archetype `huan new`（zhurongshuo Hugo→huan 迁移 Phase 1） | toc byte-identical `generate-toc.js`；export md5-identical `export.sh`（i18n collator 复现 zh_CN 排序） |
 | **v0.2.0** | `5c220e2` | 移除未启用的 `internal/encrypt/` + `shortcode/redact.go`（-593 行）；`huan.yaml` `params.encryptGroups` 保留为 dead config | `./scripts/diff-build.sh` 三维度 PASS（无回归），证明 zhurongshuo 输出不受影响 |
