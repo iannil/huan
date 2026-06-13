@@ -194,51 +194,46 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 		return result, fmt.Errorf("r2 list: %w", err)
 	}
 
-	// Step 4: upload missing / mismatched.
-	uploadsCh := make(chan localEntry, len(localObjs))
-	for _, le := range localObjs {
-		uploadsCh <- le
-	}
-	close(uploadsCh)
-
-	parallel := 3
-	if opts.Concurrency > 0 && opts.Concurrency < parallel {
-		parallel = opts.Concurrency
-	}
+	// Step 4: upload missing / mismatched. Uses Limiter (HTTPMaxParallel=3)
+	// to cap concurrent PUT requests per ADR §14.3. opts.Concurrency governs
+	// CPU-bound work (file walk, MD5 hashing) — but those are currently serial
+	// in walkLocal; future enhancement. HTTP concurrency is hard-capped at 3
+	// and not user-tunable.
+	limiter := NewLimiter()
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for i := 0; i < parallel; i++ {
+	for _, le := range localObjs {
 		wg.Add(1)
-		go func() {
+		go func(le localEntry) {
 			defer wg.Done()
-			for le := range uploadsCh {
-				if ctx.Err() != nil {
-					return
-				}
-				remoteObj, exists := remote[le.Key]
-				if exists && remoteObj.ETag == le.MD5 {
-					mu.Lock()
-					result.Skipped++
-					mu.Unlock()
-					continue
-				}
-				if err := s.uploadOne(ctx, le); err != nil {
-					mu.Lock()
-					result.Failed++
-					result.Failures = append(result.Failures, R2FileFailure{
-						LocalPath: le.LocalPath,
-						Key:       le.Key,
-						Stage:     "upload",
-						Error:     err.Error(),
-					})
-					mu.Unlock()
-					continue
-				}
-				mu.Lock()
-				result.Succeeded++
-				mu.Unlock()
+			if err := limiter.Acquire(ctx); err != nil {
+				return // ctx cancelled during acquire
 			}
-		}()
+			defer limiter.Release()
+
+			remoteObj, exists := remote[le.Key]
+			if exists && remoteObj.ETag == le.MD5 {
+				mu.Lock()
+				result.Skipped++
+				mu.Unlock()
+				return
+			}
+			if err := s.uploadOne(ctx, le); err != nil {
+				mu.Lock()
+				result.Failed++
+				result.Failures = append(result.Failures, R2FileFailure{
+					LocalPath: le.LocalPath,
+					Key:       le.Key,
+					Stage:     "upload",
+					Error:     err.Error(),
+				})
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			result.Succeeded++
+			mu.Unlock()
+		}(le)
 	}
 	wg.Wait()
 

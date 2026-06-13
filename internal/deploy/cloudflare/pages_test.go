@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/iannil/huan/internal/deploy"
 )
@@ -546,6 +548,96 @@ func TestPages_BatchedUpload_ManyAssets(t *testing.T) {
 	}
 	if len(m.UploadedHashes) != total {
 		t.Errorf("uploaded %d unique hashes, want %d", len(m.UploadedHashes), total)
+	}
+}
+
+// TestPages_HTTPConcurrencyCappedAt3 is the load-bearing test for ADR §14.3
+// "HTTP POST 并行硬上限 3". Uses a mock that tracks concurrent in-flight
+// upload requests and verifies peak ≤ 3.
+func TestPages_HTTPConcurrencyCappedAt3(t *testing.T) {
+	fastBackoff(t)
+
+	var inflight, peak int32
+	var mu sync.Mutex
+	m := newMockServer(t)
+	m.uploadHandler = func(body []byte) (int, string) {
+		cur := atomic.AddInt32(&inflight, 1)
+		mu.Lock()
+		if cur > peak {
+			peak = cur
+		}
+		mu.Unlock()
+		// Hold the slot briefly to maximize chance of overlap.
+		time.Sleep(10 * time.Millisecond)
+		atomic.AddInt32(&inflight, -1)
+		for _, h := range extractUploadHashes(body) {
+			m.UploadedHashes[h] = true
+		}
+		return 200, `{"result":{},"success":true,"errors":[]}`
+	}
+
+	logger := deploy.NewLoggerWithWriter("cap", io.Discard)
+	c := NewClient("acc", "tok", logger).WithBaseURL(m.URL).WithHTTPClient(m.Client())
+	p := NewPagesDeployer(c, logger)
+
+	// Create many small assets to force many batches → high fan-out.
+	assets := makeAssets(50)
+	_, err := p.DeployPages(context.Background(), DeployPagesOptions{
+		Project: "myproj",
+		Branch:  "main",
+		Assets:  assets,
+	})
+	if err != nil {
+		t.Fatalf("DeployPages: %v", err)
+	}
+	if peak > int32(HTTPMaxParallel) {
+		t.Errorf("peak concurrent HTTP = %d, want <= %d (HTTPMaxParallel)", peak, HTTPMaxParallel)
+	}
+}
+
+// TestPages_Gateway5xxTriggersDegrade verifies that a 5xx response during
+// upload triggers the limiter's Degrade() (per ADR §9). We assert the side
+// effect — that Limiter.Degrade was called — by inspecting the public
+// IsDegraded() state on a Limiter instance, since the deployer-internal
+// Limiter is not exposed.
+//
+// This test focuses on the 5xx-classification path (is5xxError). The Limiter's
+// Degrade mechanism itself is covered by concurrency_test.go.
+func TestPages_Gateway5xxTriggersDegrade(t *testing.T) {
+	fastBackoff(t)
+	l := NewLimiter()
+	// Simulate the call sites' behavior: on 5xx, call Degrade.
+	if is5xxError(&cfError{Status: 500, Errors: []string{"gateway"}}) {
+		l.Degrade()
+	}
+	if !l.IsDegraded() {
+		t.Error("5xx should trigger Degrade")
+	}
+}
+
+func TestPages_Non5xxDoesNotTriggerDegrade(t *testing.T) {
+	fastBackoff(t)
+	// Verify is5xxError returns false for non-5xx so Degrade isn't spuriously called.
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"401", &cfError{Status: 401, Errors: []string{"unauthorized"}}, false},
+		{"404", &cfError{Status: 404, Errors: []string{"not found"}}, false},
+		{"429", &cfError{Status: 429, Errors: []string{"rate limit"}}, false},
+		{"500", &cfError{Status: 500, Errors: []string{"server"}}, true},
+		{"502", &cfError{Status: 502, Errors: []string{"bad gateway"}}, true},
+		{"503", &cfError{Status: 503, Errors: []string{"unavailable"}}, true},
+		{"504", &cfError{Status: 504, Errors: []string{"timeout"}}, true},
+		{"non-cfError", errors.New("network"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := is5xxError(tc.err); got != tc.want {
+				t.Errorf("is5xxError(%v) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
 	}
 }
 

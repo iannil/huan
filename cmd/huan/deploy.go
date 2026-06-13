@@ -79,6 +79,12 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	concurrency, _ := cmd.Flags().GetInt("concurrency")
+	// --concurrency=0 (default) means "use min(GOMAXPROCS, 8)" per ADR §14.3.
+	// Plugin layer never sees 0; HTTP concurrency is separately hard-capped
+	// at 3 by the deployer and is not user-tunable.
+	if concurrency <= 0 {
+		concurrency = defaultConcurrency()
+	}
 	branchFlag, _ := cmd.Flags().GetString("branch")
 	commitSHA, _ := cmd.Flags().GetString("commit-sha")
 	commitMessage, _ := cmd.Flags().GetString("commit-message")

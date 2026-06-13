@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -213,16 +214,16 @@ func (p *PagesDeployer) callWithJWTRefresh(ctx context.Context, project, jwtAuth
 // uploadAssets uploads the missing assets in batches. Uses HTTPParallel (capped
 // to 3) workers for concurrent batches. Per-file failures are collected into
 // report.Failures (collection-not-interruption per ADR §9).
+//
+// Concurrency: uses a Limiter with HTTP cap = 3 (HTTPMaxParallel). On any 5xx
+// response from upload, the Limiter is Degrade()'d to HTTPDegradedParallel=1
+// for the remainder of the deploy (per ADR §9 gateway-5xx auto-degrade).
 func (p *PagesDeployer) uploadAssets(ctx context.Context, project, jwtAuth string, assets []Asset, report *deploy.Report) error {
 	batches := Batch(assets)
-	parallel := 3
-	if report != nil {
-		// batches are processed concurrently up to parallel.
-	}
 	if len(batches) == 0 {
 		return nil
 	}
-	sem := make(chan struct{}, parallel)
+	limiter := NewLimiter()
 	var wg sync.WaitGroup
 	var firstErr error
 	var errMu sync.Mutex
@@ -231,10 +232,16 @@ func (p *PagesDeployer) uploadAssets(ctx context.Context, project, jwtAuth strin
 		wg.Add(1)
 		go func(idx int, b []Asset) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			if err := limiter.Acquire(ctx); err != nil {
+				return // ctx cancelled during acquire
+			}
+			defer limiter.Release()
 
 			if err := p.uploadBatchWithRefresh(ctx, project, jwtAuth, b); err != nil {
+				// Per ADR §9: any 5xx triggers permanent HTTP concurrency degrade.
+				if is5xxError(err) {
+					limiter.Degrade()
+				}
 				errMu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -257,6 +264,16 @@ func (p *PagesDeployer) uploadAssets(ctx context.Context, project, jwtAuth strin
 	}
 	wg.Wait()
 	return firstErr
+}
+
+// is5xxError returns true if err is a cfError with HTTP status in the 5xx range.
+// Used to trigger Limiter.Degrade per ADR §9 gateway-5xx auto-degrade.
+func is5xxError(err error) bool {
+	var cfe *cfError
+	if !errors.As(err, &cfe) {
+		return false
+	}
+	return cfe.Status >= 500 && cfe.Status < 600
 }
 
 // uploadBatchWithRefresh POSTs one batch to /pages/assets/upload. The body is
