@@ -42,10 +42,6 @@ type Context struct {
 	Permalink       string
 
 	Params          map[string]interface{}
-	Access          string
-	EncryptGroup    string
-	EncryptMode     string
-	EncryptRatio    int
 	Build           config.BuildConfig
 	Cascade         config.CascadeConfig
 	Sitemap         config.SitemapPageConfig
@@ -348,10 +344,6 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		RelPermalink:    permalinkEncode(p.URL),
 		Permalink:       permalinkEncode(cfg.BaseURL + strings.TrimPrefix(p.URL, "/")),
 		Params:          pageParams(p),
-		Access:          p.Access,
-		EncryptGroup:    p.EncryptGroup,
-		EncryptMode:     p.EncryptMode,
-		EncryptRatio:    p.EncryptRatio,
 		Build:           p.Build,
 		Cascade:         p.Cascade,
 		Sitemap:         mergeSitemap(cfg.Sitemap, p.Sitemap),
@@ -681,10 +673,6 @@ func pageParams(p *content.Page) map[string]interface{} {
 		"description":    p.Description,
 		"slug":           p.Slug,
 		"type":           p.Type,
-		"access":         p.Access,
-		"encryptGroup":   p.EncryptGroup,
-		"encryptMode":    p.EncryptMode,
-		"encryptRatio":   p.EncryptRatio,
 		"image":          p.Image,
 		"featured_image": p.FeaturedImage,
 	}

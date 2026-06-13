@@ -87,10 +87,6 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 		"_internal/twitter_cards.html":   ``,
 	}
 
-	// Override content-redact.html: in huan, content is pre-processed by the
-	// encrypt engine before rendering, so the partial just outputs .Content.
-	templates["partials/content-redact.html"] = `{{ .Content }}`
-
 	// Override RSS template: Hugo's rss.xml does `$pctx := . ; if .IsHome { $pctx = .Site }`,
 	// which requires .Site and . to be the same type. huan models Site and Page as
 	// distinct types, so we rewrite the template to use site.RegularPages directly.

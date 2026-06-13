@@ -11,7 +11,6 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
-	"github.com/iannil/huan/internal/encrypt"
 	"github.com/iannil/huan/internal/i18n"
 	"github.com/iannil/huan/internal/markdown"
 	"github.com/iannil/huan/internal/output"
@@ -145,41 +144,8 @@ func BuildSite(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("build tree: %w", err)
 	}
 	site.Data = data
-	for _, p := range site.Pages {
-		_ = p
-	}
 
-	// 6. Set up encrypt engine and apply access control to protected pages
-	encryptGroups := map[string]encrypt.EncryptGroupConfig{}
-	for name, g := range cfg.Params.EncryptGroups {
-		encryptGroups[name] = encrypt.EncryptGroupConfig{
-			Hint:  g.Hint,
-			Mode:  g.Mode,
-			Ratio: g.Ratio,
-		}
-	}
-
-	var encryptedContent interface{}
-	if enc, ok := data["encrypted"]; ok {
-		if m, ok := enc.(map[string]interface{}); ok {
-			encryptedContent = m["content"]
-		}
-	}
-
-	encEngine := encrypt.NewEngine(encryptedContent, encryptGroups)
-	protectedCount := 0
-	for _, p := range pages {
-		if p.Access == "protected" {
-			protectedCount++
-		}
-		content, err := encEngine.Render(p, scRegistry, site)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt %s: %w", p.RelPath, err)
-		}
-		p.Content = content
-	}
-
-	// 7. Build taxonomies
+	// 6. Build taxonomies
 	// Pass site.Pages (all non-draft pages including hidden/never-listed ones)
 	// so that tags whose only pages are hidden still appear as taxonomy keys.
 	// Hugo generates /tags/{tag}/ pages (HTML + RSS) for these "empty" tags
@@ -231,9 +197,6 @@ func BuildSite(opts Options) (*Result, error) {
 		templateCount++
 	}
 	logf("  Templates:    %d\n", templateCount)
-	if protectedCount > 0 {
-		logf("  Protected:    %d pages\n", protectedCount)
-	}
 
 	// 9. Render pages
 	renderer := tmpl.NewRenderer(tmpls, tmpl.FuncMap(cfg.BaseURL))

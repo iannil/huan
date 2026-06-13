@@ -54,16 +54,12 @@ func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*
 	p.FeaturedImage = strField(fm, "featured_image")
 	p.Slug = strField(fm, "slug")
 	p.Type = strField(fm, "type")
-	p.Access = strField(fm, "access")
-	p.EncryptGroup = strField(fm, "encryptGroup")
-	p.EncryptMode = strField(fm, "encryptMode")
 
 	// Bool fields
 	p.Draft = boolField(fm, "draft")
 	p.Hidden = boolField(fm, "hidden")
 
 	// Int fields
-	p.EncryptRatio = intField(fm, "encryptRatio")
 	p.Weight = intField(fm, "weight")
 
 	// String slices
@@ -118,11 +114,6 @@ func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*
 	// Sitemap config
 	if sc, ok := fm["sitemap"].(map[string]interface{}); ok {
 		p.Sitemap.Disable = boolField(sc, "disable")
-	}
-
-	// Default access to public
-	if p.Access == "" {
-		p.Access = "public"
 	}
 
 	return p, nil

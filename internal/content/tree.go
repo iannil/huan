@@ -553,21 +553,5 @@ func paramsToMap(cfg *config.Config) map[string]interface{} {
 		"Social":          socialPascal,
 	}
 
-	if cfg.Params.EncryptGroups != nil {
-		groupsLower := make(map[string]interface{})
-		groupsPascal := make(map[string]interface{})
-		for k, v := range cfg.Params.EncryptGroups {
-			entry := map[string]interface{}{
-				"hint":  v.Hint,
-				"mode":  v.Mode,
-				"ratio": v.Ratio,
-			}
-			groupsLower[k] = entry
-			groupsPascal[k] = entry
-		}
-		m["encryptGroups"] = groupsLower
-		m["EncryptGroups"] = groupsPascal
-	}
-
 	return m
 }

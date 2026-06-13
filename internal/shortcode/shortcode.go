@@ -46,7 +46,6 @@ func (r *Registry) Has(name string) bool {
 
 // registerBuiltins registers the built-in shortcodes used by the site.
 func (r *Registry) registerBuiltins() {
-	r.Register("redact", RedactHandler)
 	r.Register("audio", AudioHandler)
 	r.Register("img", ImgHandler)
 }

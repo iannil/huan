@@ -12,7 +12,7 @@ import (
 
 // LoadDataFiles loads all data files from the data/ directory.
 // Supports .yaml, .yml, .json. Returns a nested map matching the directory structure.
-// e.g., data/books.yaml → map["books"], data/encrypted/content.json → map["encrypted"]["content"]
+// e.g., data/books.yaml → map["books"]
 func LoadDataFiles(dataDir string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 

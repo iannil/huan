@@ -26,12 +26,6 @@ type Page struct {
 	Image         string   `yaml:"image"`
 	FeaturedImage string   `yaml:"featured_image"`
 
-	// Access control
-	Access       string `yaml:"access"`
-	EncryptGroup string `yaml:"encryptGroup"`
-	EncryptMode  string `yaml:"encryptMode"`
-	EncryptRatio int    `yaml:"encryptRatio"`
-
 	// Hugo build directives
 	Build   config.BuildConfig    `yaml:"build"`
 	Cascade config.CascadeConfig  `yaml:"cascade"`

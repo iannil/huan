@@ -60,15 +60,7 @@ type ParamsConfig struct {
 	GoogleAnalytics string                     `yaml:"googleAnalytics"`
 	CDNURL        string                       `yaml:"cdnURL"`
 
-	EncryptGroups map[string]EncryptGroupConfig `yaml:"encryptGroups"`
-
 	Author        AuthorConfig                 `yaml:"author"`
-}
-
-type EncryptGroupConfig struct {
-	Hint  string `yaml:"hint"`
-	Mode  string `yaml:"mode"`  // full or random
-	Ratio int    `yaml:"ratio"` // 0-100, used when mode=random
 }
 
 type MenuItem struct {

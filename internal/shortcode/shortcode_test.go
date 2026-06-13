@@ -30,7 +30,7 @@ func TestParseParams(t *testing.T) {
 
 func TestExpandInline(t *testing.T) {
 	r := NewRegistry()
-	page := &content.Page{Access: "public"}
+	page := &content.Page{}
 	body := `Hello {{< audio src="test.mp3" title="Test" >}} World`
 
 	out, err := r.Expand(body, page, nil)
@@ -46,84 +46,6 @@ func TestExpandInline(t *testing.T) {
 	}
 	if !strings.Contains(out, `Hello `) || !strings.Contains(out, ` World`) {
 		t.Errorf("expected surrounding content preserved, got: %s", out)
-	}
-}
-
-func TestExpandBlock(t *testing.T) {
-	r := NewRegistry()
-	page := &content.Page{Access: "public"}
-	body := `Before {{< redact force="true" >}}secret content{{< /redact >}} After`
-
-	out, err := r.Expand(body, page, nil)
-	if err != nil {
-		t.Fatalf("Expand: %v", err)
-	}
-
-	if !strings.Contains(out, "Before ") || !strings.Contains(out, " After") {
-		t.Errorf("surrounding content lost: %s", out)
-	}
-	if !strings.Contains(out, `<span class="redacted">`) {
-		t.Errorf("expected redacted span, got: %s", out)
-	}
-	if strings.Contains(out, "secret content") {
-		t.Errorf("redaction failed, content visible: %s", out)
-	}
-}
-
-func TestRedactFull(t *testing.T) {
-	page := &content.Page{Access: "public"}
-	ctx := &Context{
-		Inner:  "hello world 你好",
-		Params: map[string]string{"force": "true"},
-		Page:   page,
-	}
-
-	out, err := RedactHandler(ctx)
-	if err != nil {
-		t.Fatalf("RedactHandler: %v", err)
-	}
-
-	// "hello world 你好" has 13 runes (h,e,l,l,o, space, w,o,r,l,d, space, 你, 好)
-	// Actually: "hello world 你好" = 5 + 1 + 5 + 1 + 2 = 14 chars
-	if !strings.Contains(out, "█") {
-		t.Errorf("expected blocks in output: %s", out)
-	}
-}
-
-func TestRedactRandom(t *testing.T) {
-	page := &content.Page{Access: "public"}
-	body := "alpha beta gamma delta epsilon"
-	ctx := &Context{
-		Inner:  body,
-		Params: map[string]string{"force": "true", "random": "true", "ratio": "50"},
-		Page:   page,
-	}
-
-	out, err := RedactHandler(ctx)
-	if err != nil {
-		t.Fatalf("RedactHandler: %v", err)
-	}
-
-	if !strings.Contains(out, `<span class="redacted">`) {
-		t.Errorf("expected at least some redaction: %s", out)
-	}
-}
-
-func TestRedactShow(t *testing.T) {
-	page := &content.Page{Access: "public"}
-	ctx := &Context{
-		Inner:  "secret",
-		Params: map[string]string{"show": "true"},
-		Page:   page,
-	}
-
-	out, err := RedactHandler(ctx)
-	if err != nil {
-		t.Fatalf("RedactHandler: %v", err)
-	}
-
-	if out != "secret" {
-		t.Errorf("show=true should leave content unchanged, got: %s", out)
 	}
 }
 
