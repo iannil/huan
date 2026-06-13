@@ -140,6 +140,16 @@ plugins:
 - **多路径映射**：`sync: [{from, to}]` 数组，每项 from 是本地路径，to 是 R2 key 前缀。
 - **上传协议**：minio-go 客户端，path-style URL，region `auto`，account-id 隔离 endpoint。
 
+#### 6.1. Prune 范围与责任
+
+`--prune` 删除的是「key 在配置的 `to:` 前缀下、不在本地 sync 集合里」的 remote 对象。
+
+- 代码层 `listAll` 只列 `to:` 前缀下的对象；前缀外的对象 prune **看不到，也不会删**。
+- 但 **`to:` 前缀内的所有对象都被视为「归 huan 管」**。如果用户在 huan 管理的 bucket 里塞了别的 app 的对象（例如把同一个 bucket 同时给两个应用用），prune 会把它们当孤儿删掉。
+- 每个 prune 删除会输出 `r2-prune` 结构化日志事件（key + size），便于事后审计。
+
+**用户责任**：不要把 huan 管理的 bucket 跨应用共享。需要 prune 时先用 `--dry-run` 看一遍要删的清单。
+
 ### 7. Pages 部署策略
 
 走 Cloudflare direct-upload API（**5 步协议**，2026-06-13 grill-me 二轮后通过反向工程 wrangler 源码验证）：

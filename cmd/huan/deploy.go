@@ -37,7 +37,7 @@ func newDeployCloudflareCmd() *cobra.Command {
 	cmd.Flags().Int("concurrency", 0, "max CPU-bound goroutines for hashing/base64 (0 = min(GOMAXPROCS, 8))")
 	cmd.Flags().String("commit-sha", "", "commit SHA to attach to the deployment (default: git HEAD)")
 	cmd.Flags().String("commit-message", "", "commit message to attach (default: git log -1)")
-	cmd.Flags().Bool("prune", false, "(r2 only) delete remote objects not present in local sync set")
+	cmd.Flags().Bool("prune", false, "(r2 only) delete remote objects under your configured to: prefixes that are not in local sync set. WARNING: do not share R2 buckets across apps; prune is scoped to configured prefixes only.")
 	return cmd
 }
 

@@ -238,21 +238,29 @@ func (s *R2Syncer) Sync(ctx context.Context, mappings []SyncMapping, opts R2Sync
 	wg.Wait()
 
 	// Step 5: optional prune.
+	//
+	// Per ADR §6 "Prune 范围与责任": prune deletes any remote object whose
+	// key falls under the configured `to:` prefixes AND is not present in
+	// the local sync set. The user is responsible for not sharing buckets
+	// across apps. Each delete is logged with key + size for audit trail.
 	if opts.Prune {
 		for key, remoteObj := range remote {
 			if _, ok := localObjs[key]; ok {
 				continue
 			}
+			s.logger.Log("r2-prune", deploy.EventPoint, map[string]any{
+				"key":  key,
+				"size": remoteObj.Size,
+			})
 			if err := s.client.RemoveObject(ctx, s.bucket, key); err != nil {
 				result.Failures = append(result.Failures, R2FileFailure{
-					Key:    key,
-					Stage:  "prune",
-					Error:  err.Error(),
+					Key:   key,
+					Stage: "prune",
+					Error: err.Error(),
 				})
 				continue
 			}
 			result.Pruned++
-			_ = remoteObj
 		}
 	}
 

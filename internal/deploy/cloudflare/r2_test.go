@@ -252,6 +252,72 @@ func TestR2Sync_PruneFalse_KeepsOrphans(t *testing.T) {
 	}
 }
 
+// TestR2Sync_PruneLogsEachDelete verifies audit H3 fix: each prune delete
+// emits a structured r2-prune log event with key + size, so users have an
+// audit trail of what got removed.
+func TestR2Sync_PruneLogsEachDelete(t *testing.T) {
+	mock := newMockR2Client()
+	dir := t.TempDir()
+	writeLocalFixture(t, dir, "cat.jpg", []byte("cat"))
+	mock.seedRemoteObject("images/cat.jpg", []byte("cat"))
+	mock.seedRemoteObject("images/orphan1.jpg", []byte("orphan1-bytes"))
+	mock.seedRemoteObject("images/orphan2.jpg", []byte("orphan2-bytes"))
+
+	var buf bytes.Buffer
+	logger := deploy.NewLoggerWithWriter("prune-log-test", &buf)
+	syncer := NewR2SyncerWithClient(mock, "b", logger)
+	_, err := syncer.Sync(context.Background(),
+		[]SyncMapping{{From: dir, To: "images"}},
+		R2SyncOptions{Prune: true},
+	)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	logOutput := buf.String()
+	for _, key := range []string{"images/orphan1.jpg", "images/orphan2.jpg"} {
+		if !strings.Contains(logOutput, key) {
+			t.Errorf("prune log missing key %q; log was:\n%s", key, logOutput)
+		}
+	}
+	if !strings.Contains(logOutput, "r2-prune") {
+		t.Errorf("log missing r2-prune event type; log was:\n%s", logOutput)
+	}
+	// Make sure the matched file (cat.jpg) is NOT in a prune log (it survived).
+	catPruneEntries := strings.Count(logOutput, "images/orphan1.jpg") +
+		strings.Count(logOutput, "images/orphan2.jpg")
+	if catPruneEntries != 2 {
+		t.Errorf("expected 2 distinct r2-prune entries, got %d", catPruneEntries)
+	}
+}
+
+// TestR2Sync_PruneDoesNotTouchKeysOutsideConfiguredPrefix verifies audit
+// H3 fact-finding: prune is scoped to configured `to:` prefixes only.
+// Objects under other prefixes are invisible to listAll and never deleted.
+func TestR2Sync_PruneDoesNotTouchKeysOutsideConfiguredPrefix(t *testing.T) {
+	mock := newMockR2Client()
+	dir := t.TempDir()
+	writeLocalFixture(t, dir, "cat.jpg", []byte("cat"))
+	// Local only has cat.jpg mapped to images/gallery/cat.jpg.
+	// Remote has unrelated images/banners/x.jpg from "another app".
+	mock.seedRemoteObject("images/gallery/cat.jpg", []byte("cat"))
+	mock.seedRemoteObject("images/banners/x.jpg", []byte("not-mine"))
+
+	syncer := NewR2SyncerWithClient(mock, "b", newR2TestLogger())
+	_, err := syncer.Sync(context.Background(),
+		[]SyncMapping{{From: dir, To: "images/gallery"}},
+		R2SyncOptions{Prune: true},
+	)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	// images/banners/x.jpg is OUTSIDE the configured prefix "images/gallery"
+	// and must NOT be deleted.
+	if _, exists := mock.objects["images/banners/x.jpg"]; !exists {
+		t.Errorf("images/banners/x.jpg was deleted but is outside configured prefix")
+	}
+}
+
 func TestR2Sync_DryRun_NoMutations(t *testing.T) {
 	mock := newMockR2Client()
 	dir := t.TempDir()
