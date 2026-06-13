@@ -33,12 +33,19 @@ func NewWorkerDeployer(client *Client, logger *deploy.Logger) *WorkerDeployer {
 }
 
 // WorkerDeployResult models the response from PUT .../workers/scripts/{name}.
+//
+// Audit M3: ModifiedOn is a string (not time.Time) so we always log what CF
+// actually returned, even if their format shifts (sub-microsecond precision,
+// non-RFC3339 variants). Go's default time.Time JSON unmarshal requires
+// strict RFC3339 — a parse failure leaves a zero time which is misleading.
+// Strings preserve the raw value; callers can time.Parse on the string if
+// needed.
 type WorkerDeployResult struct {
 	// ScriptName (echoes request).
 	ScriptName string `json:"-"`
 
-	// ModifiedOn is when CF last updated the script.
-	ModifiedOn time.Time `json:"modified_on"`
+	// ModifiedOn is the raw timestamp string from CF (typically RFC3339).
+	ModifiedOn string `json:"modified_on"`
 
 	// UsageModel (default "bundled").
 	UsageModel string `json:"usage_model"`

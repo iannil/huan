@@ -23,17 +23,33 @@ func newTestLogger() *deploy.Logger {
 	return deploy.NewLoggerWithWriter("test-trace", &buf)
 }
 
+// fastBackoffMu serializes fastBackoff swaps. Without this, two tests
+// running with t.Parallel() could race on the package-global
+// backoffSchedule var, leading to flaky test timing.
+var fastBackoffMu sync.Mutex
+
 // fastBackoff swaps backoffSchedule to near-zero for the duration of a test.
 // Real CF retries use 200ms/1s/5s which would make the test suite take ~30s.
+//
+// Per audit M5: callers of fastBackoff MUST NOT use t.Parallel() — the
+// package-global backoffSchedule var cannot be safely swapped in parallel.
+// The mutex here serializes critical section but tests still must avoid
+// running retry-timing assertions in parallel.
 func fastBackoff(t *testing.T) {
 	t.Helper()
+	fastBackoffMu.Lock()
 	original := backoffSchedule
 	backoffSchedule = []time.Duration{
 		1 * time.Millisecond,
 		2 * time.Millisecond,
 		3 * time.Millisecond,
 	}
-	t.Cleanup(func() { backoffSchedule = original })
+	fastBackoffMu.Unlock()
+	t.Cleanup(func() {
+		fastBackoffMu.Lock()
+		backoffSchedule = original
+		fastBackoffMu.Unlock()
+	})
 }
 
 func TestClient_UploadToken_Success(t *testing.T) {

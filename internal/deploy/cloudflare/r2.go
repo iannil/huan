@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/version"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -71,7 +72,7 @@ func NewR2Syncer(cfg R2Config, logger *deploy.Logger) (*R2Syncer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init minio client: %w", err)
 	}
-	minioClient.SetAppInfo("huan", "0.1.0")
+	minioClient.SetAppInfo("huan", version.String())
 	// Audit C1: previously called log.SetOutput(io.Discard) here, which
 	// mutates the global stdlib log writer for the entire huan process.
 	// That silences any other code that uses stdlib log (build, serve,
