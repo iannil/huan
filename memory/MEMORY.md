@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 经验教训 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-06-12
+> 最近更新：2026-06-13（晚，二轮 grill-me 后补 ADR 0003 统一插件系统）
 
 ## 用户偏好
 
@@ -17,8 +17,10 @@
 
 - **huan** = Go 静态站点生成器，阶段一目标：替代 Hugo 构建 zhurongshuo.com，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) 与 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
 - 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前仍由 Hugo 构建
-- 当前分支：`master`；**stage 1 已于 2026-06-12 完成**（三维度等价标准 ADR 0001 落地，4 项必修/应修差异全解决，三维度验证管线 gate 通过）；**stage 2 phase 1（meta plainify）+ phase 2（中文排序 port + tags RSS 顺序）已完成**；phase 3（RSS items 内容差 17 文件）待启动
-- `huan build` 与 Hugo byte-diff 一致率：905/2028 共有文件完全相同（44.6%，噪声 ±75，详见经验教训），剩余 5 类差异已按三维度尺子重新归类（详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)）
+- 当前分支：`master`；**stage 1（2026-06-12 完成）+ stage 2 全部 phase（2026-06-13 完成）+ stage 3 三维度全 PASS 审计（2026-06-13 晚完成）**——byte/normalized/seo/ai 四模式均通过，剩 6 个 chroma/RSS/sitemap 永久差异走 allowlist（`scripts/allowed-diffs.txt`），详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
+- stage 2 phase 拆解：1 meta plainify / 2 中文排序 port + tags RSS 顺序 / 3 RSS items 内容差 3 子项 / 4 CJK URL 编码 + 空 tag RSS / 5a-e summary + section + WordCount + part 顺序 + link text + home RSS；stage 3 含 chroma port + plainify 双逃逸 + canonify code-skip + slug collision 4 处源 typo + AI 友好输出（llms.txt + content API + markdown mirror）
+- **stage 2/3 完成后的新工作（2026-06-13 下午起）**：(a) Cloudflare 发布插件设计完成（[ADR 0002](../docs/adr/0002-cloudflare-deploy-plugin.md)）；(b) **统一插件系统设计完成（[ADR 0003](../docs/adr/0003-unified-plugin-system.md)，2026-06-13 晚）**——deploy 是首个 capability，未来加付费（stripe/微信/支付宝）/ 多语言 / 内容扩展 / 会员都是同套机制；(c) zhurongshuo 全量 Cloudflare 化等首 PR 实施后落地
+- `huan build` 与 Hugo 对比：四模式全部 PASS（identical≈1984 / differing=0 / whitelisted=6），构建确定性验证两次连续 md5 一致
 - `huan serve`（HTTP + fsnotify + LiveReload）已于 2026-06-12 完成，17 commits 落地
 - 仓库整洁度：无 TODO/FIXME 标记，无 backup/tmp/CI/Makefile；`pkg/` 与 `internal/{pipeline,plugin,search}/` 已删除（stage 2 时再建）
 
@@ -28,12 +30,15 @@
 - Markdown 用 goldmark（与 Hugo 同源库）
 - 配置格式 `huan.yaml`（YAML），非 drop-in 替换 Hugo
 - 验证方式：`./scripts/diff-build.sh` 多模式对比（byte 雷达 + normalized / seo / ai 三维度门禁），三维度任一失败则阻断合并
-- 插件架构阶段一**只预留文档**（接口未落地，连占位空目录都已删除），stage 2 增量扩展
+- 插件架构：**统一插件系统**（[ADR 0003](../docs/adr/0003-unified-plugin-system.md)）—— `internal/plugin/` 顶层 host（Plugin{Name()} + Registry + Find[T]），capability 接口分散在领域包（首个 `internal/deploy/types.go::Deployer`），yaml 顶层 `plugins:<name>.*`，`${VAR}` strict 插值，CLI `huan deploy <name>` + `huan plugin list/info`，编译期 hardcoded 注册在 `cmd/huan/plugins.go`。**首期只画 `Deployer`，不预画 `PaymentProvider` 等（YAGNI）**。Cloudflare deploy 插件是首个实例（[ADR 0002](../docs/adr/0002-cloudflare-deploy-plugin.md)），首 PR 范围 = plugin 系统 + Cloudflare Pages only（R2/Worker 后续 PR）
 - 加密密文仍由外部 Node.js `scripts/encrypt-content.js` 生成，huan 只负责读取与嵌入
 - serve 模式用临时目录 `os.MkdirTemp("", "huan-serve-*")`，绝不污染 `docs/` 生产输出
 - rebuild 用原子 swap（sibling staging dir + rename），保证 rebuild 期间无 404
 - `BuildSite` 非并发安全，rebuild 通过 `atomic.Bool` 串行化 + pending 合并
 - **三维度等价标准（2026-06-12，ADR 0001）**：stage 1 验收从「逐字节 100% 一致」改为「肉眼 / SEO / AI 三维度与 Hugo 输出无差异（甚至更好）」。byte-diff 保留作回归雷达，三维度对比作为门禁。允许修正型 + 扩展型「更好」（不破坏基线即可）。
+- **Cloudflare 发布插件设计（2026-06-13，ADR 0002）**：全量 Cloudflare 化（HTML→Pages / 图片→R2 / image-resizer→Worker）做成 huan 内置插件。**纯 Go 直连 Cloudflare API**（不 shell out wrangler，不引 Node.js），R2 走 minio-go，配置在 `plugins:<name>.*` + `${VAR}` strict 插值（环境变量）。CLI 三层 `huan deploy cloudflare [pages|r2|worker]` + `huan plugin list/info`。`internal/deploy/types.go` 定义 `Deployer` capability 接口（嵌入 `plugin.Plugin`），Registry 在 `internal/plugin/`。**仅设计文档落地，未实施**——首 PR 范围 = plugin 系统 + Cloudflare Pages only（R2/Worker 后续 PR）。
+- **统一插件系统设计（2026-06-13 晚，ADR 0003）**：把插件做成 huan 一等扩展机制。**(1) 形态**：顶层 `internal/plugin/` host + 领域包 capability 接口（首期只 `Deployer`）。**(2) Plugin 基接口极简**：只有 `Name()`；构造器吃配置，无 Init/Start/Stop；生命周期下沉到具体 capability。**(3) Capability 分散在领域包**：`internal/deploy/types.go::Deployer` 嵌入 `plugin.Plugin`；未来 `internal/payment/types.go::PaymentProvider` 同模式；`internal/plugin/` 不掺杂 domain 知识。**(4) 配置统一**：yaml 顶层 `plugins:<name>.*`；plugin 身份 = yaml key。**(5) 凭证**：`${VAR}` strict 插值（unset 报错，整个 huan.yaml 都支持）；无知名 env fallback。**(6) CLI**：per-capability verb（`huan deploy <name>` / 未来 `huan payment <name>`）+ 统一管理命令（`huan plugin list/info`）。**(7) 注册**：编译期 hardcoded 在 `cmd/huan/plugins.go`（composition root），断开循环 import；未知 plugin fail-fast。**未来加插件** = 新建领域包 + `cmd/huan/plugins.go` switch case + yaml 加 `plugins.<name>.*`，**不动 `internal/plugin/`**。备选方案 16 项否决理由见 ADR 0003。
+- **Plugin 系统架构的 4 个关键 fork（grill-me 二轮收敛，2026-06-13 晚）**：(a) Plugin 接口「极简 + 构造器模式」否决「带 Init/Start/Stop」—— Go 习惯是构造器吃配置，两段式 Init dance 是 ceremony；(b) Registry 接线在 `cmd/huan/plugins.go` 而非 `internal/plugin/builtin.go` —— 避免循环 import（cloudflare→plugin→cloudflare 成环）；(c) yaml 用 `plugins:<name>.*` 而非 per-domain 顶层 key（`deploy:` / `payment:`） —— 否则 host 必须知道每个 domain 名，碎片化；(d) 注册用编译期 hardcoded 而非 `init()` 自注册 —— Go 反模式，init() 跨包字母序不可预测。**含义**：未来 grill-me 推 plugin 系统类架构时，可继续按这 4 个 fork 给推荐。
 
 ## 经验教训
 
