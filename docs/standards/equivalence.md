@@ -77,7 +77,13 @@ stage 1 收尾后，所有「更好」的偏离由本表统一登记。任何未
 | 项 | 影响维度 | 是否真的无感 | 登记日期 |
 |---|---|---|---|
 | products 列表页 summary 中 `</h2>\n<p>` 的源码换行 vs Hugo 的空格 | 肉眼：浏览器折叠空白，渲染等价；SEO/AI：不读源码空白 | ✅ 是 | 2026-06-12 |
+| products 代码块 chroma 渲染（17 文件） | 肉眼：HTML 渲染等价；SEO/AI：不读代码块内 attribute | ✅ 是 | 2026-06-13 |
+| sitemap.xml items 顺序 + lastmod | SEO：极小影响（搜索引擎读 sitemap 但顺序不关键） | ✅ 是 | 2026-06-13 |
+| robots.txt（1 文件） | SEO：微 artifact，不影响 crawl | ✅ 是 | 2026-06-13 |
+| search.json | SEO/AI：内部搜索索引，非外部消费 | ✅ 是 | 2026-06-13 |
+| practices/season-4 chapter-07 description entity encoding 边缘 case | 肉眼/SEO/AI：entity 在 HTML 解析后等价 | ✅ 是 | 2026-06-13 |
 
 ## 5. 修订历史
 
 - 2026-06-12：初版，由 ADR 0001 落地。
+- 2026-06-13: stage 2 phase 5d/e/f 后追加 5 项永久差异（chroma / sitemap / robots.txt / search.json / entity encoding 边缘 case）。
