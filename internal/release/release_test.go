@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/iannil/huan/internal/observability"
@@ -259,3 +260,43 @@ func TestRelease_WindowsTarget_ProducesZip(t *testing.T) {
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+// TestGitInfo_RealRepo verifies gitInfo returns sensible SHA + dirty flag
+// when sourceDir is a real git repo. This test assumes the test process
+// runs inside the huan repo (which it always does — it's part of internal/
+// release/).
+func TestGitInfo_RealRepo(t *testing.T) {
+	// Walk up from this test file to find the huan project root.
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("runtime.Caller failed")
+	}
+	root := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Skip if not actually a git repo (e.g. testing a tarball extraction).
+	if _, err := os.Stat(filepath.Join(abs, ".git")); err != nil {
+		t.Skip("not a git repo")
+	}
+
+	sha, dirty, ok := gitInfo(abs)
+	if !ok {
+		t.Fatal("gitInfo returned ok=false inside huan git repo")
+	}
+	if len(sha) < 7 {
+		t.Errorf("SHA = %q, want at least 7 chars", sha)
+	}
+	// dirty flag must be a valid bool; can be true if there are uncommitted
+	// test fixtures, but the call itself must succeed.
+	_ = dirty
+}
+
+func TestGitInfo_NonGitDir(t *testing.T) {
+	dir := t.TempDir()
+	sha, dirty, ok := gitInfo(dir)
+	if ok {
+		t.Errorf("expected ok=false in non-git dir, got sha=%q dirty=%v", sha, dirty)
+	}
+}

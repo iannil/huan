@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/iannil/huan/internal/observability"
-	"github.com/iannil/huan/internal/version"
 )
 
 // Release runs the full release pipeline:
@@ -96,9 +97,15 @@ func Release(ctx context.Context, opts Options, builder Builder, logger *observa
 		DryRun:    opts.DryRun,
 		BuildTime: start.UTC().Format(time.RFC3339Nano),
 	}
-	if vcs := version.VCS(); vcs.Available {
-		report.GitSHA = vcs.SHA
-		report.GitDirty = vcs.Dirty
+	// Source provenance: shell out to git rather than rely on the operator's
+	// debug.ReadBuildInfo(). The operator may have been built via `go run`
+	// (Q14 canonical invocation) which doesn't always embed VCS info, leaving
+	// the manifest without provenance. Shelling out gives us the source
+	// directory's actual git state, which is what the manifest should
+	// describe (not the operator's build state).
+	if sha, dirty, ok := gitInfo(opts.SourceDir); ok {
+		report.GitSHA = sha
+		report.GitDirty = dirty
 	}
 
 	// --- Per-target pipeline: compile → archive → checksum. ---
@@ -299,7 +306,41 @@ func targetsToStrings(targets []Target) []string {
 	return out
 }
 
+// gitInfo returns the source directory's git provenance (short SHA + dirty
+// flag). Returns ok=false (no error) when sourceDir is not a git repo or git
+// is not installed — manifest provenance is best-effort, not a release
+// requirement. The release should still succeed for source dirs that aren't
+// under git (e.g. extracted tarballs).
+//
+// We shell out to `git rev-parse` and `git status` instead of reading
+// debug.ReadBuildInfo() because the latter reflects the *operator binary's*
+// build context, which may differ from the source directory's actual git
+// state. `go run` in particular doesn't reliably embed VCS settings.
+func gitInfo(sourceDir string) (sha string, dirty bool, ok bool) {
+	revCmd := exec.Command("git", "rev-parse", "--short=7", "HEAD")
+	revCmd.Dir = sourceDir
+	revOut, err := revCmd.Output()
+	if err != nil {
+		return "", false, false
+	}
+	sha = strings.TrimSpace(string(revOut))
+	if sha == "" {
+		return "", false, false
+	}
+
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = sourceDir
+	statusOut, err := statusCmd.Output()
+	if err != nil {
+		// Got SHA but couldn't check dirty — return SHA, assume clean.
+		return sha, false, true
+	}
+	dirty = len(strings.TrimSpace(string(statusOut))) > 0
+	return sha, dirty, true
+}
+
 // debug.ReadBuildInfo stays referenced via this var so the import doesn't
-// bit-rot if future refactors stop touching it directly. (Go version info is
-// surfaced via runtime.Version; VCS info via version.VCS.)
+// bit-rot. The operator's own build info isn't used directly by release
+// (we shell out to git for provenance per Q14), but keeping the import
+// means future refactors that want to surface Go module info still can.
 var _ = debug.ReadBuildInfo
