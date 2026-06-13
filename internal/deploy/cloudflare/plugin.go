@@ -55,10 +55,7 @@ func (p *Plugin) Deploy(ctx context.Context, opts deploy.Options) (*deploy.Repor
 	case "r2":
 		return p.deployR2(ctx, opts, logger, traceID)
 	case "worker":
-		return &deploy.Report{
-			TraceID: traceID,
-			Target:  "worker",
-		}, fmt.Errorf("cloudflare plugin: target \"worker\" not yet implemented (PR3)")
+		return p.deployWorker(ctx, opts, logger, traceID)
 	default:
 		return &deploy.Report{
 			TraceID: traceID,
@@ -148,6 +145,28 @@ func (p *Plugin) deployR2(ctx context.Context, opts deploy.Options, logger *depl
 		return r2ResultToReport(traceID, result, err), err
 	}
 	return r2ResultToReport(traceID, result, nil), nil
+}
+
+// deployWorker uploads the Worker script via CF Workers modules API.
+func (p *Plugin) deployWorker(ctx context.Context, opts deploy.Options, logger *deploy.Logger, traceID string) (*deploy.Report, error) {
+	if !p.cfg.HasWorkerConfigured() {
+		return &deploy.Report{
+			TraceID: traceID,
+			Target:  "worker",
+		}, fmt.Errorf("cloudflare plugin: worker target requires worker.* config under plugins.cloudflare")
+	}
+
+	client := NewClient(p.cfg.AccountID, p.cfg.APIToken, logger)
+	deployer := NewWorkerDeployer(client, logger)
+
+	report, err := deployer.Deploy(ctx, p.cfg.Worker, DeployWorkerOptions{
+		SourceDir: opts.SourceDir,
+		DryRun:    opts.DryRun,
+	})
+	if err != nil {
+		return report, err
+	}
+	return report, nil
 }
 
 // r2ResultToReport adapts R2SyncResult into the deploy.Report shape so callers

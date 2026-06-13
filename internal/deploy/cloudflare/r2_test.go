@@ -549,6 +549,8 @@ func TestR2Sync_PluginDispatch_MultipleTargets(t *testing.T) {
 }
 
 func TestR2Sync_PluginDispatch_WorkerTarget(t *testing.T) {
+	// After PR3, worker target IS supported. Without worker config → clear
+	// "worker.* config required" error (not the old PR3-not-implemented error).
 	p := New(Config{
 		AccountID: "a", APIToken: "t",
 		Pages: PagesConfig{Project: "p", Branch: "main"},
@@ -557,9 +559,9 @@ func TestR2Sync_PluginDispatch_WorkerTarget(t *testing.T) {
 		Targets: []string{"worker"},
 	})
 	if err == nil {
-		t.Fatal("want error for worker (PR3 not yet)")
+		t.Fatal("want error for worker without config")
 	}
-	if !strings.Contains(err.Error(), "PR3") {
+	if !strings.Contains(err.Error(), "worker.* config") {
 		t.Errorf("err = %q", err.Error())
 	}
 }

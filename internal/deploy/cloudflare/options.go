@@ -12,11 +12,11 @@ import (
 // cfg.Plugins["cloudflare"] (the map[string]any from yaml). The map is already
 // ${VAR}-interpolated by the config layer (see internal/config/interpolate.go).
 type Config struct {
-	AccountID string      `yaml:"accountId" json:"accountId"`
-	APIToken  string      `yaml:"apiToken"  json:"apiToken"`
-	Pages     PagesConfig `yaml:"pages"     json:"pages"`
-	R2        R2Config    `yaml:"r2"        json:"r2"`
-	// Worker WorkerConfig `yaml:"worker"`  // PR3
+	AccountID string       `yaml:"accountId" json:"accountId"`
+	APIToken  string       `yaml:"apiToken"  json:"apiToken"`
+	Pages     PagesConfig  `yaml:"pages"     json:"pages"`
+	R2        R2Config     `yaml:"r2"        json:"r2"`
+	Worker    WorkerConfig `yaml:"worker"    json:"worker"`
 }
 
 // R2Config captures Cloudflare R2 (S3-compatible) settings.
@@ -77,6 +77,77 @@ func (c R2Config) validate() error {
 func (c Config) HasR2Configured() bool {
 	r := c.R2
 	return r.AccountID != "" || r.AccessKeyID != "" || r.Bucket != "" || len(r.Sync) > 0
+}
+
+// WorkerConfig captures Cloudflare Workers settings for the modules API
+// (PUT /accounts/{id}/workers/scripts/{name}).
+type WorkerConfig struct {
+	// Name is the Worker script name (must match across deploys; renames are
+	// not supported by the CF API). Required.
+	Name string `yaml:"name" json:"name"`
+
+	// Script is the local path (relative to huan.yaml dir) of the single-file
+	// ES module .js source. Required.
+	Script string `yaml:"script" json:"script"`
+
+	// CompatibilityDate defaults to "2024-01-01" if empty.
+	CompatibilityDate string `yaml:"compatibilityDate" json:"compatibilityDate"`
+
+	// Bindings declares resources the Worker can access (R2 buckets, KV
+	// namespaces, env vars, etc.). huan serializes them into the upload
+	// metadata JSON. See WorkerBinding for supported types.
+	Bindings []WorkerBinding `yaml:"bindings" json:"bindings"`
+
+	// Routes declares route patterns the Worker handles. Each entry must
+	// include Pattern and Zone (zone name like "zhurongshuo.com").
+	Routes []WorkerRoute `yaml:"routes" json:"routes"`
+}
+
+// WorkerBinding declares one resource binding for a Worker.
+//
+// Type values supported by CF Workers modules API:
+//   - "r2_bucket"     — R2 bucket binding (requires Bucket)
+//   - "kv_namespace"  — KV namespace (requires NamespaceID)
+//   - "vars"          — plain-text env var (requires Value)
+//   - "secret_text"   — secret env var (requires Value; this is the
+//                       non-Wrangler-managed variant)
+//   - "d1"            — D1 database (requires ID)
+//
+// huan does NOT validate binding types — it serializes what you declare and
+// lets CF reject unknown types. This keeps the surface minimal as CF adds
+// new binding kinds.
+type WorkerBinding struct {
+	Type        string `yaml:"type"        json:"type"`
+	Name        string `yaml:"name"        json:"name"`         // env var name in Worker (e.g. "R2_BUCKET")
+	Bucket      string `yaml:"bucket"      json:"bucket,omitempty"`
+	NamespaceID string `yaml:"namespaceId" json:"namespace_id,omitempty"`
+	ID          string `yaml:"id"          json:"id,omitempty"`
+	Value       string `yaml:"value"       json:"value,omitempty"`
+}
+
+// WorkerRoute declares one route pattern + zone for the Worker.
+type WorkerRoute struct {
+	Pattern string `yaml:"pattern" json:"pattern"` // e.g. "r2.zhurongshuo.com/*"
+	Zone    string `yaml:"zone"    json:"zone,omitempty"`    // zone name (e.g. "zhurongshuo.com")
+}
+
+// validate checks that all required Worker fields are present. CompatibilityDate
+// defaults to "2024-01-01" at deploy time, not here (so plugin info reflects
+// user intent).
+func (c WorkerConfig) validate() error {
+	if c.Name == "" {
+		return fmt.Errorf("worker.name is required")
+	}
+	if c.Script == "" {
+		return fmt.Errorf("worker.script is required (path to single-file ES module .js)")
+	}
+	return nil
+}
+
+// HasWorkerConfigured returns true if the Worker block looks intentional.
+func (c Config) HasWorkerConfigured() bool {
+	w := c.Worker
+	return w.Name != "" || w.Script != ""
 }
 
 // PagesConfig captures Cloudflare Pages project settings.

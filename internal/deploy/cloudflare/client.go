@@ -174,6 +174,12 @@ func (c *Client) PostForm(ctx context.Context, path, auth string, fields map[str
 	return c.doForm(ctx, http.MethodPost, path, auth, fields, out)
 }
 
+// PutForm sends multipart/form-data via PUT. Used for Workers script upload
+// (PUT /accounts/{id}/workers/scripts/{name}).
+func (c *Client) PutForm(ctx context.Context, path, auth string, fields map[string]formField, out any) error {
+	return c.doForm(ctx, http.MethodPut, path, auth, fields, out)
+}
+
 // doJSONNoLock is the JSON request implementation. Retry is applied per
 // ClassifyError. Separated from a public wrapper so UploadToken can call it
 // while holding jwtMu.
@@ -249,10 +255,17 @@ func (c *Client) doForm(ctx context.Context, method, path, auth string, fields m
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	for name, f := range fields {
-		w, err := writer.CreatePart(textproto.MIMEHeader{
-			"Content-Disposition": {fmt.Sprintf(`form-data; name=%q`, name)},
-			"Content-Type":        {f.contentType},
-		})
+		header := textproto.MIMEHeader{
+			"Content-Type": {f.contentType},
+		}
+		if f.filename != "" {
+			header.Set("Content-Disposition",
+				fmt.Sprintf(`form-data; name=%q; filename=%q`, name, f.filename))
+		} else {
+			header.Set("Content-Disposition",
+				fmt.Sprintf(`form-data; name=%q`, name))
+		}
+		w, err := writer.CreatePart(header)
 		if err != nil {
 			return fmt.Errorf("create form part %q: %w", name, err)
 		}
@@ -284,9 +297,12 @@ func (c *Client) doForm(ctx context.Context, method, path, auth string, fields m
 	return decodeEnvelope(respBody, resp.StatusCode, out)
 }
 
-// formField is one part of a multipart/form-data body.
+// formField is one part of a multipart/form-data body. filename is optional;
+// when set, the part's Content-Disposition includes filename (required by
+// CF Workers script upload).
 type formField struct {
 	contentType string
+	filename    string
 	value       []byte
 }
 
