@@ -1,10 +1,12 @@
 # huan 技术方案
 
-> 阶段一：替代 Hugo，100% 复现 zhurongshuo.com 站点输出
+> 阶段一：替代 Hugo，与 zhurongshuo.com 站点输出达成三维度等价（肉眼/SEO/AI，[ADR 0001](adr/0001-redefine-equivalence.md)）
+>
+> **⚠️ 历史标注**：本文档 §4.x 详细设计撰写于 stage 1 期间，其中 **§4.4 redact shortcode 与 §4.5 encrypt 系统、§4.1 huan.yaml 的 `encryptGroups` 示例、参数对照表里的加密相关行，均已于 v0.2.0 移除**（zhurongshuo 实际未启用，详见 [ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md)）。这些段落作为当时设计参考保留，不再反映当前代码状态。当前实际结构以 §3 与 [`docs/INDEX.md`](INDEX.md) 为准。
 
 ## 1. 项目定位
 
-huan 是一个用 Go 编写的静态站点生成器。阶段一目标是将 zhurongshuo.com 从 Hugo 迁移到 huan，生成的站点输出与 Hugo 完全一致。阶段二通过插件架构增量扩展出版平台能力。
+huan 是一个用 Go 编写的静态站点生成器。阶段一目标是将 zhurongshuo.com 从 Hugo 迁移到 huan，**生成的站点输出与 Hugo 在肉眼 / SEO / AI 三维度无差异（甚至更好）**——不是逐字节 100% 一致，而是三维度门禁通过（[ADR 0001](adr/0001-redefine-equivalence.md)）。阶段二/三通过统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）增量扩展 deploy / 未来付费 / 多语言等能力。
 
 ## 2. 架构决策
 
@@ -12,41 +14,54 @@ huan 是一个用 Go 编写的静态站点生成器。阶段一目标是将 zhur
 |--------|------|
 | 语言 | Go |
 | 模板引擎 | 阶段一 `html/template`，阶段二可插件替换 |
-| Markdown | goldmark（与 Hugo 同源库） |
-| Shortcode | Go 重新实现，输出一致即可 |
+| Markdown | goldmark（与 Hugo 同源库）+ chroma 语法高亮（stage 3 port） |
+| Shortcode | Go 重新实现，输出一致即可（audio/img；redact v0.2.0 移除） |
 | 数据模型 | 保留 Site/Page 对象传递方式 |
 | 项目定位 | 独立项目，一次性迁移，非 drop-in |
-| 配置格式 | `huan.yaml` |
-| 验证方式 | diff 管线，与 Hugo 输出逐字节对比 |
+| 配置格式 | `huan.yaml`（YAML） + `${VAR}` strict 插值 |
+| 验证方式 | `./scripts/diff-build.sh` 四模式对比（byte 雷达 + normalized/seo/ai 三维度门禁） |
 | 插件架构 | 统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）；首个实例为 Cloudflare deploy 插件（[ADR 0002](adr/0002-cloudflare-deploy-plugin.md)） |
+| 发布 | `huan release` 本地打包（[ADR 0004](adr/0004-release-command.md)）+ GitHub Actions 自动建 Release（[ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md)） |
 
 ## 3. 项目结构
+
+> **当前实际结构**（v0.2.2）。`internal/encrypt/` 与 `pkg/` 已不存在：前者 v0.2.0 移除（[ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md)），后者从未建（YAGNI）。
 
 ```
 huan/
 ├── cmd/
-│   └── huan/              # CLI 入口
-│       └── main.go
+│   ├── huan/              # CLI 入口（13 子命令，详见 docs/INDEX.md）
+│   └── equiv-check/       # 三维度等价检查独立工具
 ├── internal/
-│   ├── config/            # huan.yaml 解析
-│   ├── content/           # 内容加载、frontmatter 解析
-│   ├── markdown/          # goldmark 渲染管线
-│   ├── shortcode/         # shortcode 注册与展开
-│   ├── encrypt/           # 加密/涂黑系统
-│   ├── template/          # 模板加载、函数注册、渲染
-│   ├── taxonomy/          # 标签/分类系统
-│   ├── build/             # 构建管线编排（原 pipeline，含原子 swap）
-│   ├── output/            # 文件写入、minify、sitemap/RSS
-│   ├── serve/             # 开发服务器（HTTP + LiveReload）
+│   ├── config/            # huan.yaml 解析 + ${VAR} strict 插值
+│   ├── content/           # 内容加载、frontmatter、content tree、cascade inheritance
+│   ├── markdown/          # goldmark + chroma 语法高亮
+│   ├── shortcode/         # shortcode 注册与展开（audio/img）
+│   ├── template/          # 模板加载、函数注册、Scratch、SortDefault
+│   ├── taxonomy/          # 标签/分类（含 BuildWithOriginalCase）
+│   ├── pagination/        # 分页器
+│   ├── build/             # 构建管线编排（含原子 swap、summary 截断）
+│   ├── output/            # 文件写入、minify、canonify、contentapi、llmstxt
+│   ├── i18n/              # i18n bundle + collator（zh-cn 拼音序）
+│   ├── serve/             # 开发服务器（HTTP + fsnotify + LiveReload）
 │   ├── plugin/            # 统一插件宿主（详见 §4.11 / ADR 0003）
-│   └── deploy/            # Deployer capability + cloudflare 实现（详见 ADR 0002）
-├── pkg/                   # 可导出的公共库（阶段二用）
+│   ├── deploy/            # Deployer capability + Report + JSON Logger
+│   ├── deploy/cloudflare/ # Cloudflare 实现：Pages / R2 / Worker（详见 ADR 0002）
+│   ├── observability/     # 跨包 JSON Logger（deploy + release 共用）
+│   ├── release/           # 跨平台打包（详见 ADR 0004）
+│   ├── version/           # VCS info（git SHA via shell out）
+│   └── equiv/             # 三维度等价算法（SEO/AI extractor）
+├── scripts/               # diff-build / diff-summary / diff-patterns / allowed-diffs.txt
 ├── docs/                  # 文档
-├── go.mod
-├── go.sum
+├── memory/                # 双层记忆（MEMORY.md + daily/）
+├── release/               # 发布产物（.gitignore）
+├── .github/workflows/     # CI（release.yml：v* tag push 自动建 Release）
+├── go.mod / go.sum
 ├── huan.yaml              # huan 项目自身的示例配置
+├── README.md / README.zh-CN.md / LICENSE
 └── CLAUDE.md
 ```
+
 
 ## 4. 核心模块设计
 
@@ -307,7 +322,9 @@ func Register(name string, shortcode Shortcode)
 - 随机涂黑：用 MD5 内容 hash 生成确定性种子，按 `(index * 31 + seed) % 100 < ratio` 决定涂黑
 - 输出 `<span class="redacted">...</span>`
 
-### 4.5 encrypt — 加密/涂黑系统
+### 4.5 encrypt — 加密/涂黑系统（v0.2.0 已移除）
+
+> **本节为历史设计记录**。`internal/encrypt/` 整包 + `internal/shortcode/redact.go` 已于 v0.2.0（commit `5c220e2`）移除——zhurongshuo 实际未启用加密功能。详见 [ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md)。下方内容仅作当时设计参考保留。
 
 **与 shortcode 的区别：** shortcode 处理内联标记，encrypt 处理整页的 `access: protected` 逻辑。
 

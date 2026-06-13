@@ -4,7 +4,7 @@
 
 > A Go-based static site generator, designed as a Hugo replacement for [zhurongshuo.com](https://zhurongshuo.com).
 
-`huan` builds a static website from Markdown + YAML config + Go templates, producing output that is byte-for-byte comparable with Hugo. It ships as a single binary with zero runtime dependencies, uses the same goldmark Markdown engine as Hugo, and adds first-class support for CJK content, in-page encryption, and a `hugo serve`-style dev server with LiveReload.
+`huan` builds a static website from Markdown + YAML config + Go templates, producing output that is byte-for-byte comparable with Hugo. It ships as a single binary with zero runtime dependencies, uses the same goldmark Markdown engine as Hugo, and adds first-class support for CJK content, deploy/release tooling, and a `hugo serve`-style dev server with LiveReload.
 
 ---
 
@@ -32,7 +32,9 @@ Key characteristics:
 - **goldmark** for Markdown rendering — the same library Hugo uses
 - **`huan.yaml`** for configuration (YAML, not TOML)
 - **CJK-aware**: word counting, heading IDs, summary truncation all handle Chinese, Japanese, Korean correctly
-- **Built-in encryption / redaction**: full-page encryption and partial redaction via shortcodes, no plugins required
+- **Unified plugin system** ([ADR 0003](docs/adr/0003-unified-plugin-system.md)): `huan deploy cloudflare {pages,r2,worker}` ships built-in; deploy is the first capability, future plugins follow the same pattern
+- **`huan release`** for self-hosted cross-platform packaging ([ADR 0004](docs/adr/0004-release-command.md)) + GitHub Actions auto-release on tag push ([ADR 0005](docs/adr/0005-remove-encrypt-and-v02-feature-batch.md))
+- **Content ops commands**: `huan new` (multi-archetype), `huan sync gallery`, `huan toc`, `huan export` — replaces zhurongshuo's Node.js/bash orchestration scripts
 - **`hugo serve`-equivalent dev experience**: HTTP server + fsnotify file watcher + LiveReload WebSocket, sub-second browser refresh
 
 `huan` is **not** a drop-in Hugo replacement. Templates are migrated once; afterwards huan owns the build pipeline.
@@ -59,6 +61,14 @@ Hugo is excellent, but for [zhurongshuo.com](https://zhurongshuo.com)'s needs it
 |---|---|
 | `huan build` | Build the site into `publishDir` |
 | `huan serve` | Start dev server with file watching + LiveReload |
+| `huan new <kind>/<path>` | Scaffold content from `archetypes/<kind>.md` (multi-archetype) |
+| `huan sync gallery` | Scaffold `content/gallery/<name>.md` for new images |
+| `huan toc` | Generate TOC markdown (byte-identical to zhurongshuo's `generate-toc.js`) |
+| `huan export` | Export CSV (md5-identical to zhurongshuo's `export.sh`, zh_CN sort via i18n collator) |
+| `huan deploy cloudflare {pages,r2,worker}` | Deploy to Cloudflare Pages / R2 / Workers |
+| `huan plugin {list,info}` | Inspect registered plugins |
+| `huan release` | Cross-compile + archive + checksums to `release/<version>/` |
+| `huan version` / `config` / `env` / `list` | Introspection |
 
 `huan serve` flags:
 
@@ -74,7 +84,7 @@ Hugo is excellent, but for [zhurongshuo.com](https://zhurongshuo.com)'s needs it
 ### Rendering pipeline
 
 - **Markdown**: goldmark with `unsafe: true` and configurable typographer; heading IDs aligned with Hugo's algorithm (CJK + Chinese punctuation + HTML entities handled)
-- **Shortcodes**: built-in `redact` (content redaction with `force` / `show` / `random` / `ratio` params), `audio`, `img`; extensible registry
+- **Shortcodes**: built-in `audio`, `img`; extensible registry (the legacy `redact` shortcode was removed in v0.2.0 — see [ADR 0005](docs/adr/0005-remove-encrypt-and-v02-feature-batch.md))
 - **Templates**: Go `html/template` with ~40 Hugo-compatible functions (`urlize`, `safeHTML`, `markdownify`, `Scratch`, `partial`, `where`, `sort`, `index`, `len`, math/string/path helpers, …)
 - **Taxonomy**: tags and categories with list pages and per-term pages
 - **Pagination**: `/page/N/` with `/page/1/` redirecting to `/`
@@ -83,12 +93,16 @@ Hugo is excellent, but for [zhurongshuo.com](https://zhurongshuo.com)'s needs it
 - **canonifyURLs**: root-relative URLs post-processed into absolute URLs
 - **i18n**: YAML-based message bundles (e.g. `zh-cn.yaml`)
 
-### Encryption & redaction
+### Encryption & redaction (removed in v0.2.0)
 
-- `access: protected` page-level encryption; reads ciphertext from `data/encrypted/content.json`
-- `encryptGroups` config (`full` mode = full-page redaction, `random` mode = ratio-based random redaction)
-- `redact` inline shortcode for inline content masking
-- Random redaction uses MD5-seeded deterministic per-character decision (stable across builds)
+The page-level encryption and `redact` shortcode were removed in v0.2.0 because zhurongshuo never enabled them in practice. See [ADR 0005](docs/adr/0005-remove-encrypt-and-v02-feature-batch.md) for rationale. `huan.yaml`'s `params.encryptGroups` is now a dead config (kept for backward compat, not consumed).
+
+### Deploy & release
+
+- **Unified plugin system** ([ADR 0003](docs/adr/0003-unified-plugin-system.md)): capability-based extensions, first capability = `Deployer`
+- **Cloudflare deploy** ([ADR 0002](docs/adr/0002-cloudflare-deploy-plugin.md)): pure-Go direct API (no wrangler shell-out); Pages uses blake3 hash + 5-endpoint direct upload, R2 uses minio-go (S3-compatible, MD5 etag), Worker uses multipart modules API
+- **Local packaging** ([ADR 0004](docs/adr/0004-release-command.md)): `huan release` cross-compiles 5 standard platforms with `CGO_ENABLED=0 -trimpath -ldflags=-s -w`, produces tarball/zip + sha256 checksums + JSON manifest; deterministic builds (same commit + Go version → identical sha256)
+- **CI auto-release** ([ADR 0005](docs/adr/0005-remove-encrypt-and-v02-feature-batch.md)): GitHub Actions workflow runs on `v*` tag push, builds artifacts via `go run ./cmd/huan release`, creates a GitHub Release with all tarballs attached
 
 ### Dev server internals
 
@@ -126,15 +140,15 @@ go install github.com/iannil/huan/cmd/huan@latest
 ```bash
 # 1. Download huan_0.1.0_<os>_<arch>.tar.gz from /release/0.1.0/ or GitHub Releases
 # 2. Verify checksum (optional but recommended):
-shasum -a 256 -c huan_0.1.0_checksums.txt   # reports OK for the archive you downloaded
+shasum -a 256 -c huan_0.2.2_checksums.txt   # reports OK for the archive you downloaded
 # 3. Extract:
-tar xzf huan_0.1.0_darwin_arm64.tar.gz      # produces ./huan, ./LICENSE, ./README*.md
+tar xzf huan_0.2.2_darwin_arm64.tar.gz      # produces ./huan, ./LICENSE, ./README*.md
 # 4. Move into PATH:
 sudo mv huan /usr/local/bin/
-huan version                                  # confirm: "huan 0.1.0 (<git sha>)"
+huan version                                  # confirm: "huan 0.2.2 (<git sha>)"
 ```
 
-Windows users: download the `huan_0.1.0_windows_amd64.zip` instead and extract `huan.exe`.
+Windows users: download the `huan_0.2.2_windows_amd64.zip` instead and extract `huan.exe`.
 
 Requires Go 1.26+ for `go install` / `go build` paths; pre-built tarballs have no Go dependency.
 

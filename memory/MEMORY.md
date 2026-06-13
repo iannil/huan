@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 经验教训 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-06-13（夜，`huan release` 命令落地；总 28 commits / ~175 测试 PASS）
+> 最近更新：2026-06-13（文档与代码状态对账梳理；当前 v0.2.2；总 ~35 commits / ~175 测试 PASS）
 
 ## 用户偏好
 
@@ -16,13 +16,14 @@
 ## 项目上下文
 
 - **huan** = Go 静态站点生成器，阶段一目标：替代 Hugo 构建 zhurongshuo.com，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) 与 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
-- 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前仍由 Hugo 构建
-- 当前分支：`master`；**stage 1（2026-06-12 完成）+ stage 2 全部 phase（2026-06-13 完成）+ stage 3 三维度全 PASS 审计（2026-06-13 晚完成）**——byte/normalized/seo/ai 四模式均通过，剩 6 个 chroma/RSS/sitemap 永久差异走 allowlist（`scripts/allowed-diffs.txt`），详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
+- 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前处于 Hugo→huan 迁移 Phase 1
+- **当前版本：v0.2.2**（git tags：v0.1.0/v0.2.0/v0.2.1/v0.2.2）。**stage 1（2026-06-12 完成）+ stage 2 全部 phase（2026-06-13 完成）+ stage 3 三维度全 PASS 审计（2026-06-13 晚完成）**——byte/normalized/seo/ai 四模式均通过，剩 6 个 chroma/RSS/sitemap 永久差异走 allowlist（`scripts/allowed-diffs.txt`），详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)。v0.2.x 系列详见 [ADR 0005](../docs/adr/0005-remove-encrypt-and-v02-feature-batch.md)
 - stage 2 phase 拆解：1 meta plainify / 2 中文排序 port + tags RSS 顺序 / 3 RSS items 内容差 3 子项 / 4 CJK URL 编码 + 空 tag RSS / 5a-e summary + section + WordCount + part 顺序 + link text + home RSS；stage 3 含 chroma port + plainify 双逃逸 + canonify code-skip + slug collision 4 处源 typo + AI 友好输出（llms.txt + content API + markdown mirror）
 - **stage 2/3 完成后的新工作（2026-06-13 下午起）**：(a) Cloudflare 发布插件设计完成（[ADR 0002](../docs/adr/0002-cloudflare-deploy-plugin.md)）；(b) **统一插件系统设计完成（[ADR 0003](../docs/adr/0003-unified-plugin-system.md)，2026-06-13 晚）**——deploy 是首个 capability，未来加付费（stripe/微信/支付宝）/ 多语言 / 内容扩展 / 会员都是同套机制；(c) **Cloudflare deploy 插件三 PR 全部实施完毕 + 审计修复**（2026-06-13 晚，21 commits / ~8700 行净增 / ~170 测试 PASS 含 `-race`）：PR1 Pages（blake3+5-endpoint+dual-token）/ PR2 R2（minio-go+MD5 etag+prune）/ PR3 Worker（multipart modules API）/ 审计修复 8 commits（concurrency Limiter + 40MiB bucket cap + prune 日志 + Worker fields 清洁化 + CLI 测试 + 验证 tightening + trace ID 提前生成 + 进程卫生）。zhurongshuo 全量 Cloudflare 化等真实部署验证 + CI workflow 改造
 - `huan build` 与 Hugo 对比：四模式全部 PASS（identical≈1984 / differing=0 / whitelisted=6），构建确定性验证两次连续 md5 一致
 - `huan serve`（HTTP + fsnotify + LiveReload）已于 2026-06-12 完成，17 commits 落地
-- **`huan release` 本地打包发布命令已落地**（2026-06-13 夜，6 commits，详见 [ADR 0004](../docs/adr/0004-release-command.md) 与 [`docs/progress/release-command.md`](../progress/release-command.md)）：5 标准平台跨编译（darwin×amd64+arm64 / linux×amd64+arm64 / windows×amd64）+ tar.gz/zip 归档（含 binary+LICENSE+READMEs）+ sha256 checksums + JSON manifest 到 `/release/{version}/`。规范调用 `go run ./cmd/huan release`（无 operator 预构建）。3 flag：`--targets=all|current|os/arch,...` / `--dry-run` / `--out-dir`。构建铁三角 `CGO_ENABLED=0 -trimpath -ldflags=-s -w` + `debug.ReadBuildInfo()` 自动读 git SHA 进 `huan version` 输出。纯本地产物，**不碰 git**（无 tag/push/VERSION bump，用户手动）。集成测试 + 确定性测试守护（`//go:build integration` tag）。
+- **`huan release` 本地打包发布命令已落地**（2026-06-13 夜，6 commits，详见 [ADR 0004](../docs/adr/0004-release-command.md) 与 [`docs/reports/completed/2026-06-13-release-command.md`](../docs/reports/completed/2026-06-13-release-command.md)）：5 标准平台跨编译（darwin×amd64+arm64 / linux×amd64+arm64 / windows×amd64）+ tar.gz/zip 归档（含 binary+LICENSE+READMEs）+ sha256 checksums + JSON manifest 到 `/release/{version}/`。规范调用 `go run ./cmd/huan release`（无 operator 预构建）。3 flag：`--targets=all|current|os/arch,...` / `--dry-run` / `--out-dir`。构建铁三角 `CGO_ENABLED=0 -trimpath -ldflags=-s -w` + `debug.ReadBuildInfo()` 自动读 git SHA 进 `huan version` 输出。纯本地产物，**不碰 git**（无 tag/push/VERSION bump，用户手动）。集成测试 + 确定性测试守护（`//go:build integration` tag）。
+- **v0.2.x 系列（2026-06-13 夜 ~ 今，详见 [ADR 0005](../docs/adr/0005-remove-encrypt-and-v02-feature-batch.md) 与 [`memory/daily/2026-06-13-v02.md`](./daily/2026-06-13-v02.md)）**：(a) **v0.2.0** 移除 `internal/encrypt/` + `shortcode/redact.go`（zhurongshuo 未启用，-593 行）；(b) **v0.2.1** 加 `huan toc/export/sync` + multi-archetype `huan new`（zhurongshuo Phase 1，toc byte-identical `generate-toc.js`，export md5-identical `export.sh` 用 `i18n.BuildCollator` 复现 zh_CN 排序）；(c) **v0.2.2** GitHub Actions `.github/workflows/release.yml` 自动建 Release（`v*` tag push 触发，dogfood `go run ./cmd/huan release`，workflow_dispatch 支持 back-fill 历史 tag）。当前 13 子命令 / 17 internal 包 / 4 git tags。
 - 仓库整洁度：无 TODO/FIXME 标记，无 backup/tmp/CI/Makefile；`pkg/` 与 `internal/{pipeline,plugin,search}/` 已删除（stage 2 时再建）；**`internal/observability/` 是首个 cross-cutting 基础设施包**（从 `internal/deploy/logging.go` 提取，deploy + release 共用 Logger，Report 仍各自留）
 
 ## 关键决策
@@ -32,7 +33,7 @@
 - 配置格式 `huan.yaml`（YAML），非 drop-in 替换 Hugo
 - 验证方式：`./scripts/diff-build.sh` 多模式对比（byte 雷达 + normalized / seo / ai 三维度门禁），三维度任一失败则阻断合并
 - 插件架构：**统一插件系统**（[ADR 0003](../docs/adr/0003-unified-plugin-system.md)）—— `internal/plugin/` 顶层 host（Plugin{Name()} + Registry + Find[T]），capability 接口分散在领域包（首个 `internal/deploy/types.go::Deployer`），yaml 顶层 `plugins:<name>.*`，`${VAR}` strict 插值，CLI `huan deploy <name>` + `huan plugin list/info`，编译期 hardcoded 注册在 `cmd/huan/plugins.go`。**首期只画 `Deployer`，不预画 `PaymentProvider` 等（YAGNI）**。Cloudflare deploy 插件是首个实例（[ADR 0002](../docs/adr/0002-cloudflare-deploy-plugin.md)）。**三个 target 全部实施完毕**：pages（PR1，blake3+5-endpoint+dual-token）/ r2（PR2，minio-go+MD5 etag+prune）/ worker（PR3，multipart modules API）。13 commits / ~7300 行 / ~140 测试 PASS 含 `-race`
-- 加密密文仍由外部 Node.js `scripts/encrypt-content.js` 生成，huan 只负责读取与嵌入
+- **v0.2.0 移除 `internal/encrypt/` + `shortcode/redact.go`**（zhurongshuo 未启用，详见 [ADR 0005](../docs/adr/0005-remove-encrypt-and-v02-feature-batch.md)）。`huan.yaml` 的 `params.encryptGroups` 保留为 dead config（不消费但不报错）。加密密文生成器 `scripts/encrypt-content.js` 留在 zhurongshuo 项目
 - serve 模式用临时目录 `os.MkdirTemp("", "huan-serve-*")`，绝不污染 `docs/` 生产输出
 - rebuild 用原子 swap（sibling staging dir + rename），保证 rebuild 期间无 404
 - `BuildSite` 非并发安全，rebuild 通过 `atomic.Bool` 串行化 + pending 合并
@@ -77,9 +78,11 @@
 
 ## 文档与导航
 
-- 入口索引：[`docs/INDEX.md`](../docs/INDEX.md)
+- 入口索引：[`docs/INDEX.md`](../docs/INDEX.md)（含版本时间线 + 13 子命令速查 + 代码骨架）
 - 总图：[`docs/technical-plan.md`](../docs/technical-plan.md)
-- 当前进展：[`docs/progress/CURRENT_STATE.md`](../docs/progress/CURRENT_STATE.md)
-- 已完成报告：[`docs/reports/completed/`](../docs/reports/completed/)
+- 当前进展：[`docs/progress/CURRENT_STATE.md`](../docs/progress/CURRENT_STATE.md)（v0.2.x 系列已并入）
+- ADR：[`docs/adr/`](../docs/adr/) —— 0001 三维度等价 / 0002 Cloudflare deploy / 0003 统一插件 / 0004 release 命令 / 0005 v0.2 系列决策
+- 已完成报告：[`docs/reports/completed/`](../docs/reports/completed/)（10 份，含归档后的 release-command）
 - 文档规范：[`docs/standards/documentation.md`](../docs/standards/documentation.md)
 - 项目根指南：[`CLAUDE.md`](../CLAUDE.md)
+- daily 流层：[`memory/daily/`](./daily/) —— `2026-06-12.md` / `2026-06-13.md` / `2026-06-13-v02.md`
