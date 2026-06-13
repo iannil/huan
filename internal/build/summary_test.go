@@ -116,3 +116,82 @@ func TestTruncateHTMLByWords_BlockBoundaryShortContentNoExtend(t *testing.T) {
 		t.Errorf("short content should not extend:\n  got:  %q\n  want: %q", got, want)
 	}
 }
+
+// Hugo's actual summary algorithm (from resources/page/page_markup.go,
+// ExtractSummaryFromHTML) iterates over paragraph-level blocks delimited by
+// </p>. For each paragraph it counts words using strings.Fields semantics
+// (CJK: each rune in a field counts as a word). It accumulates the count
+// across paragraphs and stops AT THE END of the paragraph where the running
+// count first reaches numWords. If no paragraph reaches numWords, the summary
+// is the entire input.
+//
+// This is fundamentally different from "do not cross paragraph boundaries":
+// Hugo DOES cross boundaries when the first paragraph is shorter than
+// numWords. But when the first paragraph alone has enough words (e.g., CJK
+// paragraph with rune count >= numWords), Hugo stops at the end of paragraph
+// one and does NOT include paragraph two.
+
+func TestTruncateHTMLToBlockBoundary_CrossesParagraphWhenFirstShort(t *testing.T) {
+	// Paragraph 1: "first" (1 word). Paragraph 2: 5 words.
+	// summaryLength: 3 (falls in paragraph 2).
+	// Hugo: count=1 after para1, count=3 after "alpha beta gamma" in para2.
+	// Stops at end of paragraph 2.
+	in := "<p>first</p><p>alpha beta gamma delta epsilon</p>"
+	got := TruncateHTMLToBlockBoundary(in, 3)
+	want := "<p>first</p><p>alpha beta gamma delta epsilon</p>"
+	if got != want {
+		t.Errorf("cross-paragraph (first short) case:\n  in:   %q\n  got:  %q\n  want: %q", in, got, want)
+	}
+}
+
+func TestTruncateHTMLToBlockBoundary_AllContentWhenNumWordsNeverReached(t *testing.T) {
+	// Paragraph 1: 2 words. Paragraph 2: 1 word. summaryLength: 5.
+	// Hugo: never reaches 5; summary = everything.
+	in := "<p>alpha beta</p><p>second</p>"
+	got := TruncateHTMLToBlockBoundary(in, 5)
+	want := "<p>alpha beta</p><p>second</p>"
+	if got != want {
+		t.Errorf("never-reaches-N case:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestTruncateHTMLToBlockBoundary_FullParagraphWhenLongFirstPara(t *testing.T) {
+	// Paragraph 1: 5 words. summaryLength: 3.
+	// Hugo: count=3 at "gamma" (3rd word) in paragraph 1. Stops at end of
+	// paragraph 1. Hugo does NOT truncate mid-paragraph; it always returns
+	// the full enclosing paragraph where the count was reached.
+	in := "<p>alpha beta gamma delta epsilon</p><p>second</p>"
+	got := TruncateHTMLToBlockBoundary(in, 3)
+	want := "<p>alpha beta gamma delta epsilon</p>"
+	if got != want {
+		t.Errorf("long first paragraph case:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestTruncateHTMLToBlockBoundary_RealWorldZhurongshuoChapter(t *testing.T) {
+	// Mirrors chapter-07: paragraph 1 is ~122 CJK runes (one whitespace-free
+	// field per Hugo's strings.Fields; each rune counts as a word).
+	// summaryLength: 120.
+	// Hugo: in paragraph 1, the trailing-rune branch fires once with
+	// word = s[0:len-1rune] (rune count = 121). 121 >= 120, so Hugo stops at
+	// the end of paragraph 1 and does NOT include paragraph 2.
+	para1 := "<p>想象一片平静的湖面，湖中的生态系统——鱼、虾、水草——构成了一个相对稳定的内在世界。我们可以深入研究这个生态系统的食物链、物种间的竞争关系、以及各个物种的生长周期。这就是我们在第一部分所做的工作：分析一个行业的内在商业逻辑、竞争格局和生命周期。</p>"
+	para2 := "<p>然而，湖泊并非孤立存在。一场突如其来的暴雨，可能会让湖水泛滥。</p>"
+	in := para1 + para2
+	got := TruncateHTMLToBlockBoundary(in, 120)
+	if got != para1 {
+		t.Errorf("zhurongshuo chapter-07:\n  got:  %q\n  want: %q", got, para1)
+	}
+}
+
+func TestTruncateHTMLToBlockBoundary_NoParagraphCloseReturnsAll(t *testing.T) {
+	// Input has no </p> at all (e.g., raw text wrapped in inline tags only).
+	// Hugo's loop breaks out and falls through to SummaryHigh = high, so the
+	// summary is the entire input regardless of numWords.
+	in := "<strong>alpha beta gamma delta epsilon</strong>"
+	got := TruncateHTMLToBlockBoundary(in, 3)
+	want := "<strong>alpha beta gamma delta epsilon</strong>"
+	if got != want {
+		t.Errorf("no-block-close fallback:\n  got:  %q\n  want: %q", got, want)
+	}
+}

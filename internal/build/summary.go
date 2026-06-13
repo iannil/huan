@@ -100,70 +100,70 @@ func TruncateHTMLByWords(htmlStr string, n int) string {
 	return htmlStr
 }
 
-// TruncateHTMLToBlockBoundary truncates HTML to at least N words, then extends
-// forward to the closing tag of the enclosing block-level element. This matches
-// Hugo's actual summary behavior: summaryLength is a minimum, and Hugo scans
-// forward to a block boundary (</p>, </h2>, </li>, etc.) to produce a
-// well-formed summary that doesn't end mid-paragraph.
+// TruncateHTMLToBlockBoundary truncates HTML following Hugo's actual summary
+// algorithm. For zhurongshuo (Markdown content, media.Type.SubType = markdown),
+// Hugo uses `</p>` as the paragraph tag and walks paragraph-by-paragraph
+// accumulating word count.
 //
-// See https://github.com/gohugoio/hugo/issues/11863 for Hugo's behavior.
+// Source: github.com/gohugoio/hugo resources/page/page_markup.go,
+// ExtractSummaryFromHTML. The relevant loop:
 //
-// Algorithm:
-//  1. Run TruncateHTMLByWords to get the word-boundary truncation (with open
-//     tags closed).
-//  2. If the input was shorter than N words, TruncateHTMLByWords returns the
-//     input unchanged — short content needs no extension.
-//  3. Otherwise, find the byte offset where the original input diverges from
-//     the truncated result (common prefix length). The truncated result may
-//     have appended synthetic close tags (e.g. `</strong></p>`) that are not
-//     in the original at that position — the first divergence point is the
-//     right boundary.
-//  4. From that divergence point, scan forward in the original HTML for the
-//     next block-level closing tag and truncate just after it. Hugo assumes
-//     well-formed input; all tags up to that point are balanced.
-//  5. If no block boundary is found after the cut point (rare edge case),
-//     fall back to the word-boundary truncation result.
+//	for j := wrapperStart; j < high; {
+//	    closingIndex := strings.Index(input[j:], "</p>")
+//	    if closingIndex == -1 { break }
+//	    s := input[j : j+closingIndex]
+//	    // Count words in this paragraph (Hugo: strings.Fields semantics +
+//	    // CJK per-rune counting via countWord/StripHTML).
+//	    // Accumulate; if count >= numWords, set SummaryHigh = j+closingIndex+5
+//	    // (length of "</p>" is 4, +3 for "p" + 2 = +5? Actually +len("p")+3).
+//	    // Skip past </p>: j += closingIndex + len("p") + 2.
+//	}
+//	// If no paragraph reached numWords, summary = everything (high).
+//
+// Key behaviors:
+//
+//  1. Crosses paragraph boundaries when paragraph 1's word count < numWords
+//     (it accumulates into paragraph 2, 3, ...).
+//  2. When the count reaches numWords AT OR BEFORE the end of paragraph K,
+//     returns input[:end_of_paragraph_K] — the entire paragraph K, never a
+//     mid-paragraph truncation.
+//  3. If no paragraph ever reaches numWords, returns the entire input.
+//
+// This differs from a naive "extend forward to next block close tag" approach
+// because Hugo never extends beyond the paragraph where the count was reached.
 func TruncateHTMLToBlockBoundary(htmlStr string, n int) string {
-	truncated := TruncateHTMLByWords(htmlStr, n)
-	if truncated == htmlStr {
-		// Content was shorter than N words; no truncation needed.
+	if n <= 0 {
 		return htmlStr
 	}
 
-	// Find the byte position where TruncateHTMLByWords cut. The truncated
-	// string is a prefix of htmlStr up to some point, plus closing tags that
-	// were added. The common prefix ends at the first differing byte, which
-	// is the true cut point in the original HTML.
-	cutLen := commonPrefixLen(htmlStr, truncated)
-
-	// Scan forward from cutLen to find the next block-level closing tag.
-	blockCloseTags := []string{
-		"</p>", "</h1>", "</h2>", "</h3>", "</h4>", "</h5>", "</h6>",
-		"</div>", "</li>", "</ul>", "</ol>", "</blockquote>", "</pre>",
-		"</table>", "</tr>", "</td>", "</th>", "</section>", "</article>",
-		"</header>", "</footer>", "</aside>", "</nav>", "</main>",
-		"</figure>", "</figcaption>",
-	}
-
-	earliest := -1
-	lower := strings.ToLower(htmlStr)
-	for _, tag := range blockCloseTags {
-		if idx := strings.Index(lower[cutLen:], strings.ToLower(tag)); idx >= 0 {
-			absIdx := cutLen + idx + len(tag)
-			if earliest == -1 || absIdx < earliest {
-				earliest = absIdx
-			}
+	paragraphClose := "</p>"
+	count := 0
+	j := 0
+	for j < len(htmlStr) {
+		// Find next </p> from current position.
+		closingIndex := strings.Index(htmlStr[j:], strings.ToLower(paragraphClose))
+		if closingIndex == -1 {
+			break
 		}
+		// Extract this paragraph's content (without the closing tag).
+		paragraphContent := htmlStr[j : j+closingIndex]
+		// Count words in this paragraph (HTML tags stripped, then CJK-aware
+		// per-rune counting — same as CountWordsInPlain).
+		plain := StripHTMLTagsForSummary(paragraphContent)
+		count += CountWordsInPlain(plain)
+		if count >= n {
+			// Stop at the end of this paragraph. Summary = input up to and
+			// including </p>.
+			return htmlStr[:j+closingIndex+len(paragraphClose)]
+		}
+		// Advance past this </p>.
+		j += closingIndex + len(paragraphClose)
 	}
 
-	if earliest == -1 {
-		// No block boundary found; fall back to word-boundary truncation.
-		return truncated
-	}
-
-	// Truncate at the block boundary. All tags up to this point should be
-	// properly balanced (Hugo assumes well-formed input HTML).
-	return htmlStr[:earliest]
+	// No paragraph reached numWords — return entire input. This matches
+	// Hugo's behavior of setting SummaryHigh = high when the loop falls
+	// through without an early return.
+	return htmlStr
 }
 
 // commonPrefixLen returns the length of the longest common byte prefix of a and b.
