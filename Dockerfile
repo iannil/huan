@@ -46,10 +46,11 @@ RUN chmod +x /usr/local/bin/huan
 # rather than runtime (e.g., if linux/arm64 binary accidentally COPY'd here).
 RUN huan version
 
-# Non-root user for security. Downstream CI can override with `user: root` if
-# write access to /github/workspace requires it (actions/checkout default).
-RUN addgroup -S huan && adduser -S -G huan huan
-USER huan
+# Note: NO `USER` directive. GH Actions runner mounts workspace at /__w/
+# owned by root; actions/checkout, actions/upload-pages-artifact, etc. need
+# write access. Setting USER to a non-root account (e.g. huan) breaks these
+# actions with EACCES on /__w/_temp/_runner_file_commands/*. For local
+# `docker run` use cases that need isolation, override with `--user`.
 
 ENTRYPOINT ["huan"]
 CMD ["--help"]
