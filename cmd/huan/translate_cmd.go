@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/translate"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +45,7 @@ func newTranslateQwen3Cmd() *cobra.Command {
 	cmd.Flags().Bool("all", false, "scan all source files (default; mutually exclusive with --file)")
 	cmd.Flags().Bool("force", false, "force re-translation even when source_hash matches")
 	cmd.Flags().Bool("dry-run", false, "list files that would be translated without calling LLM")
+	cmd.Flags().Int("limit", 0, "max files to translate (0 = no limit; use for batch testing before full run)")
 	cmd.Flags().String("model", "", "override configured model for this invocation")
 	cmd.Flags().String("source-lang", "zh-cn", "source language code")
 	cmd.Flags().String("target-lang", "en", "target language code")
@@ -88,6 +91,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 	fileFlag, _ := cmd.Flags().GetString("file")
 	force, _ := cmd.Flags().GetBool("force")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	limit, _ := cmd.Flags().GetInt("limit")
 	sourceLang, _ := cmd.Flags().GetString("source-lang")
 	targetLang, _ := cmd.Flags().GetString("target-lang")
 
@@ -151,12 +155,18 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Apply --limit (batch testing mode). 0 = no limit (full run).
+	if limit > 0 && limit < len(stale) {
+		fmt.Fprintf(os.Stderr, "limit: translating first %d of %d stale files\n", limit, len(stale))
+		stale = stale[:limit]
+	}
+
 	// Translate each file
 	succeeded := 0
 	failed := 0
-	for _, srcPath := range stale {
+	for i, srcPath := range stale {
 		rel, _ := filepath.Rel(contentDir, srcPath)
-		fmt.Printf("translating %s ... ", rel)
+		fmt.Printf("[%d/%d] translating %s ... ", i+1, len(stale), rel)
 
 		title, body, err := readSourceMarkdown(srcPath)
 		if err != nil {
@@ -337,31 +347,38 @@ func sidecarPath(srcPath, targetLang string) string {
 
 // readSourceMarkdown extracts the title and body from a source markdown file.
 //
-// v1 stub: returns the filename (without extension) as title and the file
-// body (after frontmatter) as content. PR2 will properly parse frontmatter
-// using internal/markdown.
+// Uses internal/content.ParseFrontmatter for proper YAML frontmatter parsing
+// (handles --- / +++ delimiters, escaped quotes, multi-line values). Title
+// comes from frontmatter's `title:` field; falls back to filename basename
+// when frontmatter lacks title (rare but tolerated).
+//
+// Body is the markdown content AFTER frontmatter (no YAML leak into LLM
+// prompt). Trailing/leading whitespace is trimmed.
 func readSourceMarkdown(path string) (title, body string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", "", err
 	}
-	content := string(data)
+	fm, bodyText, err := content.ParseFrontmatter(data)
+	if err != nil {
+		return "", "", fmt.Errorf("parse frontmatter: %w", err)
+	}
 
-	// Strip frontmatter
-	if len(content) >= 4 && content[:4] == "---\n" {
-		end := indexOf(content[4:], "\n---\n")
-		if end >= 0 {
-			content = content[4+end+5:]
+	// Extract title from frontmatter; fall back to filename if absent
+	if t, ok := fm["title"]; ok {
+		switch v := t.(type) {
+		case string:
+			title = v
+		default:
+			title = fmt.Sprintf("%v", v)
 		}
 	}
-
-	// Filename-based title placeholder
-	base := filepath.Base(path)
-	title = base
-	if len(title) > 3 && title[len(title)-3:] == ".md" {
-		title = title[:len(title)-3]
+	if title == "" {
+		base := filepath.Base(path)
+		title = strings.TrimSuffix(base, ".md")
 	}
-	return title, content, nil
+
+	return title, bodyText, nil
 }
 
 // writeTranslatedSidecar writes the translated content as a .en.md sidecar
@@ -380,8 +397,11 @@ func writeTranslatedSidecar(outPath, srcPath, sourceLang, targetLang string, res
 		relSrc = srcPath
 	}
 
-	// Build frontmatter + body
+	// Build frontmatter + body. Include translated title so build pipeline
+	// can render the en page with proper page title (otherwise title falls
+	// back to filename-based placeholder).
 	frontmatter := fmt.Sprintf(`---
+title: %q
 translation_of: %s
 source_lang: %s
 target_lang: %s
@@ -400,6 +420,7 @@ tokens_used: %d
 ---
 
 `,
+		resp.Title,
 		relSrc,
 		sourceLang,
 		targetLang,
@@ -421,12 +442,3 @@ tokens_used: %d
 	return os.WriteFile(outPath, []byte(frontmatter+resp.Body+"\n"), 0644)
 }
 
-// indexOf returns the index of substr in s, or -1 if not found.
-func indexOf(s, substr string) int {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
