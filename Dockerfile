@@ -32,7 +32,10 @@ FROM alpine:3.19
 # - git: downstream CI needs git for actions/checkout + git push deploys
 # - ca-certificates: TLS verification for huan API calls (Cloudflare, etc.)
 # - tzdata: timezone data for huan's date formatting (Hugo compat)
-RUN apk add --no-cache git ca-certificates tzdata && \
+# - bash: GH Actions workflows often set `defaults.run.shell: bash`; Alpine
+#   only ships busybox sh by default, so the workflow fails with "bash:
+#   executable file not found in $PATH" without this.
+RUN apk add --no-cache git ca-certificates tzdata bash && \
     update-ca-certificates
 
 # Copy huan binary. The release workflow copies release/<version>/huan_linux_amd64/huan
