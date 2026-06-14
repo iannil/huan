@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write  # required by gh release create
+  packages: write  # required by docker push to GHCR
 
 jobs:
   release:
@@ -79,3 +80,49 @@ jobs:
               --title "$TAG" \
               --notes "Automated release for $TAG. See release/$VERSION/huan_${VERSION}_checksums.txt for SHA256 verification."
           fi
+
+      # Build & publish Docker image to GHCR so downstream projects
+      # (e.g. zhurongshuo) can run their CI jobs in a container with huan
+      # pre-installed — no curl/wget/jq/tar dance to download release artifacts.
+      #
+      # Tags pushed:
+      #   ghcr.io/iannil/huan:v0.3.0   (pinned to this release)
+      #   ghcr.io/iannil/huan:0.3.0    (no 'v' prefix variant)
+      #   ghcr.io/iannil/huan:latest   (rolling)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare Docker build context
+        env:
+          VERSION: ${{ env.version }}
+        run: |
+          # Copy linux/amd64 huan binary to build context root so Dockerfile's
+          # `COPY huan /usr/local/bin/huan` finds it. Multi-arch builds (later)
+          # would need per-arch binaries with buildx + --platform.
+          cp "release/$VERSION/huan_linux_amd64/huan" ./huan
+          chmod +x ./huan
+          ls -la ./huan
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/iannil/huan:v${{ env.version }}
+            ghcr.io/iannil/huan:${{ env.version }}
+            ghcr.io/iannil/huan:latest
+          labels: |
+            org.opencontainers.image.title=huan
+            org.opencontainers.image.description=Static site generator written in Go
+            org.opencontainers.image.source=https://github.com/iannil/huan
+            org.opencontainers.image.version=${{ env.version }}
+            org.opencontainers.image.revision=${{ github.sha }}

@@ -72,7 +72,13 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 
 	p, ok := registry.Get("qwen3_translate")
 	if !ok {
-		return fmt.Errorf("qwen3_translate plugin not configured (add plugins.qwen3_translate.* to huan.yaml)")
+		// Graceful skip: deploy.sh calls `huan translate qwen3` unconditionally;
+		// if the plugin isn't configured (no qwen3_translate block in huan.yaml),
+		// exit cleanly with a friendly message rather than erroring out. This
+		// keeps the deploy chain resilient — operators who don't use i18n
+		// translation shouldn't have to gate the call.
+		fmt.Fprintln(os.Stderr, "translate: qwen3_translate plugin not configured; skipping (add plugins.qwen3_translate.* to huan.yaml to enable)")
+		return nil
 	}
 	translator, ok := p.(translate.Translator)
 	if !ok {
