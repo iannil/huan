@@ -350,3 +350,21 @@ zhurongshuo 双语化：默认中文 + deploy 时翻译为英文 + Cloudflare Wo
 - 仅 huan + git 两类工具依赖（无 wrangler / 无 Node.js / 无第三方 CDN）
 
 **唯一剩余工作**：首次全量翻译 zhurongshuo ~1075 篇 zh→en（`huan translate qwen3` ~3h on M5 Max）。
+
+- **PR11.1 修复**（CI 失败 → Dockerfile USER + bash 缺失）：
+  - **第一次失败**：Dockerfile `USER huan` 导致 actions/checkout 无法写 `/__w/_temp/_runner_file_commands/` (EACCES)
+    - 修复（`07e5867`）：移除 USER directive，让容器以 root 运行（GH Actions workspace 归 root）
+  - **第二次失败**：Alpine 3.19 默认无 bash（只 busybox sh），zhurongshuo deploy.yml `defaults.run.shell: bash` 失败 (exit 127)
+    - 修复（`fd446c1`）：Dockerfile apk add 加 bash
+  - 两次修复后 force-update v0.3.0 tag → release.yml 三次跑 → image 最终 `sha256:4a7ed6dacc79`
+  - zhurongshuo push 触发 CI 重跑 → 部署成功
+  - 生产验证（curl 实测，2026-06-14 16:01 UTC+8）：
+    - `https://zhurongshuo.com/en/` 内容更新（hash 6f80097c → 7429626b）
+    - 英文 title + menu + sub_title 全部正确
+    - 0203 翻译 post HTTP 200
+    - 中文站零回归（title/menu/post 内容一致）
+
+**最终生产状态（2026-06-14 完成）**：v0.3.0 部署完整成功。整个 CI 链路：
+- zhurongshuo push → GH Actions container (huan image) → huan build → GH Pages → Cloudflare 自动镜像
+- 无 curl/jq/wget/tar/source/grep/wrangler/Node.js 任何外部依赖
+- 单一 huan Docker image 41.1MB alpine + bash + git + huan binary
