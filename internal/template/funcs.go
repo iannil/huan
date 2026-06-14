@@ -149,6 +149,9 @@ func FuncMap(baseURL string) template.FuncMap {
 		"time":                    timeParseFunc,
 		"i18n":                    i18nFunc,
 		"T":                       i18nFunc,
+		"hreflang":                hreflangFunc,
+		"langPrefix":              langPrefixFunc,
+		"translationLinks":        translationLinksFunc,
 		"safeCSS":                 func(v interface{}) template.CSS { return template.CSS(toString(v)) },
 		"safeHTMLAttr":            func(v interface{}) template.HTMLAttr { return template.HTMLAttr(toString(v)) },
 	}
@@ -401,6 +404,85 @@ func i18nFunc(key string, args ...interface{}) string {
 		return b.Translate(key, args...)
 	}
 	return key
+}
+
+// hreflangFunc emits <link rel="alternate" hreflang="..." href="..."> tags
+// for all language variants of the current page. The current language's link
+// is included; an additional hreflang="x-default" points to the default-lang URL.
+//
+// Usage in templates:
+//
+//	{{ hreflang . }}
+//
+// Output (for an English page on a zh-cn+en site):
+//
+//	<link rel="alternate" hreflang="zh-cn" href="https://example.com/posts/foo/">
+//	<link rel="alternate" hreflang="en" href="https://example.com/en/posts/foo/">
+//	<link rel="alternate" hreflang="x-default" href="https://example.com/posts/foo/">
+//
+// Returns empty string for single-language builds (no languages: block).
+func hreflangFunc(ctx interface{}) template.HTML {
+	c, ok := ctx.(*Context)
+	if !ok || c == nil {
+		return ""
+	}
+	if len(c.TranslationLinks) == 0 {
+		return ""
+	}
+	// Resolve default language code via cfg (SiteContext.Config).
+	var defaultLangCode string
+	if c.Site != nil && c.Site.Config != nil {
+		defaultLangCode = c.Site.Config.DefaultLanguageCode()
+	}
+
+	var b strings.Builder
+	var defaultURL string
+	for _, link := range c.TranslationLinks {
+		// Emit one alternate link per language
+		b.WriteString(`<link rel="alternate" hreflang="`)
+		b.WriteString(link.Lang)
+		b.WriteString(`" href="`)
+		b.WriteString(link.URL)
+		b.WriteString(`">`)
+		// Track default-language URL for x-default
+		if link.Lang == defaultLangCode {
+			defaultURL = link.URL
+		}
+	}
+	if defaultURL != "" {
+		b.WriteString(`<link rel="alternate" hreflang="x-default" href="`)
+		b.WriteString(defaultURL)
+		b.WriteString(`">`)
+	}
+	return template.HTML(b.String())
+}
+
+// langPrefixFunc returns the current page's language URL prefix
+// (e.g. "" for default language, "/en" for English subpath).
+//
+// Usage: <a href="{{ langPrefix . }}/posts/foo/">Foo</a>
+func langPrefixFunc(ctx interface{}) string {
+	c, ok := ctx.(*Context)
+	if !ok || c == nil {
+		return ""
+	}
+	return c.LanguagePrefix
+}
+
+// translationLinksFunc returns the list of TranslationLink for the current
+// page, suitable for iterating in templates to render language switcher UI.
+//
+// Usage:
+//
+//	{{ range translationLinks . }}
+//	  <a href="{{ .URL }}" {{ if .IsCurrent }}class="active"{{ end }}>{{ .LanguageName }}</a>
+//	{{ end }}
+func translationLinksFunc(ctx interface{}) []TranslationLink {
+	c, ok := ctx.(*Context)
+	if !ok || c == nil {
+		return nil
+	}
+	return c.TranslationLinks
 }
 
 func jsonifyFunc(v interface{}) (string, error) {

@@ -31,6 +31,33 @@ type Options struct {
 	BaseURLOverride  string // serve-only; when non-empty, overrides cfg.BaseURL so in-site links point to the dev server
 	MinifyOverride   *bool  // nil = use config Minify; non-nil = force this value
 	Logf             func(format string, args ...any)
+
+	// CfgOverride, when non-nil, skips config.Load(opts.SourceDir) and uses
+	// this Config directly. Used internally by BuildMultiSite to build per-
+	// language variants without re-reading huan.yaml.
+	//
+	// External callers should leave this nil (the default) so BuildSite loads
+	// config from disk as usual.
+	CfgOverride *config.Config
+
+	// PageFilter, when non-nil, excludes pages where the function returns false.
+	// Used internally by BuildMultiSite to build per-language subsets.
+	//
+	// External callers should leave this nil (the default) so BuildSite
+	// processes all loaded pages.
+	PageFilter func(*content.Page) bool
+
+	// AvailableTranslations, when non-nil, maps each page's language-neutral
+	// RelPath (e.g. "posts/foo.md") to the set of language codes that have
+	// an actual sidecar file (e.g. {"zh-cn": true, "en": true}). Used by
+	// template context to filter hreflang output to only languages that
+	// actually exist for each page (prevents hreflang=en pointing to a
+	// 404 URL when no .en.md sidecar exists).
+	//
+	// nil = legacy behavior: assume all configured languages are available
+	// for every page. Used by single-language builds (no hreflang emitted
+	// anyway).
+	AvailableTranslations map[string]map[string]bool
 }
 
 // Result reports what happened during the build.
@@ -56,9 +83,16 @@ func BuildSite(opts Options) (*Result, error) {
 	r := &Result{}
 	logf := opts.logf()
 
-	cfg, err := config.Load(opts.SourceDir)
-	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
+	// Config: prefer CfgOverride (per-language build path); else load from disk.
+	var cfg *config.Config
+	if opts.CfgOverride != nil {
+		cfg = opts.CfgOverride
+	} else {
+		var err error
+		cfg, err = config.Load(opts.SourceDir)
+		if err != nil {
+			return nil, fmt.Errorf("load config: %w", err)
+		}
 	}
 
 	// serve mode overrides cfg.BaseURL so all in-site absolute URLs (canonify,
@@ -80,11 +114,30 @@ func BuildSite(opts Options) (*Result, error) {
 	logf("  Output:      %s\n", opts.OutputDir)
 	logf("  BaseURL:     %s\n", cfg.BaseURL)
 
+	// Inject site_translations from cfg.Plugins.qwen3_translate BEFORE any
+	// downstream code reads cfg.Params. Must happen before BuildTree (which
+	// calls paramsToMap) so the per-language Params propagate to templates.
+	if cfg.IsMultiLanguage() && !cfg.IsDefaultLanguageCurrent() {
+		injectSiteTranslations(cfg, cfg.LanguageCode)
+		logf("  i18n inject: site_translations for %s\n", cfg.LanguageCode)
+	}
+
 	// 1. Load content
 	contentDir := filepath.Join(opts.SourceDir, "content")
 	pages, err := content.LoadDir(contentDir)
 	if err != nil {
 		return nil, fmt.Errorf("load content: %w", err)
+	}
+	// Apply optional page filter (used by BuildMultiSite per-language builds).
+	if opts.PageFilter != nil {
+		filtered := make([]*content.Page, 0, len(pages))
+		for _, p := range pages {
+			if opts.PageFilter(p) {
+				filtered = append(filtered, p)
+			}
+		}
+		logf("  Pages after filter: %d (of %d loaded)\n", len(filtered), len(pages))
+		pages = filtered
 	}
 	logf("  Pages loaded: %d\n", len(pages))
 
@@ -179,15 +232,33 @@ func BuildSite(opts Options) (*Result, error) {
 		return nil, fmt.Errorf("load templates: %w", err)
 	}
 
-	// Load i18n bundles (theme first, then project overrides).
+	// Load i18n bundle. For multi-language builds, load ONLY the current
+	// language's file (e.g. i18n/en.yaml for the en build). For single-
+	// language builds, load all files (backward compat — the bundle ends
+	// up with whichever file loaded last, same as pre-i18n-build behavior).
 	i18nBundle := i18n.New()
-	themeI18nDir := filepath.Join(opts.SourceDir, "themes", DetectThemeName(opts.SourceDir), "i18n")
-	if _, err := os.Stat(themeI18nDir); err == nil {
-		_ = i18nBundle.LoadDir(themeI18nDir)
-	}
-	projectI18nDir := filepath.Join(opts.SourceDir, "i18n")
-	if _, err := os.Stat(projectI18nDir); err == nil {
-		_ = i18nBundle.LoadDir(projectI18nDir)
+	currentLang := cfg.LanguageCode // overridden per-language by BuildMultiSite
+	if cfg.IsMultiLanguage() && currentLang != "" {
+		// Multi-language: load only the current language file from theme + project.
+		themeI18nFile := filepath.Join(opts.SourceDir, "themes", DetectThemeName(opts.SourceDir), "i18n", currentLang+".yaml")
+		if _, err := os.Stat(themeI18nFile); err == nil {
+			_ = i18nBundle.LoadFile(themeI18nFile)
+		}
+		projectI18nFile := filepath.Join(opts.SourceDir, "i18n", currentLang+".yaml")
+		if _, err := os.Stat(projectI18nFile); err == nil {
+			_ = i18nBundle.LoadFile(projectI18nFile)
+		}
+		logf("  i18n bundle:  %s (%d keys)\n", currentLang, i18nBundle.Keys())
+	} else {
+		// Single-language backward compat: load all files in i18n/ dirs.
+		themeI18nDir := filepath.Join(opts.SourceDir, "themes", DetectThemeName(opts.SourceDir), "i18n")
+		if _, err := os.Stat(themeI18nDir); err == nil {
+			_ = i18nBundle.LoadDir(themeI18nDir)
+		}
+		projectI18nDir := filepath.Join(opts.SourceDir, "i18n")
+		if _, err := os.Stat(projectI18nDir); err == nil {
+			_ = i18nBundle.LoadDir(projectI18nDir)
+		}
 	}
 	tmpl.SetI18nBundle(i18nBundle)
 
@@ -211,6 +282,7 @@ func BuildSite(opts Options) (*Result, error) {
 
 	// Build shared site context and page→context lookup
 	siteCtx := tmpl.NewSiteContext(site, cfg)
+	siteCtx.AvailableTranslations = opts.AvailableTranslations
 
 	lookup := map[*content.Page]*tmpl.Context{}
 	for _, p := range site.Pages {
@@ -456,6 +528,57 @@ func BuildSite(opts Options) (*Result, error) {
 
 	r.Duration = time.Since(start)
 	return r, nil
+}
+
+// injectSiteTranslations overrides cfg.Params with cached translations from
+// the qwen3_translate plugin's site_translations config block. Called for
+// non-default language builds so English pages see English subTitle etc.
+//
+// The plugin config block has the shape:
+//
+//	plugins:
+//	  qwen3_translate:
+//	    site_translations:
+//	      en:
+//	        subTitle: "..."
+//	        description: "..."
+//	        keywords: [...]
+//	        footerSlogan: "..."
+//
+// Silently no-ops when the plugin block is absent or has no entry for lang.
+func injectSiteTranslations(cfg *config.Config, lang string) {
+	pluginCfg, ok := cfg.Plugins["qwen3_translate"]
+	if !ok {
+		return
+	}
+	siteTrans, ok := pluginCfg["site_translations"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	langBlock, ok := siteTrans[lang].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if v, ok := langBlock["subTitle"].(string); ok && v != "" {
+		cfg.Params.SubTitle = v
+	}
+	if v, ok := langBlock["description"].(string); ok && v != "" {
+		cfg.Params.Description = v
+	}
+	if v, ok := langBlock["footerSlogan"].(string); ok && v != "" {
+		cfg.Params.FooterSlogan = v
+	}
+	if kw, ok := langBlock["keywords"].([]interface{}); ok && len(kw) > 0 {
+		out := make([]string, 0, len(kw))
+		for _, k := range kw {
+			if s, ok := k.(string); ok {
+				out = append(out, s)
+			}
+		}
+		if len(out) > 0 {
+			cfg.Params.Keywords = out
+		}
+	}
 }
 
 // InjectLiveReload inserts the livereload <script> before </head>.

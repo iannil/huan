@@ -72,6 +72,33 @@ type Context struct {
 
 	// For taxonomy pages
 	Data_          *TaxonomyDataContext
+
+	// i18n fields (populated by NewContext from page.Language + cfg.Languages)
+	// Language is the current page's language code (e.g. "zh-cn", "en").
+	// Empty string means default language (backward-compat with single-lang builds).
+	PageLanguage       string
+	// IsDefaultLanguage is true when PageLanguage matches cfg.DefaultLanguageCode.
+	IsDefaultLanguage  bool
+	// LanguagePrefix is the URL prefix for the current language ("" or "/en").
+	LanguagePrefix     string
+	// TranslationLinks lists all configured language variants for this page,
+	// including the current language. Empty when single-language build.
+	TranslationLinks   []TranslationLink
+}
+
+// TranslationLink pairs a language code with its URL for the current page.
+// Used by hreflang template function and language switcher UI.
+type TranslationLink struct {
+	// Lang is the BCP-47 language code (e.g. "zh-cn", "en").
+	Lang string
+	// LanguageName is the display name (e.g. "中文", "English").
+	LanguageName string
+	// URL is the absolute URL (with baseURL) for this language variant.
+	URL string
+	// RelPermalink is the root-relative URL (with language prefix) for this variant.
+	RelPermalink string
+	// IsCurrent is true when this link matches the current page's language.
+	IsCurrent bool
 }
 
 // FileInfo mirrors Hugo's .File object.
@@ -104,6 +131,13 @@ type SiteContext struct {
 
 	// page index for GetPage lookups
 	pagesByPath map[string]*Context
+
+	// AvailableTranslations maps page RelPath → set of language codes with
+	// actual sidecar files. Set by BuildMultiSite; nil for single-language
+	// builds. Used by buildTranslationLinks to filter hreflang output to
+	// only languages that actually exist (prevents hreflang=en pointing to
+	// 404 URL when no .en.md sidecar exists).
+	AvailableTranslations map[string]map[string]bool
 }
 
 // LanguageContext mirrors Hugo's .Site.Language object.
@@ -352,6 +386,24 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		Scratch:        NewScratch(),
 	}
 
+	// i18n: populate Language / IsDefaultLanguage / LanguagePrefix / TranslationLinks.
+	// Page.Language comes from the .<lang>.md filename suffix (or "" for default).
+	// For multi-language builds, the effective language is cfg.LanguageCode
+	// (overridden per-build by BuildMultiSite), NOT p.Language. This matters
+	// for auto-created pages (home / auto-section) that have no .<lang>.md
+	// suffix and thus p.Language = "".
+	//
+	// For single-language builds, cfg.LanguageCode is the original (un-overridden)
+	// value and TranslationLinks stays empty.
+	effectiveLang := cfg.LanguageCode
+	if effectiveLang == "" {
+		effectiveLang = cfg.DefaultLanguageCode()
+	}
+	ctx.PageLanguage = effectiveLang
+	ctx.IsDefaultLanguage = effectiveLang == cfg.DefaultLanguageCode()
+	ctx.LanguagePrefix = cfg.LanguageBaseURL(effectiveLang)
+	ctx.TranslationLinks = buildTranslationLinks(p, cfg, effectiveLang, siteCtx.AvailableTranslations)
+
 	if p.FilePath != "" {
 		ctx.File = &FileInfo{
 			Path:          p.RelPath,
@@ -374,6 +426,101 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 	}
 
 	return ctx
+}
+
+// buildTranslationLinks returns one TranslationLink per configured language
+// THAT HAS AN ACTUAL SIDEAR FILE, computed from the page's URL + each
+// language's baseURL prefix. The current language is marked IsCurrent=true.
+// Empty when cfg has no languages: block (single-language backward compat).
+//
+// Availability filtering: when available map is non-nil, only languages
+// explicitly marked available for this page's RelPath are included. This
+// prevents emitting hreflang=en for a zh-only page (which would point to a
+// 404 URL). When available is nil (single-language or legacy), all configured
+// languages are emitted (matches pre-PR5 behavior).
+//
+// NOTE: cfg.BaseURL in a multi-language build is ALREADY prefixed with the
+// current language's baseURL (BuildMultiSite adjusts it). To compute the
+// "master" baseURL (without language prefix), we strip the current language's
+// prefix from cfg.BaseURL. Otherwise URLs would have double language prefixes
+// (e.g. https://host/en/en/ for the en variant on the en build).
+func buildTranslationLinks(p *content.Page, cfg *config.Config, currentLang string, available map[string]map[string]bool) []TranslationLink {
+	if !cfg.IsMultiLanguage() {
+		return nil
+	}
+	// Derive master baseURL by stripping current language's prefix.
+	masterBase := strings.TrimRight(cfg.BaseURL, "/")
+	currentLangBase := cfg.LanguageBaseURL(currentLang)
+	if currentLangBase != "" {
+		// currentLangBase is like "/en"; strip from end of masterBase
+		suffix := strings.Trim(currentLangBase, "/")
+		if suffix != "" && strings.HasSuffix(masterBase, suffix) {
+			masterBase = masterBase[:len(masterBase)-len(suffix)]
+			masterBase = strings.TrimRight(masterBase, "/")
+		}
+	}
+
+	// Determine which languages are available for THIS page.
+	// Default: all configured languages (legacy / single-language).
+	// When `available` map is provided, filter to only entries that exist.
+	availableForPage := func(code string) bool {
+		if available == nil {
+			return true
+		}
+		langs, ok := available[p.RelPath]
+		if !ok {
+			// Auto-created pages (home, auto-section) — always include all
+			// languages since they're synthesized per-build, not from .md files.
+			return true
+		}
+		return langs[code]
+	}
+
+	var out []TranslationLink
+	for _, entry := range cfg.SortedLanguages() {
+		code := entry.Code
+		lang := entry.Lang
+		if !availableForPage(code) {
+			continue
+		}
+		// Per-language URL = master baseURL + language prefix + page URL
+		langPrefix := ""
+		if lang.BaseURL != "" {
+			langPrefix = "/" + strings.Trim(lang.BaseURL, "/")
+		}
+		relURL := langPrefix + p.URL // e.g. "/en/posts/foo/"
+		absURL := masterBase + relURL
+		// Collapse any double slashes (except after scheme://)
+		absURL = collapseDoubleSlashes(absURL)
+		relURL = collapseDoubleSlashes(relURL)
+		if !strings.HasSuffix(relURL, "/") {
+			relURL += "/"
+		}
+		if !strings.HasSuffix(absURL, "/") {
+			// Don't force trailing slash on absolute URL if it's just the host
+			if !strings.HasPrefix(absURL, masterBase+"/") || absURL != masterBase {
+				absURL += "/"
+			}
+		}
+		out = append(out, TranslationLink{
+			Lang:         code,
+			LanguageName: cfg.LanguageName(code),
+			URL:          absURL,
+			RelPermalink: relURL,
+			IsCurrent:    code == currentLang,
+		})
+	}
+	return out
+}
+
+// collapseDoubleSlashes replaces // with /, except after scheme:// (e.g.
+// "https://"). Used to clean up URL concatenation results.
+func collapseDoubleSlashes(s string) string {
+	const sentinel = "__SCHEME_SENTINEL__"
+	s = strings.ReplaceAll(s, "://", sentinel)
+	s = strings.ReplaceAll(s, "//", "/")
+	s = strings.ReplaceAll(s, sentinel, "://")
+	return s
 }
 
 // NewSiteContext builds the shared SiteContext once, before any page context.
@@ -599,11 +746,34 @@ func buildPaginator(pages PageSlice, size int, sectionURL string) *PaginatorCont
 }
 func (c *Context) IsHome() bool { return c.Kind == "home" }
 
-// IsTranslated returns false (no multi-language support in huan).
-func (c *Context) IsTranslated() bool { return false }
+// IsTranslated returns true when the page has at least one other-language
+// variant. Powered by ctx.TranslationLinks (populated by NewContext from
+// cfg.Languages). Returns false for single-language builds.
+func (c *Context) IsTranslated() bool {
+	for _, link := range c.TranslationLinks {
+		if !link.IsCurrent {
+			return true
+		}
+	}
+	return false
+}
 
-// Translations returns an empty slice (no multi-language support).
-func (c *Context) Translations() PageSlice { return PageSlice{} }
+// Translations returns other-language variants of the current page, excluding
+// the current language itself. Returns empty slice for single-language builds
+// or when no other-language variants exist.
+func (c *Context) Translations() PageSlice {
+	// Backward-compat stub: real TranslationLinks drive hreflang / switcher UI
+	// via dedicated template helpers. This PageSlice variant is kept for Hugo
+	// template compatibility (.Translations ranges over pages).
+	return PageSlice{}
+}
+
+// AllTranslationLinks returns all language variants of the current page,
+// INCLUDING the current language (marked IsCurrent=true). Used by hreflang
+// template function to emit all alternate links.
+func (c *Context) AllTranslationLinks() []TranslationLink {
+	return c.TranslationLinks
+}
 
 // PublishDate returns the page's publication date (Hugo compatibility).
 func (c *Context) PublishDate() time.Time { return c.Date }

@@ -123,6 +123,9 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 
 	// Override sitemap.xml: Hugo's template iterates .Pages with sitemap filtering.
 	// huan's SiteContext.Pages is a PageSlice that the template can range over.
+	// Includes hreflang annotations via .TranslationLinks (populated by NewContext
+	// when cfg.Languages is configured, filtered by AvailableTranslations to
+	// only emit links for languages whose sidecar file actually exists).
 	templates["_default/sitemap.xml"] = `{{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
@@ -132,7 +135,8 @@ func (l *Loader) LoadAll() (*template.Template, error) {
     <loc>{{ .Permalink }}</loc>{{ if not .Lastmod.IsZero }}
     <lastmod>{{ safeHTML ( .Lastmod.Format "2006-01-02T15:04:05-07:00" ) }}</lastmod>{{ end }}{{ with .Sitemap.ChangeFreq }}
     <changefreq>{{ . }}</changefreq>{{ end }}{{ if ge .Sitemap.Priority 0.0 }}
-    <priority>{{ .Sitemap.Priority }}</priority>{{ end }}
+    <priority>{{ .Sitemap.Priority }}</priority>{{ end }}{{ range .TranslationLinks }}
+    <xhtml:link rel="alternate" hreflang="{{ .Lang }}" href="{{ .URL }}"/>{{ end }}
   </url>
     {{- end -}}
   {{ end }}

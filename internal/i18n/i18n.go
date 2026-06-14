@@ -19,6 +19,15 @@ func New() *Bundle {
 	return &Bundle{strings: map[string]string{}}
 }
 
+// Keys returns the count of translation keys loaded. Used by build pipeline
+// for logging ("i18n bundle: en (12 keys)").
+func (b *Bundle) Keys() int {
+	if b == nil {
+		return 0
+	}
+	return len(b.strings)
+}
+
 // LoadFile loads a YAML translation file (Hugo format: key: {other: "value"}).
 func (b *Bundle) LoadFile(path string) error {
 	data, err := os.ReadFile(path)

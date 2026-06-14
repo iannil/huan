@@ -47,7 +47,7 @@ func main() {
 	serveCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
 	serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 
-	rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), newPluginCmd(), newReleaseCmd(), newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd(), newSyncCmd(), newTocCmd(), newExportCmd())
+	rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), newPluginCmd(), newReleaseCmd(), newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd(), newSyncCmd(), newTocCmd(), newExportCmd(), newTranslateCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -78,6 +78,26 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	var baseURLOverride string
 	if bu, _ := cmd.Flags().GetString("baseURL"); bu != "" {
 		baseURLOverride = bu
+	}
+
+	// Multi-language dispatch: when huan.yaml declares a languages: block,
+	// route through BuildMultiSite which renders each language under its
+	// baseURL prefix. Single-language configs use the existing BuildSite path.
+	if cfg.IsMultiLanguage() {
+		multiResult, err := build.BuildMultiSite(build.Options{
+			SourceDir:        sourceDir,
+			OutputDir:        outputDir,
+			IncludeDrafts:    includeDrafts,
+			IncludeFuture:    includeFuture,
+			IncludeExpired:   includeExpired,
+			BaseURLOverride:  baseURLOverride,
+			MinifyOverride:   minifyOverride,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Println(build.SummarizeMultiSite(multiResult))
+		return nil
 	}
 
 	_, err = build.BuildSite(build.Options{

@@ -17,6 +17,11 @@ type Config struct {
 	SummaryLen   int               `yaml:"summaryLength"`
 	EnableEmoji  bool              `yaml:"enableEmoji"`
 
+	// i18n: when Languages is non-empty, BuildMultiSite runs per-language.
+	// See internal/config/languages.go and docs/adr/0007-i18n-build-system.md.
+	DefaultContentLanguage string                      `yaml:"defaultContentLanguage"`
+	Languages              map[string]LanguageConfig   `yaml:"languages"`
+
 	Author       AuthorConfig      `yaml:"author"`
 	Params       ParamsConfig      `yaml:"params"`
 	Menu         map[string][]MenuItem `yaml:"menu"`

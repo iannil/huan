@@ -120,6 +120,15 @@ func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*
 }
 
 // LoadDir recursively loads all .md files from the content directory.
+//
+// Files are recognized by suffix per Hugo's convention:
+//   - `<name>.md`           → default language (page.Language = "")
+//   - `<name>.<lang>.md`    → sidecar for that language (e.g. foo.en.md → "en")
+//   - `<name>.<region>.md`  → sidecar for region-tagged language (e.g. foo.zh-cn.md → "zh-cn")
+//
+// The default-language code (e.g. "zh-cn") is NOT auto-applied to `<name>.md`
+// files; callers comparing languages should treat empty Language as the
+// default. Use Page.IsDefaultLanguage(defaultCode) for that check.
 func LoadDir(contentDir string) ([]*Page, error) {
 	var pages []*Page
 
@@ -151,17 +160,83 @@ func LoadDir(contentDir string) ([]*Page, error) {
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
 
+		// Detect language from filename suffix: foo.<lang>.md → page.Language = <lang>
+		// Strip the language suffix from RelPath BEFORE creating the page so
+		// paired sidecars (foo.md + foo.en.md) share identical RelPath
+		// ("posts/foo.md"). The Language field preserves sidecar identity;
+		// downstream URL/Section/sort logic uses the language-neutral RelPath
+		// so sidecars don't generate URLs like /posts/foo.en/.
+		langCode := detectLanguageFromFilename(filepath.Base(path))
+		if langCode != "" {
+			relPath = stripLanguageSuffix(relPath, langCode)
+		}
+
 		page, err := loadPageFromFrontmatter(fm, body, relPath)
 		if err != nil {
 			return fmt.Errorf("load %s: %w", path, err)
 		}
 		page.FilePath = path
+		page.Language = langCode
 
 		pages = append(pages, page)
 		return nil
 	})
 
 	return pages, err
+}
+
+// stripLanguageSuffix removes the `.<lang>` segment before `.md` from relPath.
+// Example: "posts/2020/08/0203.en.md" with lang="en" → "posts/2020/08/0203.md"
+//
+// Used by LoadDir to normalize sidecar RelPaths so paired sidecars (foo.md +
+// foo.en.md) share identical RelPath. The Language field preserves sidecar
+// identity for filtering.
+func stripLanguageSuffix(relPath, langCode string) string {
+	suffix := "." + langCode + ".md"
+	if strings.HasSuffix(relPath, suffix) {
+		return relPath[:len(relPath)-len(suffix)] + ".md"
+	}
+	return relPath
+}
+// filename's `.<lang>.md` suffix. Returns empty string when no language
+// suffix is present (the file belongs to the default language).
+//
+// Examples:
+//   "foo.md"         → ""
+//   "foo.en.md"      → "en"
+//   "foo.zh-cn.md"   → "zh-cn"
+//   "_index.en.md"   → "en"
+//   "index.md"       → ""
+//   "foo.bar.md"     → "bar"  (any 2-3 letter suffix is treated as lang)
+//
+// The heuristic is: if the filename without `.md` ends with `.<2-8 lowercase
+// alphanumeric + dash chars>`, treat that suffix as the language code.
+// Anything else is the default language.
+func detectLanguageFromFilename(name string) string {
+	// Strip trailing .md
+	if !strings.HasSuffix(name, ".md") {
+		return ""
+	}
+	base := name[:len(name)-3]
+	if base == "" {
+		return ""
+	}
+	// Find last dot
+	dot := strings.LastIndex(base, ".")
+	if dot < 0 {
+		return "" // no language suffix
+	}
+	suffix := base[dot+1:]
+	// Validate: 2-8 chars, lowercase letters / digits / dashes
+	if len(suffix) < 2 || len(suffix) > 8 {
+		return ""
+	}
+	for _, r := range suffix {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+			return ""
+		}
+	}
+	return suffix
 }
 
 // Helper functions for extracting typed values from map[string]interface{}

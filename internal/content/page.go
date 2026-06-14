@@ -37,6 +37,7 @@ type Page struct {
 	URL          string // e.g. "/posts/2020/08/2601/"
 	Section      string // e.g. "posts", "books", "gallery"
 	Kind         string // "page", "section", "home", "taxonomy", "term"
+	Language     string // language code (e.g. "zh-cn", "en"); empty = default
 	Content      template.HTML
 	Summary      template.HTML
 	Plain        string
@@ -72,6 +73,20 @@ func (p *Page) IsPage() bool {
 // IsSection returns true for section index pages.
 func (p *Page) IsSection() bool {
 	return p.Kind == "section"
+}
+
+// IsDefaultLanguage returns true when the page belongs to the default
+// language. A page belongs to the default language when its Language field
+// is empty (no `.<lang>.md` suffix) OR explicitly matches defaultCode.
+//
+// Callers that need to filter pages by language should prefer this helper
+// over direct string comparison: it handles the empty-string-as-default
+// convention uniformly.
+func (p *Page) IsDefaultLanguage(defaultCode string) bool {
+	if p.Language == "" {
+		return true
+	}
+	return p.Language == defaultCode
 }
 
 // Site holds all site-wide data.
