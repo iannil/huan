@@ -103,12 +103,19 @@ jobs:
         env:
           VERSION: ${{ env.version }}
         run: |
-          # Copy linux/amd64 huan binary to build context root so Dockerfile's
-          # `COPY huan /usr/local/bin/huan` finds it. Multi-arch builds (later)
-          # would need per-arch binaries with buildx + --platform.
-          cp "release/$VERSION/huan_linux_amd64/huan" ./huan
+          # The huan release command produces tarball archives
+          # (release/<version>/huan_<version>_linux_amd64.tar.gz), NOT
+          # extracted directories. Extract the linux/amd64 tarball to get
+          # the binary, then place at repo root so Dockerfile's
+          # `COPY huan /usr/local/bin/huan` finds it.
+          mkdir -p /tmp/huan-extract
+          tar -xzf "release/$VERSION/huan_${VERSION}_linux_amd64.tar.gz" -C /tmp/huan-extract
+          cp /tmp/huan-extract/huan ./huan
           chmod +x ./huan
           ls -la ./huan
+          # Verify the binary actually runs (catches arch mismatch at build time)
+          file ./huan
+          ./huan version
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
