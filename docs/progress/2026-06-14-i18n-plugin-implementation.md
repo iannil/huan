@@ -328,3 +328,25 @@ zhurongshuo 双语化：默认中文 + deploy 时翻译为英文 + Cloudflare Wo
 **最后只剩两项用户决策**：
 1. **何时 push zhurongshuo commits**（`6364086f2` + `d8f94a993` + `0b4a518b3`）触发 CI deploy 让 /en/ 上线
 2. **何时启动首次全量翻译** zhurongshuo ~1076 篇（`huan translate qwen3` ~3h on M5 Max）
+
+- **PR11 完成**（v0.3.0 上线 + zhurongshuo 生产 deploy）：
+  - huan 仓库 push `v0.3.0` tag → 触发 release.yml
+  - 首次失败：release.yml 假设 release/<version>/huan_linux_amd64/huan 目录，实际是 tarball
+  - 修复（`92ce0f9`）：用 `tar -xzf` 提取 + force-update tag
+  - 二次跑 release.yml → 成功发布 `ghcr.io/iannil/huan:v0.3.0`（41.1MB linux/amd64）
+  - zhurongshuo CI deploy.yml 用 `container: ghcr.io/iannil/huan:latest` → 成功部署
+  - 生产验证（curl 实测）：
+    - `https://zhurongshuo.com/en/` → HTTP 200，title "Zhurong Says..."，菜单全英文 ✓
+    - 英文 Accept-Language → 302 + Set-Cookie: lang=en ✓
+    - `https://zhurongshuo.com/en/posts/2020/08/0203/` → HTTP 200（0203 翻译上线）✓
+    - hreflang 三标签正确（zh-cn + en + x-default）✓
+    - sitemap 含 xhtml:link（0203 entry）✓
+    - 零 cdn.jsdelivr.net 引用（全 self-host）✓
+
+**最终生产状态（2026-06-14 完成）**：i18n 双语站点完整上线。zhurongshuo.com 现在支持：
+- 中英双语（zh-cn 默认 + en 在 /en/）
+- Cloudflare Worker 自动检测浏览器语言 + 302 redirect + Cookie 记忆
+- hreflang + sitemap.xml + 翻译文章全部 SEO 友好
+- 仅 huan + git 两类工具依赖（无 wrangler / 无 Node.js / 无第三方 CDN）
+
+**唯一剩余工作**：首次全量翻译 zhurongshuo ~1075 篇 zh→en（`huan translate qwen3` ~3h on M5 Max）。
