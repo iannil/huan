@@ -124,6 +124,30 @@ func BuildSite(opts Options) (*Result, error) {
 
 	// 1. Load content
 	contentDir := filepath.Join(opts.SourceDir, "content")
+
+	// i18n strict mode: detect stale .en.md sidecars BEFORE loading pages.
+	// In strict mode (env HUAN_STRICT_I18N=true, typically set in CI), any
+	// stale sidecar fails the build so we never deploy with translations
+	// that don't match the current source markdown. In non-strict mode
+	// (local default), log warnings and continue.
+	if cfg.IsMultiLanguage() {
+		staleReport, staleErr := checkStaleTranslations(contentDir)
+		if staleErr != nil {
+			logf("  WARN: i18n stale check error: %v\n", staleErr)
+		} else if staleReport.Checked > 0 || staleReport.Stale > 0 || staleReport.Missing > 0 {
+			logf("  i18n stale check: %d checked, %d stale, %d missing source_hash\n",
+				staleReport.Checked, staleReport.Stale, staleReport.Missing)
+			if strictI18nEnabled() {
+				if staleReport.Stale > 0 || staleReport.Missing > 0 {
+					return nil, fmt.Errorf("%s", staleReport.Error())
+				}
+			} else if staleReport.Stale > 0 || staleReport.Missing > 0 {
+				logf("  WARN: stale translations found (run `huan translate qwen3` to refresh):\n%s\n",
+					staleReport.Error())
+			}
+		}
+	}
+
 	pages, err := content.LoadDir(contentDir)
 	if err != nil {
 		return nil, fmt.Errorf("load content: %w", err)

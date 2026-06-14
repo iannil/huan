@@ -18,6 +18,7 @@ zhurongshuo 双语化：默认中文 + deploy 时翻译为英文 + Cloudflare Wo
 | PR4 | zhurongshuo i18n Worker + 模板改造 | ✅ **Done (2026-06-14)** | CF Worker + head/nav/header/search/comments/single/404/audio 模板改造 + i18n yaml 双语扩展 | ~3-5 天 |
 | PR5 | hreflang 正确性 + sitemap i18n | ✅ **Done (2026-06-14)** | AvailableTranslations map 过滤无对端翻译的 hreflang + sitemap xhtml:link 自动 annotation | ~2-3 天 |
 | PR6 | zhurongshuo 模板 i18n 收尾 | ✅ **Done (2026-06-14)** | gallery JS 注入 I18N 全局 + practice 中文序数词 i18n + books/practices 万字单位 i18n + gallery/single 浏览器字符串 | ~1-2 天 |
+| PR7 | strict_i18n stale 检测 + CI workflow | ✅ **Done (2026-06-14)** | checkStaleTranslations 读 source_hash 对比 sha256(source) + HUAN_STRICT_I18N env 切换 strict/warn + CI 阻断 + deploy.sh 加 i18n 增量翻译 step | ~1 天 |
 
 ## 启动前置（已完成）
 
@@ -283,3 +284,23 @@ zhurongshuo 双语化：默认中文 + deploy 时翻译为英文 + Cloudflare Wo
 - 首次全量翻译 zhurongshuo ~1076 篇文章（`huan translate qwen3` 预计 ~3h on M5 Max + Qwen3-Next-80B-A3B）
 - Worker 部署：`workers/i18n-router.js` 绑定 `zhurongshuo.com/*` route + deploy.sh 加第二次 `huan deploy cloudflare worker` 调用（需 CF 凭证）
 - CI strict mode：`.github/workflows/deploy.yml` 加 `HUAN_STRICT_I18N=true` env 阻断 stale 翻译 deploy
+
+- **PR7 完成**（strict_i18n stale 检测 + CI workflow）：
+  - **`huan/internal/build/i18n_strict.go`**（新）：`checkStaleTranslations()` 遍历 content/ 找 `.<lang>.md` sidecar，解析 frontmatter `source_hash`，对比当前 source markdown sha256；返回 `I18nStaleReport{Checked, Stale, Missing, StaleFiles, MissingHashFiles}`，含 `Error()` 实现支持 fail-fast
+  - **`huan/internal/build/i18n_strict_env.go`**（新）：`strictI18nEnabled()` 读 `HUAN_STRICT_I18N` env（true/1/yes → 开启）
+  - **`huan/internal/build/i18n_strict_helper.go`**（新）：`sha256HexString()` 共用 helper
+  - **`huan/internal/build/i18n_strict_test.go`**（新）：8 个测试覆盖 detect / extract / all-fresh / stale-detected / missing-hash / strict-env-toggle / report-error
+  - **`huan/internal/build/build.go`**：BuildSite 启动时若 `cfg.IsMultiLanguage()` 跑 `checkStaleTranslations`；strict mode → fail-fast 阻断 build；非 strict → warn 继续本地 build
+  - **zhurongshuo `.github/workflows/deploy.yml`**：build step env 加 `HUAN_STRICT_I18N: true`（CI 阻断 stale 翻译 deploy）
+  - **zhurongshuo `deploy.sh`**：加 Step 5 `huan translate qwen3`（i18n 增量翻译，检测到 qwen3_translate 配置才执行；soft_step 失败不阻断 deploy）；结尾加 i18n Router Worker 独立部署提示（需手动通过 CF dashboard 或 wrangler 部署到 zhurongshuo.com/* route）
+  - 端到端验证：
+    - 临时改动 source 0203.md + 不更新 .en.md → strict mode 阻断："Error: build language zh-cn: i18n stale translation sidecars detected: stale 1" ✓
+    - 同样场景 + 非 strict → warn："WARN: stale translations found" 但继续 build ✓
+    - 正常 build（source_hash 一致）→ 0 stale 0 missing ✓
+    - 全部测试通过：`go test ./...` 全 PASS（20 包，新增 8 个 i18n strict 测试）
+
+**v1 完整状态**：i18n 系统 7 个 PR 全部完成。生产可用 + CI 阻断保护。
+
+**仅剩运营性工作**（需用户介入）：
+- 首次全量翻译 zhurongshuo ~1076 篇（`huan translate qwen3` ~3h on M5 Max）
+- Worker 部署：`workers/i18n-router.js` 绑定 `zhurongshuo.com/*` route（CF dashboard 或 wrangler）
