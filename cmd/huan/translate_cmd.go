@@ -175,6 +175,15 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		// Skip files with empty body (e.g., _index.md with only frontmatter).
+		// These are listing/section pages with no translatable content; trying
+		// to translate would error in the plugin with "request content is empty".
+		// Count as skipped (not failed) so the run isn't blocked.
+		if strings.TrimSpace(body) == "" {
+			fmt.Printf("SKIP (empty body)\n")
+			continue
+		}
+
 		resp, err := translator.Translate(context.Background(), translate.Request{
 			SourceLang:  sourceLang,
 			TargetLang:  targetLang,
