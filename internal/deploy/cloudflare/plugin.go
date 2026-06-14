@@ -152,26 +152,76 @@ func (p *Plugin) deployR2(ctx context.Context, opts deploy.Options, logger *obse
 	return r2ResultToReport(traceID, result, nil), nil
 }
 
-// deployWorker uploads the Worker script via CF Workers modules API.
+// deployWorker uploads one or more Worker scripts via CF Workers modules API.
+// Supports both singular `worker:` (legacy) and plural `workers:` yaml forms;
+// AllWorkers merges them. Each worker deploys independently — failures are
+// collected but don't abort the rest of the batch (collection-not-interruption
+// pattern from ADR 0002 §9).
 func (p *Plugin) deployWorker(ctx context.Context, opts deploy.Options, logger *observability.Logger, traceID string) (*deploy.Report, error) {
-	if !p.cfg.HasWorkerConfigured() {
+	workers := p.cfg.AllWorkers()
+	if len(workers) == 0 {
 		return &deploy.Report{
 			TraceID: traceID,
 			Target:  "worker",
-		}, fmt.Errorf("cloudflare plugin: worker target requires worker.* config under plugins.cloudflare")
+		}, fmt.Errorf("cloudflare plugin: worker target requires worker.* or workers.* config under plugins.cloudflare")
 	}
 
 	client := NewClient(p.cfg.AccountID, p.cfg.APIToken, logger)
 	deployer := NewWorkerDeployer(client, logger)
 
-	report, err := deployer.Deploy(ctx, p.cfg.Worker, DeployWorkerOptions{
-		SourceDir: opts.SourceDir,
-		DryRun:    opts.DryRun,
-	})
-	if err != nil {
-		return report, err
+	// Deploy each worker; aggregate results.
+	type workerResult struct {
+		name string
+		report *deploy.Report
+		err error
 	}
-	return report, nil
+	results := make([]workerResult, 0, len(workers))
+	for _, w := range workers {
+		r, err := deployer.Deploy(ctx, w, DeployWorkerOptions{
+			SourceDir: opts.SourceDir,
+			DryRun:    opts.DryRun,
+		})
+		results = append(results, workerResult{name: w.Name, report: r, err: err})
+	}
+
+	// Build aggregate report
+	aggregate := &deploy.Report{
+		TraceID:   traceID,
+		Target:    "worker",
+		Attempted: len(workers),
+	}
+	var failures []deploy.FileFailure
+	succeeded := 0
+	for _, r := range results {
+		if r.err != nil {
+			failures = append(failures, deploy.FileFailure{
+				Path:  r.name,
+				Stage: "deploy",
+				Error: r.err.Error(),
+			})
+			continue
+		}
+		succeeded++
+		// Accumulate token/duration stats from individual reports
+		if r.report != nil {
+			aggregate.Attempted += r.report.Attempted // individual reports have Attempted=1
+			aggregate.Succeeded += r.report.Succeeded
+			aggregate.Skipped += r.report.Skipped
+			aggregate.DurationMs += r.report.DurationMs
+			failures = append(failures, r.report.Failures...)
+		}
+	}
+	// Subtract the per-worker Attempted double-count (we added len(workers)
+	// initially then added each report's Attempted which is also 1 each)
+	aggregate.Attempted = len(workers)
+	aggregate.Succeeded = succeeded
+	aggregate.Failed = len(failures)
+	aggregate.Failures = failures
+
+	if len(failures) > 0 {
+		return aggregate, fmt.Errorf("cloudflare plugin: %d/%d workers failed to deploy", len(failures), len(workers))
+	}
+	return aggregate, nil
 }
 
 // r2ResultToReport adapts R2SyncResult into the deploy.Report shape so callers

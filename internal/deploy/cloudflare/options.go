@@ -17,7 +17,8 @@ type Config struct {
 	APIToken  string       `yaml:"apiToken"  json:"apiToken"`
 	Pages     PagesConfig  `yaml:"pages"     json:"pages"`
 	R2        R2Config     `yaml:"r2"        json:"r2"`
-	Worker    WorkerConfig `yaml:"worker"    json:"worker"`
+	Worker    WorkerConfig `yaml:"worker"    json:"worker"`    // singular (legacy)
+	Workers   []WorkerConfig `yaml:"workers" json:"workers"`  // plural (preferred for 2+ workers)
 }
 
 // R2Config captures Cloudflare R2 (S3-compatible) settings.
@@ -150,10 +151,46 @@ func (c WorkerConfig) validate() error {
 	return nil
 }
 
-// HasWorkerConfigured returns true if the Worker block looks intentional.
+// HasWorkerConfigured returns true if EITHER the singular Worker block OR
+// the plural Workers list has at least one entry with Name/Script set.
+// Callers that need to know which form was used should call AllWorkers.
 func (c Config) HasWorkerConfigured() bool {
-	w := c.Worker
-	return w.Name != "" || w.Script != ""
+	if w := c.Worker; w.Name != "" || w.Script != "" {
+		return true
+	}
+	for _, w := range c.Workers {
+		if w.Name != "" || w.Script != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// AllWorkers returns the full list of workers to deploy, combining the
+// plural `workers:` list (preferred) with the singular `worker:` block
+// (legacy). Singular entries are appended AFTER plural entries so plural
+// takes precedence on conflicts (same Name).
+//
+// Used by deployWorker to iterate without caring which yaml form was used.
+// Returns empty slice when neither form is configured.
+func (c Config) AllWorkers() []WorkerConfig {
+	var out []WorkerConfig
+	seen := map[string]bool{}
+	for _, w := range c.Workers {
+		if w.Name == "" && w.Script == "" {
+			continue
+		}
+		if seen[w.Name] {
+			continue
+		}
+		seen[w.Name] = true
+		out = append(out, w)
+	}
+	// Append singular Worker if not already covered by plural
+	if w := c.Worker; (w.Name != "" || w.Script != "") && !seen[w.Name] {
+		out = append(out, w)
+	}
+	return out
 }
 
 // PagesConfig captures Cloudflare Pages project settings.

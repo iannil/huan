@@ -671,7 +671,7 @@ func TestR2Sync_PluginDispatch_WorkerTarget(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error for worker without config")
 	}
-	if !strings.Contains(err.Error(), "worker.* config") {
+	if !strings.Contains(err.Error(), "worker.*") || !strings.Contains(err.Error(), "config") {
 		t.Errorf("err = %q", err.Error())
 	}
 }
