@@ -304,3 +304,27 @@ zhurongshuo 双语化：默认中文 + deploy 时翻译为英文 + Cloudflare Wo
 **仅剩运营性工作**（需用户介入）：
 - 首次全量翻译 zhurongshuo ~1076 篇（`huan translate qwen3` ~3h on M5 Max）
 - Worker 部署：`workers/i18n-router.js` 绑定 `zhurongshuo.com/*` route（CF dashboard 或 wrangler）
+
+- **PR8 完成**（i18n-router Worker 实际部署）：
+  - **zhurongshuo `workers/wrangler.toml`**（新）：wrangler config 部署 i18n-router 到 zhurongshuo.com/* + www.zhurongshuo.com/* 路由；compatibility_date=2024-12-01；无 R2/KV bindings（纯 HTTP 路由）
+  - **生产部署**：`wrangler deploy` 成功，Worker 在线
+    - Version ID: `60ee75d0-07f9-4dad-8732-a905fc7870da`
+    - Routes: zhurongshuo.com/* + www.zhurongshuo.com/*（zone_name based）
+    - Size: 3.75 KiB / gzip 1.42 KiB
+  - **端到端验证**（curl 实测 https://zhurongshuo.com/）：
+    - 中文 Accept-Language → HTTP 200 + Set-Cookie: lang=zh ✓
+    - 英文 Accept-Language → HTTP 302 Location: /en/ + Set-Cookie: lang=en ✓
+    - Cookie lang=en on /posts/.../ → HTTP 302 Location: /en/posts/.../ ✓
+    - Cookie lang=zh → HTTP 200 passthrough ✓
+    - /sitemap.xml → bypass，无 Set-Cookie ✓
+    - /en/* → bypass passthrough（返回 404，因为生产 zhurongshuo.com 暂未部署 /en/ — 等 zhurongshuo commits push + CI deploy 后才会生效）
+  - **运维命令**：
+    - 监控：`cd workers && wrangler tail`（实时日志）
+    - 重新部署：`cd workers && source ../.env && wrangler deploy`
+    - 回滚（紧急）：`cd workers && wrangler delete`
+
+**v1 完整状态**：i18n 系统 7 个 PR + Worker 部署全部完成。生产已生效（en 用户访问根会跳到 /en/，但 /en/ 路径需要 zhurongshuo commits push + CI deploy 才会出现）。
+
+**最后只剩两项用户决策**：
+1. **何时 push zhurongshuo commits**（`6364086f2` + `d8f94a993` + `0b4a518b3`）触发 CI deploy 让 /en/ 上线
+2. **何时启动首次全量翻译** zhurongshuo ~1076 篇（`huan translate qwen3` ~3h on M5 Max）
