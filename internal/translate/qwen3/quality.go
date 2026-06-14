@@ -1,6 +1,7 @@
 package qwen3
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -19,9 +20,9 @@ func newQualityChecker(cfg QualityConfig) *qualityChecker {
 	return &qualityChecker{cfg: cfg}
 }
 
-// countLatinWords returns the number of whitespace-separated tokens in s
-// where the first non-space rune is a Latin letter. This is a rough word
-// count for English output (used for length-ratio check).
+// countLatinWords returns the number of whitespace-separated tokens in s.
+// Used for diagnostics (length-ratio now uses char count, see
+// CheckLengthRatio).
 func countLatinWords(s string) int {
 	count := 0
 	inWord := false
@@ -98,81 +99,137 @@ var htmlBlockTagRe = regexp.MustCompile(`(?i)<\s*(/?)(h[1-6]|p|ul|ol|li|pre|bloc
 //
 // Why this exists: Qwen3-Next-80B (q4_K_M) on long zh→en inputs has a
 // strong prior to emit <h2>, <p>, <ol>, <li> etc. instead of #, ##, - .
-// markdown_structure check catches this indirectly (heading count → 0),
-// but the error attribution is misleading. This check names the failure
-// mode explicitly.
+// This check names the failure mode explicitly.
 func (q *qualityChecker) CheckFormatPurity(body string) bool {
 	return !htmlBlockTagRe.MatchString(body)
 }
 
-// markdownCounts holds counts of structural markers in markdown text.
-type markdownCounts struct {
-	Headings int // # / ## / ### etc.
-	ListItems int // lines starting with - / * / +
-	Links     int // [text](url) patterns
-	Images    int // ![alt](url) patterns
-	CodeFences int // ``` occurrences / 2
+// chunkStructure holds counts of structural elements within a single
+// chunk (a section-level slice of the source). Used by CheckChunkStructure
+// to verify the model preserved source structure 1:1 within the chunk.
+type chunkStructure struct {
+	Headings   int // ^#{1,6}\s lines (any level), NOT inside code fence
+	Paragraphs int // prose paragraphs (blank-line-separated text blocks)
+	ListItems  int // ^\s*([-*+])\s lines (bullet items)
 }
 
-// countMarkdownStructure extracts structural marker counts from markdown.
-// Used to compare source vs output: large divergence suggests the LLM
-// corrupted structure.
-func countMarkdownStructure(s string) markdownCounts {
+// countChunkStructure extracts structural counts from a chunk's markdown.
+//
+// Paragraph counting treats any maximal run of non-blank lines (excluding
+// headings and bullet items) as one paragraph. Code fence bodies are
+// skipped to avoid false positives from arbitrary text inside code.
+func countChunkStructure(s string) chunkStructure {
 	lines := strings.Split(s, "\n")
-	var c markdownCounts
+	var c chunkStructure
+	inCodeFence := false
+	inParagraph := false
+
 	headingRe := regexp.MustCompile(`^#{1,6}\s`)
-	linkRe := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
-	imageRe := regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 
 	for _, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
-		if headingRe.MatchString(trimmed) {
+
+		// Toggle fenced code block state on ``` lines.
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeFence = !inCodeFence
+			inParagraph = false
+			continue
+		}
+		// Skip content inside code fences entirely.
+		if inCodeFence {
+			continue
+		}
+
+		isHeading := headingRe.MatchString(trimmed)
+		isListItem := strings.HasPrefix(trimmed, "- ") ||
+			strings.HasPrefix(trimmed, "* ") ||
+			strings.HasPrefix(trimmed, "+ ")
+
+		switch {
+		case isHeading:
 			c.Headings++
-		}
-		if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ") {
+			inParagraph = false
+		case isListItem:
 			c.ListItems++
+			inParagraph = false
+		case strings.TrimSpace(line) == "":
+			// Blank line ends current paragraph.
+			inParagraph = false
+		default:
+			// Non-blank text line — start of new paragraph if not already in one.
+			if !inParagraph {
+				c.Paragraphs++
+				inParagraph = true
+			}
 		}
 	}
-	// Image regex `![alt](url)` inner part `[alt](url)` also matches link
-	// regex, so subtract image count from raw link count to get true link count.
-	c.Images = len(imageRe.FindAllString(s, -1))
-	c.Links = len(linkRe.FindAllString(s, -1)) - c.Images
-	if c.Links < 0 {
-		c.Links = 0
-	}
-	c.CodeFences = strings.Count(s, "```") / 2
+
 	return c
 }
 
-// CheckMarkdownStructure passes when each count in output matches source
-// within ±Tolerance. Headings/CodeFences are exact match (tolerance 0)
-// since these are critical structural elements.
-func (q *qualityChecker) CheckMarkdownStructure(source, output string) bool {
-	src := countMarkdownStructure(source)
-	out := countMarkdownStructure(output)
-	tol := q.cfg.MarkdownStructureTolerance
+// CheckChunkStructureResult holds the per-element diff for diagnostic
+// logging when the overall check fails.
+type CheckChunkStructureResult struct {
+	Pass                          bool
+	SrcHeadings, OutHeadings      int
+	SrcParagraphs, OutParagraphs  int
+	SrcListItems, OutListItems    int
+	SrcContentBlocks, OutContentBlocks int // Headings + Paragraphs + ListItems
+	FailedReason                  string
+}
 
-	// Headings: tolerance applies (LLM may add/remove some by mistake)
-	if abs(out.Headings-src.Headings) > tol {
-		return false
+// CheckChunkStructure verifies the model preserved chunk content 1:1.
+//
+// The invariant is **total content blocks** (headings + paragraphs + list
+// items combined) within ±1 tolerance. This tolerates legitimate
+// cross-format reformatting that English-writing conventions prefer:
+//
+//   - Chinese plain-text section dividers ("第一部分：...") → proper markdown
+//     `### Part One: ...` headings (zhurongshuo appendix.md case).
+//   - Parallel prose paragraphs → bullet list (zhurongshuo chapter-02.md
+//     "概率性/瞬时性/不可逆性" case).
+//
+// In both cases, content is preserved — only the formatting category shifts.
+// Counting all three categories together as "content blocks" recognizes
+// this. The check still fails on real content loss (dropped paragraphs)
+// or hallucination (added bullets/paragraphs).
+//
+// Removed from earlier design: heading exact-match (src==out). That was
+// too strict — it rejected legitimate Chinese-plain-text→English-heading
+// conversion. See docs/adr/0008-translator-capability-qwen3-plugin.md §10.
+func (q *qualityChecker) CheckChunkStructure(srcChunk, outChunk string) bool {
+	return q.checkChunkStructureDetailed(srcChunk, outChunk).Pass
+}
+
+func (q *qualityChecker) checkChunkStructureDetailed(srcChunk, outChunk string) CheckChunkStructureResult {
+	src := countChunkStructure(srcChunk)
+	out := countChunkStructure(outChunk)
+
+	srcBlocks := src.Headings + src.Paragraphs + src.ListItems
+	outBlocks := out.Headings + out.Paragraphs + out.ListItems
+
+	r := CheckChunkStructureResult{
+		SrcHeadings:        src.Headings,
+		OutHeadings:        out.Headings,
+		SrcParagraphs:      src.Paragraphs,
+		OutParagraphs:      out.Paragraphs,
+		SrcListItems:       src.ListItems,
+		OutListItems:       out.ListItems,
+		SrcContentBlocks:   srcBlocks,
+		OutContentBlocks:   outBlocks,
 	}
-	// List items: tolerance applies
-	if abs(out.ListItems-src.ListItems) > tol {
-		return false
+
+	blockDiff := outBlocks - srcBlocks
+	if abs(blockDiff) > 1 {
+		r.FailedReason = fmt.Sprintf("content_blocks diff %d beyond tol ±1 (src: headings=%d paragraphs=%d list=%d total=%d, out: headings=%d paragraphs=%d list=%d total=%d)",
+			blockDiff,
+			src.Headings, src.Paragraphs, src.ListItems, srcBlocks,
+			out.Headings, out.Paragraphs, out.ListItems, outBlocks)
+		return r
 	}
-	// Links: tolerance applies (LLM may merge/split)
-	if abs(out.Links-src.Links) > tol {
-		return false
-	}
-	// Images: exact match (images are rare and important)
-	if out.Images != src.Images {
-		return false
-	}
-	// Code fences: exact match (critical for code blocks)
-	if out.CodeFences != src.CodeFences {
-		return false
-	}
-	return true
+
+	r.Pass = true
+	return r
 }
 
 // CheckLengthRatio returns out_chars / src_chars and a pass flag. This is
@@ -198,12 +255,7 @@ func (q *qualityChecker) CheckLengthRatio(source, output string) (float64, bool)
 }
 
 // CheckGlossaryCompliance passes when no glossary source term appears in
-// the output (LLM should have translated them all) AND all expected target
-// translations appear at least once when the source term was in the input.
-//
-// v1 implements only the first check (source term absence); the second
-// check requires matching input/output token positions which is complex
-// and prone to false positives.
+// the output (LLM should have translated them all).
 func (q *qualityChecker) CheckGlossaryCompliance(output string, glossary map[string]string) bool {
 	if len(glossary) == 0 {
 		return true

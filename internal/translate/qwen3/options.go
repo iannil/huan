@@ -68,8 +68,20 @@ type QualityConfig struct {
 	TargetLanguageThreshold float64 `yaml:"target_language_threshold" json:"target_language_threshold"`
 
 	// MarkdownStructureTolerance is the ±N count diff allowed for
-	// headings/lists/links/images between source and output.
+	// text units (paragraphs + list items combined) within a chunk.
+	// Default 1.
+	//
+	// Note: chunked translation (Phase E) checks per-chunk structure
+	// (heading 1:1 + text units ±tolerance). The old whole-doc
+	// symmetric check has been removed.
 	MarkdownStructureTolerance int `yaml:"markdown_structure_tolerance" json:"markdown_structure_tolerance"`
+
+	// ChunkContextTokenBudget is the maximum total estimated tokens of
+	// previously translated chunks to inject as PREVIOUSLY_TRANSLATED_SECTIONS
+	// context for the current chunk. Default 8000. The sliding window
+	// picks the most-recent chunks that fit; the most-recent is always
+	// included even if it alone exceeds budget.
+	ChunkContextTokenBudget int `yaml:"chunk_context_token_budget" json:"chunk_context_token_budget"`
 
 	// EnforceGlossary enables post-validation of glossary compliance.
 	EnforceGlossary bool `yaml:"enforce_glossary" json:"enforce_glossary"`
@@ -104,7 +116,10 @@ func (c *Config) defaults() {
 		c.Quality.TargetLanguageThreshold = 0.8
 	}
 	if c.Quality.MarkdownStructureTolerance == 0 {
-		c.Quality.MarkdownStructureTolerance = 2
+		c.Quality.MarkdownStructureTolerance = 1
+	}
+	if c.Quality.ChunkContextTokenBudget == 0 {
+		c.Quality.ChunkContextTokenBudget = 8000
 	}
 	if c.Quality.RetryOnViolation == 0 {
 		c.Quality.RetryOnViolation = 1

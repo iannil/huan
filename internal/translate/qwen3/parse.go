@@ -14,13 +14,8 @@ type parsedOutput struct {
 }
 
 // parseXMLOutput extracts <title> and <body> contents from the LLM response.
-//
-// The contract is:
-//
-//	<title>English Title</title>
-//	<body>
-//	English markdown body
-//	</body>
+// Used for the FIRST chunk in a chunked translation (or for legacy non-chunked
+// calls), where the prompt asks for both tags. <title> is REQUIRED.
 //
 // Tags may appear in either order; whitespace around tags is tolerated.
 // Returns an error if either tag is missing or empty.
@@ -54,3 +49,22 @@ func parseXMLOutput(raw string) (parsedOutput, error) {
 
 	return parsedOutput{Title: title, Body: body}, nil
 }
+
+// parseChunkBodyOutput extracts only <body> from the LLM response. Used for
+// NON-FIRST chunks in chunked translation, where the prompt asks only for
+// <body>...</body> (no <title>). Title is irrelevant for these chunks.
+//
+// Returns an error if <body> is missing or empty.
+func parseChunkBodyOutput(raw string) (parsedOutput, error) {
+	bodyRe := regexp.MustCompile(`(?s)<body>(.*?)</body>`)
+	bodyMatch := bodyRe.FindStringSubmatch(raw)
+	if len(bodyMatch) < 2 {
+		return parsedOutput{}, fmt.Errorf("parse: <body> tag not found in chunk output")
+	}
+	body := strings.TrimSpace(bodyMatch[1])
+	if body == "" {
+		return parsedOutput{}, fmt.Errorf("parse: <body> tag is empty")
+	}
+	return parsedOutput{Title: "", Body: body}, nil
+}
+

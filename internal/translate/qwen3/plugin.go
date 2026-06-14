@@ -3,6 +3,7 @@ package qwen3
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/iannil/huan/internal/observability"
@@ -28,10 +29,6 @@ type Plugin struct {
 // ping Ollama at construction time — that's deferred to the first
 // Translate call so users can construct plugins without a running Ollama
 // (useful for `huan plugin list`).
-//
-// Logger is created per Translate() call (mirrors cloudflare plugin's
-// per-Deploy() logger pattern). For batch correlation across files, the
-// CLI orchestrator maintains its own outer logger.
 func New(cfg Config, projectRoot string) (*Plugin, error) {
 	if projectRoot == "" {
 		return nil, fmt.Errorf("qwen3: projectRoot is required")
@@ -57,20 +54,22 @@ func (p *Plugin) Name() string { return "qwen3_translate" }
 // effective config in `huan plugin info`.
 func (p *Plugin) Config() Config { return p.cfg }
 
-// Translate implements translate.Translator. It:
-//  1. Assembles system + user prompts (glossary + source title + source body)
-//  2. Calls Ollama HTTP /api/chat with the configured model
-//  3. Parses <title>...</title><body>...</body> from the response
-//  4. Runs quality checks (XML parse, language detection, markdown structure)
-//  5. Returns Response with QualityChecks populated
+// Translate implements translate.Translator via the chunked pipeline:
 //
-// On hard quality check failure (XML parse / language detection / markdown
-// structure), the Response is still returned (caller decides whether to
-// consume) but QualityChecks.HardCheckFailures() will list the failures.
+//  1. Split source body into Chunks by level-2 headings (## ).
+//  2. For each chunk (in document order):
+//     a. Build chunkPromptInput with PREVIOUSLY_TRANSLATED_SECTIONS
+//        (sliding-window context from already-translated chunks).
+//     b. Call Ollama.
+//     c. Run per-chunk quality checks (format_purity, language_detection,
+//        chunk_structure, length_ratio, glossary).
+//     d. Retry up to RetryOnViolation times on failure.
+//  3. Concatenate translated chunks into final body.
+//  4. Return Response with aggregated QualityChecks.
 //
-// Retries: when a soft check fails (length ratio, glossary compliance),
-// Translate retries up to cfg.Quality.RetryOnViolation times with a hint
-// appended to the user prompt.
+// On any chunk's hard failure (XML parse / format_purity /
+// language_detection / chunk_structure), the whole doc fails — no
+// partial sidecar is written.
 func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*translate.Response, error) {
 	overallStart := time.Now()
 	traceID := observability.NewTraceID()
@@ -94,124 +93,288 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 		return nil, fmt.Errorf("qwen3: source/target language is required")
 	}
 
-	localReq := translateRequest{
-		Title:   req.Title,
-		Content: req.Content,
-		Hints:   req.Hints,
-	}
-
 	// Ping Ollama on first call (fail-fast)
 	if err := client.ping(ctx); err != nil {
 		return nil, fmt.Errorf("qwen3: ollama unreachable: %w", err)
 	}
 
-	var lastResponse *translate.Response
-	maxAttempts := 1 + p.cfg.Quality.RetryOnViolation
+	// Split source into chunks by level-2 headings.
+	chunks := splitBySection(req.Content)
+	logger.Log("chunk-split", observability.EventPoint, map[string]any{
+		"chunk_total":      len(chunks),
+		"has_preamble":     chunks[0].IsPreamble,
+		"src_total_chars":  len(req.Content),
+	})
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		userPrompt := p.prompt.assembleUserPrompt(localReq, req.Glossary)
-		if attempt > 0 {
-			// Append retry hint
-			userPrompt += "\n\nNOTE: Previous attempt failed quality checks. Please be more careful with formatting and terminology."
-		}
+	// Translate each chunk with sliding-window context.
+	translatedChunks := make([]string, 0, len(chunks))
+	var title string
+	totalTokensUsed := 0
+	var totalDurationMs int64
+	maxRetryCount := 0
+	// Doc-level char totals for aggregate length ratio.
+	totalSrcChars := 0
+	totalOutChars := 0
+	// Aggregated hard-fail tracking: any single chunk's hard fail marks
+	// the whole doc as hard-failed (no partial sidecar).
+	aggXMLParse := true
+	aggLanguageDetection := true
+	aggChunkStructure := true
+	aggFormatPurity := true
+	aggGlossaryCompliance := true
+	var lastFailReason string
 
-		callStart := time.Now()
-		chatResp, err := client.chat(ctx, p.cfg.Model, p.prompt.systemPrompt, userPrompt)
-		callDuration := time.Since(callStart)
+	for chunkIdx, chunk := range chunks {
+		chunkStart := time.Now()
+		isFirst := chunkIdx == 0
 
-		if err != nil {
-			// Try fallback model if configured
-			if p.cfg.FallbackModel != "" && p.cfg.FallbackModel != p.cfg.Model {
-				logger.Log("translate-fallback", observability.EventBranch, map[string]any{
-					"reason":        "primary model failed",
-					"primary":       p.cfg.Model,
-					"fallback":      p.cfg.FallbackModel,
-					"primary_error": err.Error(),
-				})
-				chatResp, err = client.chat(ctx, p.cfg.FallbackModel, p.prompt.systemPrompt, userPrompt)
-				callDuration = time.Since(callStart)
+		// Sliding-window context from previously translated chunks.
+		prevContext := slidingWindowContext(translatedChunks, p.cfg.Quality.ChunkContextTokenBudget)
+
+		// Per-chunk retry loop (attempts 0..RetryOnViolation).
+		var (
+			parsedChunk parsedOutput
+			chunkTokens int
+			chunkOK     bool
+			chunkHard   []string
+			retryUsed   int
+		)
+
+		for attempt := 0; attempt <= p.cfg.Quality.RetryOnViolation; attempt++ {
+			retryUsed = attempt
+			in := chunkPromptInput{
+				Title:          req.Title,
+				Hints:          req.Hints,
+				ChunkHeading:   chunk.Heading,
+				ChunkBody:      chunk.Body,
+				PreviousContext: prevContext,
+				IsFirst:        isFirst,
+			}
+			userPrompt := p.prompt.assembleChunkPrompt(in, req.Glossary)
+			if attempt > 0 {
+				userPrompt += "\n\nNOTE: Previous attempt for this chunk failed quality checks. " +
+					"Please be more careful with format preservation, target language, and structure 1:1."
+			}
+
+			chatResp, err := client.chat(ctx, p.cfg.Model, p.prompt.systemPrompt, userPrompt)
+			if err != nil {
+				if p.cfg.FallbackModel != "" && p.cfg.FallbackModel != p.cfg.Model {
+					logger.Log("chunk-fallback", observability.EventBranch, map[string]any{
+						"chunk_index":   chunk.Index,
+						"primary":       p.cfg.Model,
+						"fallback":      p.cfg.FallbackModel,
+						"primary_error": err.Error(),
+					})
+					chatResp, err = client.chat(ctx, p.cfg.FallbackModel, p.prompt.systemPrompt, userPrompt)
+				}
+				if err != nil {
+					// HTTP/infra error → no point retrying within chunk loop.
+					return nil, fmt.Errorf("qwen3: chunk %d/%d LLM call failed: %w",
+						chunk.Index, len(chunks), err)
+				}
+			}
+
+			// Parse XML output. First chunk requires <title> + <body>;
+			// subsequent chunks require only <body>.
+			var parsed parsedOutput
+			if isFirst {
+				parsed, err = parseXMLOutput(chatResp.Message.Content)
+			} else {
+				parsed, err = parseChunkBodyOutput(chatResp.Message.Content)
 			}
 			if err != nil {
-				return nil, fmt.Errorf("qwen3: LLM call failed: %w", err)
+				// XML parse failure = hard fail, no retry.
+				aggXMLParse = false
+				lastFailReason = fmt.Sprintf("chunk %d/%d XML parse: %v", chunk.Index, len(chunks), err)
+				logger.Log("chunk-xml-fail", observability.EventPoint, map[string]any{
+					"chunk_index": chunk.Index,
+					"attempt":     attempt,
+					"reason":      err.Error(),
+				})
+				chunkHard = []string{"xml_parse"}
+				break
 			}
-		}
 
-		// Parse XML output
-		parsed, err := parseXMLOutput(chatResp.Message.Content)
-		if err != nil {
-			// XML parse failure is a hard quality check failure — no retry
-			// (LLM clearly didn't follow output contract).
-			lastResponse = &translate.Response{
-				Title:      "",
-				Body:       chatResp.Message.Content, // raw output for debugging
-				Model:      chatResp.Model,
-				TokensUsed: chatResp.PromptEvalCount + chatResp.EvalCount,
-				DurationMs: callDuration.Milliseconds(),
-				QualityChecks: translate.QualityResult{
-					XMLParse:          false,
-					LanguageDetection: false,
-					MarkdownStructure: false,
-					FormatPurity:      false,
-					RetryCount:        attempt,
-				},
+			// Per-chunk quality checks (vs chunk source slice).
+			chunkSrc := chunk.Source()
+			chunkOut := parsed.Body
+			langOK := p.quality.CheckLanguageDetection(chunkOut)
+			structOK := p.quality.CheckChunkStructure(chunkSrc, chunkOut)
+			formatOK := p.quality.CheckFormatPurity(chunkOut)
+			lengthRatio, lengthOK := p.quality.CheckLengthRatio(chunkSrc, chunkOut)
+			glossaryOK := p.quality.CheckGlossaryCompliance(chunkOut, req.Glossary)
+
+			hardFails := []string{}
+			if !langOK {
+				hardFails = append(hardFails, "language_detection")
 			}
-			break
-		}
+			if !structOK {
+				hardFails = append(hardFails, "markdown_structure")
+			}
+			if !formatOK {
+				hardFails = append(hardFails, "format_purity")
+			}
 
-		// Run quality checks
-		qr := translate.QualityResult{
-			XMLParse:   true,
-			RetryCount: attempt,
-		}
-		qr.LanguageDetection = p.quality.CheckLanguageDetection(parsed.Body)
-		qr.MarkdownStructure = p.quality.CheckMarkdownStructure(req.Content, parsed.Body)
-		qr.FormatPurity = p.quality.CheckFormatPurity(parsed.Body)
-		lengthRatio, lengthOK := p.quality.CheckLengthRatio(req.Content, parsed.Body)
-		qr.LengthRatio = lengthRatio
-		qr.GlossaryCompliance = p.quality.CheckGlossaryCompliance(parsed.Body, req.Glossary)
+			if !structOK {
+				diag := p.quality.checkChunkStructureDetailed(chunkSrc, chunkOut)
+				logger.Log("chunk-structure-diag", observability.EventPoint, map[string]any{
+					"chunk_index":       chunk.Index,
+					"attempt":           attempt,
+					"reason":            diag.FailedReason,
+					"src_headings":      diag.SrcHeadings,
+					"out_headings":      diag.OutHeadings,
+					"src_paragraphs":    diag.SrcParagraphs,
+					"out_paragraphs":    diag.OutParagraphs,
+					"src_list_items":    diag.SrcListItems,
+					"out_list_items":    diag.OutListItems,
+					"src_content_blocks": diag.SrcContentBlocks,
+					"out_content_blocks": diag.OutContentBlocks,
+				})
+			}
 
-		lastResponse = &translate.Response{
-			Title:         parsed.Title,
-			Body:          parsed.Body,
-			Model:         chatResp.Model,
-			TokensUsed:    chatResp.PromptEvalCount + chatResp.EvalCount,
-			DurationMs:    callDuration.Milliseconds(),
-			QualityChecks: qr,
-		}
-
-		// If hard checks pass AND soft checks pass, done.
-		hardFails := qr.HardCheckFailures()
-		softOK := lengthOK && qr.GlossaryCompliance
-		if len(hardFails) == 0 && softOK {
-			break
-		}
-		// Hard failures never retry (LLM structural issue); only soft failures retry
-		if len(hardFails) > 0 {
-			logger.Log("translate-hard-fail", observability.EventPoint, map[string]any{
-				"failed_checks": hardFails,
-				"attempt":       attempt,
+			logger.Log("chunk-check", observability.EventPoint, map[string]any{
+				"chunk_index":    chunk.Index,
+				"attempt":        attempt,
+				"hard_fails":     hardFails,
+				"length_ok":      lengthOK,
+				"glossary_ok":    glossaryOK,
+				"length_ratio":   lengthRatio,
 			})
+
+			// Hard fail → no retry (LLM structural issue).
+			if len(hardFails) > 0 {
+				chunkHard = hardFails
+				lastFailReason = fmt.Sprintf("chunk %d/%d hard fail: %v", chunk.Index, len(chunks), hardFails)
+				logger.Log("chunk-hard-fail", observability.EventPoint, map[string]any{
+					"chunk_index": chunk.Index,
+					"attempt":     attempt,
+					"failed":      hardFails,
+					"will_retry":  false,
+				})
+				break
+			}
+
+			// Soft fail → retry if budget remains.
+			if (!lengthOK || !glossaryOK) && attempt < p.cfg.Quality.RetryOnViolation {
+				logger.Log("chunk-soft-fail", observability.EventPoint, map[string]any{
+					"chunk_index": chunk.Index,
+					"attempt":     attempt,
+					"length_ok":   lengthOK,
+					"glossary_ok": glossaryOK,
+					"will_retry":  true,
+				})
+				continue
+			}
+
+			// Success (or exhausted retries with soft fail only — acceptable).
+			parsedChunk = parsed
+			chunkTokens = chatResp.PromptEvalCount + chatResp.EvalCount
+			chunkOK = true
+			// Aggregate glossary for the doc-level response. Soft fails
+			// don't block but are reflected in the final QualityResult.
+			if !glossaryOK {
+				aggGlossaryCompliance = false
+			}
 			break
 		}
-		logger.Log("translate-soft-fail", observability.EventPoint, map[string]any{
-			"length_ok":    lengthOK,
-			"glossary_ok":  qr.GlossaryCompliance,
-			"length_ratio": lengthRatio,
-			"attempt":      attempt,
-			"will_retry":   attempt+1 < maxAttempts,
+
+		chunkDurationMs := time.Since(chunkStart).Milliseconds()
+		totalDurationMs += chunkDurationMs
+
+		if !chunkOK {
+			// Aggregate hard fails for doc-level Response.
+			for _, hf := range chunkHard {
+				switch hf {
+				case "language_detection":
+					aggLanguageDetection = false
+				case "markdown_structure":
+					aggChunkStructure = false
+				case "format_purity":
+					aggFormatPurity = false
+				}
+			}
+			if retryUsed > maxRetryCount {
+				maxRetryCount = retryUsed
+			}
+			logger.Log("chunk-aborted", observability.EventPoint, map[string]any{
+				"chunk_index": chunk.Index,
+				"reason":      lastFailReason,
+				"hard_fails":  chunkHard,
+			})
+			// Atomic: stop on first chunk failure. Already-translated
+			// chunks are discarded; no partial sidecar written.
+			break
+		}
+
+		// Success path
+		if isFirst {
+			title = parsedChunk.Title
+		}
+		translatedChunks = append(translatedChunks, parsedChunk.Body)
+		totalTokensUsed += chunkTokens
+		totalSrcChars += len(chunk.Source())
+		totalOutChars += len(parsedChunk.Body)
+		if retryUsed > maxRetryCount {
+			maxRetryCount = retryUsed
+		}
+
+		logger.Log("chunk-complete", observability.EventPoint, map[string]any{
+			"chunk_index":   chunk.Index,
+			"chunk_total":   len(chunks),
+			"src_chars":     len(chunk.Source()),
+			"out_chars":     len(parsedChunk.Body),
+			"tokens":        chunkTokens,
+			"duration_ms":   chunkDurationMs,
+			"context_tokens": estimateTokens(prevContext),
+			"attempts":      retryUsed + 1,
 		})
 	}
 
+	// Assemble final doc-level response.
+	// If any chunk hard-failed, Body is empty (atomic — no partial).
+	body := ""
+	status := "success"
+	if len(translatedChunks) == len(chunks) {
+		body = strings.Join(translatedChunks, "\n\n")
+	} else {
+		status = "hard_fail"
+	}
+
+	// Aggregate length ratio from chunk char totals.
+	var docLengthRatio float64
+	if totalSrcChars > 0 {
+		docLengthRatio = float64(totalOutChars) / float64(totalSrcChars)
+	}
+
+	resp := &translate.Response{
+		Title:      title,
+		Body:       body,
+		Model:      p.cfg.Model,
+		TokensUsed: totalTokensUsed,
+		DurationMs: time.Since(overallStart).Milliseconds(),
+		QualityChecks: translate.QualityResult{
+			XMLParse:           aggXMLParse,
+			LanguageDetection:  aggLanguageDetection,
+			MarkdownStructure:  aggChunkStructure,
+			FormatPurity:       aggFormatPurity,
+			LengthRatio:        docLengthRatio,
+			GlossaryCompliance: aggGlossaryCompliance,
+			RetryCount:         maxRetryCount,
+		},
+	}
+
 	logger.LogFunctionEnd(spanID, time.Since(overallStart), map[string]any{
-		"status":        translateResponseStatus(lastResponse),
-		"hard_failures": lastResponse.QualityChecks.HardCheckFailures(),
-		"length_ratio":  lastResponse.QualityChecks.LengthRatio,
-		"glossary_ok":   lastResponse.QualityChecks.GlossaryCompliance,
-		"tokens":        lastResponse.TokensUsed,
-		"retries":       lastResponse.QualityChecks.RetryCount,
+		"status":         status,
+		"hard_failures":  resp.QualityChecks.HardCheckFailures(),
+		"chunks_total":   len(chunks),
+		"chunks_ok":      len(translatedChunks),
+		"tokens":         totalTokensUsed,
+		"glossary_ok":    aggGlossaryCompliance,
+		"retries_max":    maxRetryCount,
+		"last_fail":      lastFailReason,
 	})
 
-	return lastResponse, nil
+	return resp, nil
 }
 
 // translateResponseStatus returns a human-readable status string for logging.
@@ -222,7 +385,7 @@ func translateResponseStatus(r *translate.Response) string {
 	if len(r.QualityChecks.HardCheckFailures()) > 0 {
 		return "hard_fail"
 	}
-	if r.QualityChecks.LengthRatio < 0.5 || r.QualityChecks.LengthRatio > 2.5 {
+	if r.QualityChecks.LengthRatio < 0.5 || r.QualityChecks.LengthRatio > 3.5 {
 		return "soft_warn_length"
 	}
 	if !r.QualityChecks.GlossaryCompliance {

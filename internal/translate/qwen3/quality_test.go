@@ -10,7 +10,8 @@ func newTestChecker() *qualityChecker {
 		LengthRatioMin:             0.5,
 		LengthRatioMax:             3.5,
 		TargetLanguageThreshold:    0.8,
-		MarkdownStructureTolerance: 2,
+		MarkdownStructureTolerance: 1,
+		ChunkContextTokenBudget:    8000,
 		EnforceGlossary:            true,
 		RetryOnViolation:           1,
 	})
@@ -49,15 +50,12 @@ func TestCountCJKRunes(t *testing.T) {
 }
 
 func TestDetectLanguageFraction(t *testing.T) {
-	// Pure English: 0 CJK
 	if got := detectLanguageFraction("the quick brown fox"); got > 0.01 {
 		t.Errorf("pure English fraction = %f, want ~0", got)
 	}
-	// Pure Chinese: 1.0 CJK
 	if got := detectLanguageFraction("法不净空觉无性也"); got < 0.99 {
 		t.Errorf("pure CJK fraction = %f, want ~1", got)
 	}
-	// Mixed: 2 CJK / 4 letters = 0.5
 	got := detectLanguageFraction("ab 世界")
 	if got < 0.4 || got > 0.6 {
 		t.Errorf("mixed fraction = %f, want ~0.5", got)
@@ -66,104 +64,153 @@ func TestDetectLanguageFraction(t *testing.T) {
 
 func TestCheckLanguageDetection(t *testing.T) {
 	q := newTestChecker()
-	// Pure English passes (threshold 0.8 = max 20% CJK)
 	if !q.CheckLanguageDetection("The quick brown fox jumps over the lazy dog") {
 		t.Error("pure English should pass language detection")
 	}
-	// Pure Chinese fails
 	if q.CheckLanguageDetection("法不净空觉无性也") {
 		t.Error("pure Chinese should fail language detection")
 	}
-	// Borderline: 20% CJK should pass
 	if !q.CheckLanguageDetection("hello world 你好") {
 		t.Error("borderline 20% CJK should pass")
 	}
 }
 
-func TestCountMarkdownStructure_Headings(t *testing.T) {
-	src := `# H1
-## H2
-### H3
-body`
-	c := countMarkdownStructure(src)
+func TestCountChunkStructure_HeadingsAndParagraphs(t *testing.T) {
+	src := "# H1\n\npara 1 line a\npara 1 line b\n\n## H2\n\npara 2\n\n### H3\n\npara 3"
+	c := countChunkStructure(src)
 	if c.Headings != 3 {
 		t.Errorf("headings = %d, want 3", c.Headings)
 	}
+	if c.Paragraphs != 3 {
+		t.Errorf("paragraphs = %d, want 3", c.Paragraphs)
+	}
+	if c.ListItems != 0 {
+		t.Errorf("list items = %d, want 0", c.ListItems)
+	}
 }
 
-func TestCountMarkdownStructure_Lists(t *testing.T) {
-	src := `- item 1
-- item 2
-* star item
-+ plus item
-body`
-	c := countMarkdownStructure(src)
+func TestCountChunkStructure_Lists(t *testing.T) {
+	src := "- item 1\n- item 2\n* star\n+ plus\n\npara after list"
+	c := countChunkStructure(src)
 	if c.ListItems != 4 {
 		t.Errorf("list items = %d, want 4", c.ListItems)
 	}
-}
-
-func TestCountMarkdownStructure_Links(t *testing.T) {
-	src := `[text1](/url1/) and [text2](/url2/) and ![image](/img.png)`
-	c := countMarkdownStructure(src)
-	if c.Links != 2 {
-		t.Errorf("links = %d, want 2", c.Links)
-	}
-	if c.Images != 1 {
-		t.Errorf("images = %d, want 1", c.Images)
+	if c.Paragraphs != 1 {
+		t.Errorf("paragraphs = %d, want 1", c.Paragraphs)
 	}
 }
 
-func TestCountMarkdownStructure_CodeFences(t *testing.T) {
-	src := "```go\ncode here\n```\n\nmore\n\n```python\nx = 1\n```"
-	c := countMarkdownStructure(src)
-	if c.CodeFences != 2 {
-		t.Errorf("code fences = %d, want 2", c.CodeFences)
+func TestCountChunkStructure_CodeFenceIgnored(t *testing.T) {
+	// Code fence contents should not be parsed as markdown structure.
+	src := "para\n\n```\n## not a heading\n- not a list\n```\n\nafter"
+	c := countChunkStructure(src)
+	if c.Headings != 0 {
+		t.Errorf("headings inside code fence should not count, got %d", c.Headings)
+	}
+	if c.ListItems != 0 {
+		t.Errorf("list items inside code fence should not count, got %d", c.ListItems)
+	}
+	if c.Paragraphs != 2 {
+		t.Errorf("paragraphs = %d, want 2 (para + after)", c.Paragraphs)
 	}
 }
 
-func TestCheckMarkdownStructure_ExactMatch(t *testing.T) {
+func TestCheckChunkStructure_IdenticalPasses(t *testing.T) {
 	q := newTestChecker()
-	src := `# H1
-
-paragraph
-
-- item 1
-- item 2
-
-[text](/url/)
-`
-	out := src // identical
-	if !q.CheckMarkdownStructure(src, out) {
-		t.Error("identical markdown should pass structure check")
+	src := "## Section\n\nparagraph one\n\nparagraph two\n\n- bullet 1\n- bullet 2"
+	if !q.CheckChunkStructure(src, src) {
+		t.Error("identical chunk should pass structure check")
 	}
 }
 
-func TestCheckMarkdownStructure_HeadingCountMismatch(t *testing.T) {
+func TestCheckChunkStructure_ParagraphToHeadingPasses(t *testing.T) {
+	// Empirically observed on zhurongshuo appendix.md: Chinese source uses
+	// plain-text "第一部分：..." as informal section dividers; model converts
+	// them to proper markdown headings (### Part One). Content blocks count
+	// (heading + paragraph + list) is preserved — should PASS.
 	q := newTestChecker()
-	src := `# H1
-# H2
-# H3
-# H4`
-	out := `# Only One`
-	if q.CheckMarkdownStructure(src, out) {
-		t.Error("heading count diff 3 > tolerance 2 should fail")
+	// src: 1 heading + 6 paragraphs (intro + 5 "Part X" plain text)
+	src := "## Appendix B\n\nintro paragraph.\n\n" +
+		"第一部分：A.\n\nref 1.\n\n第二部分：B.\n\nref 2."
+	// out: 3 headings + 4 paragraphs (Part X became headings, 1 paragraph each removed)
+	out := "## Appendix B\n\nintro paragraph.\n\n### Part One: A\n\nref 1.\n\n### Part Two: B\n\nref 2."
+	diag := q.checkChunkStructureDetailed(src, out)
+	if !q.CheckChunkStructure(src, out) {
+		t.Errorf("paragraph→heading conversion should pass (content blocks preserved): %s", diag.FailedReason)
 	}
 }
 
-func TestCheckMarkdownStructure_ImageMismatch(t *testing.T) {
+func TestCheckChunkStructure_ProseToBulletPasses(t *testing.T) {
+	// Empirically observed on chapter-02.md: model converts parallel
+	// prose paragraphs to bullet list. Content blocks preserved.
 	q := newTestChecker()
-	src := `![img1](/a.png) ![img2](/b.png)`
-	out := `![only one](/a.png)`
-	if q.CheckMarkdownStructure(src, out) {
-		t.Error("image count mismatch should fail (exact match required)")
+	src := "At this level, convergence exhibits the following characteristics:\n\n" +
+		"Paragraph A: description.\n\nParagraph B: description.\n\nParagraph C: description."
+	out := "At this level, convergence exhibits the following characteristics:\n\n" +
+		"- A: description.\n- B: description.\n- C: description."
+	if !q.CheckChunkStructure(src, out) {
+		diag := q.checkChunkStructureDetailed(src, out)
+		t.Errorf("prose→bullet reformatting should pass (content blocks preserved); failed: %s", diag.FailedReason)
+	}
+}
+
+func TestCheckChunkStructure_ContentDropFails(t *testing.T) {
+	// Model drops 2 paragraphs: src 3 → out 1, diff -2 > tol.
+	q := newTestChecker()
+	src := "para 1\n\npara 2\n\npara 3"
+	out := "only para"
+	if q.CheckChunkStructure(src, out) {
+		t.Error("dropping 2 of 3 paragraphs should fail (diff > tolerance)")
+	}
+}
+
+func TestCheckChunkStructure_BulletAdditionFails(t *testing.T) {
+	// Source has 1 content block (heading); model adds 4 bullets → out 5.
+	// diff = +4 > tol → FAIL.
+	q := newTestChecker()
+	src := "## Heading"
+	out := "## Heading\n\n- bullet 1\n- bullet 2\n- bullet 3\n- bullet 4"
+	if q.CheckChunkStructure(src, out) {
+		t.Error("adding 4 bullets to empty chunk should fail (diff > tolerance)")
+	}
+}
+
+func TestCheckChunkStructure_MinorReformattingPasses(t *testing.T) {
+	// Merge 2 paragraphs into 1: diff 1, within tolerance.
+	q := newTestChecker()
+	src := "para 1\n\npara 2"
+	out := "para 1 merged with para 2"
+	if !q.CheckChunkStructure(src, out) {
+		t.Error("merging 2 paragraphs (diff 1) should pass within tolerance")
+	}
+}
+
+func TestCheckChunkStructure_AppendixBFullyPreserved(t *testing.T) {
+	// Mirror the real appendix.md chunk 2 scenario:
+	// src: 1 ## + 24 paragraphs (incl 5 "Part X" plain text dividers)
+	// out: 1 ## + 5 ### (Part X became headings) + 19 paragraphs
+	// Both = 25 content blocks → PASS.
+	q := newTestChecker()
+	src := "## Appendix B: References\n\nintro\n\n" +
+		"第一部分：A\n\nr1a\n\nr1b\n\nr1c\n\nr1d\n\n" +
+		"第二部分：B\n\nr2a\n\nr2b\n\nr2c\n\nr2d\n\n" +
+		"第三部分：C\n\nr3a\n\nr3b\n\nr3c\n\nr3d\n\n" +
+		"第四部分：D\n\nr4a\n\nr4b\n\n" +
+		"第五部分：E\n\nr5a\n\nr5b\n\nr5c"
+	out := "## Appendix B: References\n\nintro\n\n" +
+		"### Part One: A\n\nr1a\n\nr1b\n\nr1c\n\nr1d\n\n" +
+		"### Part Two: B\n\nr2a\n\nr2b\n\nr2c\n\nr2d\n\n" +
+		"### Part Three: C\n\nr3a\n\nr3b\n\nr3c\n\nr3d\n\n" +
+		"### Part Four: D\n\nr4a\n\nr4b\n\n" +
+		"### Part Five: E\n\nr5a\n\nr5b\n\nr5c"
+	if !q.CheckChunkStructure(src, out) {
+		diag := q.checkChunkStructureDetailed(src, out)
+		t.Errorf("appendix B scenario (25 blocks → 25 blocks) should pass: %s", diag.FailedReason)
 	}
 }
 
 func TestCheckLengthRatio_NormalRange(t *testing.T) {
 	q := newTestChecker()
-	// Char-ratio metric: out_chars / src_chars.
-	// 100 src chars, 200 out chars → ratio 2.0 (typical zh→en expansion).
 	src := strings.Repeat("法", 100)
 	out := strings.Repeat("a", 200)
 	ratio, ok := q.CheckLengthRatio(src, out)
@@ -180,8 +227,8 @@ func TestCheckLengthRatio_NormalRange(t *testing.T) {
 
 func TestCheckLengthRatio_TooShort(t *testing.T) {
 	q := newTestChecker()
-	src := strings.Repeat("法", 100) // 100 chars
-	out := "tiny"                    // 4 chars → ratio 0.04
+	src := strings.Repeat("法", 100)
+	out := "tiny"
 	ratio, ok := q.CheckLengthRatio(src, out)
 	if ok {
 		t.Error("ratio 0.04 should fail (too short)")
@@ -193,7 +240,7 @@ func TestCheckLengthRatio_TooShort(t *testing.T) {
 
 func TestCheckLengthRatio_TooLong(t *testing.T) {
 	q := newTestChecker()
-	src := "法" // 1 char
+	src := "法"
 	out := strings.Repeat("a", 500)
 	ratio, ok := q.CheckLengthRatio(src, out)
 	if ok {
@@ -205,10 +252,6 @@ func TestCheckLengthRatio_TooLong(t *testing.T) {
 }
 
 func TestCheckLengthRatio_ZhEnExpansionObserved(t *testing.T) {
-	// Empirically observed on zhurongshuo chapter-04.md:
-	// src ~12k CJK chars → out ~36k ASCII chars (ratio ~3.0).
-	// This must PASS under the new char-ratio metric (it was a false
-	// soft-warn under the old en_words/cjk_chars metric).
 	q := newQualityChecker(QualityConfig{
 		LengthRatioMin: 0.5,
 		LengthRatioMax: 3.5,
@@ -223,17 +266,7 @@ func TestCheckLengthRatio_ZhEnExpansionObserved(t *testing.T) {
 
 func TestCheckFormatPurity_PureMarkdown(t *testing.T) {
 	q := newTestChecker()
-	out := `# Heading 1
-
-paragraph text
-
-## Heading 2
-
-- list item
-- another item
-
-[a link](/url/)
-`
+	out := "# Heading 1\n\nparagraph text\n\n## Heading 2\n\n- list item\n- another item\n\n[a link](/url/)\n"
 	if !q.CheckFormatPurity(out) {
 		t.Error("pure markdown should pass format_purity")
 	}
@@ -241,10 +274,7 @@ paragraph text
 
 func TestCheckFormatPurity_HtmlHeadingFails(t *testing.T) {
 	q := newTestChecker()
-	// Observed failure mode: Qwen3-Next-80B converting markdown to HTML.
-	out := `<h1>Title</h1>
-<p>paragraph</p>
-<h2>4.1 Section</h2>`
+	out := "<h1>Title</h1>\n<p>paragraph</p>\n<h2>4.1 Section</h2>"
 	if q.CheckFormatPurity(out) {
 		t.Error("HTML <h1>/<p>/<h2> should fail format_purity")
 	}
@@ -252,10 +282,7 @@ func TestCheckFormatPurity_HtmlHeadingFails(t *testing.T) {
 
 func TestCheckFormatPurity_HtmlListFails(t *testing.T) {
 	q := newTestChecker()
-	out := `<ul>
-  <li>one</li>
-  <li>two</li>
-</ul>`
+	out := "<ul>\n  <li>one</li>\n  <li>two</li>\n</ul>"
 	if q.CheckFormatPurity(out) {
 		t.Error("HTML <ul>/<li> should fail format_purity")
 	}
@@ -263,7 +290,6 @@ func TestCheckFormatPurity_HtmlListFails(t *testing.T) {
 
 func TestCheckFormatPurity_ClosingTagFails(t *testing.T) {
 	q := newTestChecker()
-	// Closing tag implies an opener; flagged for robustness.
 	out := "paragraph</p>"
 	if q.CheckFormatPurity(out) {
 		t.Error("HTML closing tag should fail format_purity")
@@ -272,9 +298,6 @@ func TestCheckFormatPurity_ClosingTagFails(t *testing.T) {
 
 func TestCheckFormatPurity_InlineSpanPasses(t *testing.T) {
 	q := newTestChecker()
-	// Inline <span>/<em>/<strong>/<a>/<br> are NOT in the blacklist —
-	// goldmark unsafe=true allows them in source markdown, and the model
-	// legitimately preserves them. No false positives.
 	out := `<span class="red">red text</span> and <em>emphasis</em> and <br/>`
 	if !q.CheckFormatPurity(out) {
 		t.Error("inline span/em/br should pass format_purity")
@@ -320,7 +343,6 @@ func TestCheckGlossaryCompliance_SourceTermAbsent(t *testing.T) {
 		"专注": "focus",
 		"觉察": "awareness",
 	}
-	// Output has neither Chinese term — passes
 	if !q.CheckGlossaryCompliance("The focus and awareness are key.", glossary) {
 		t.Error("output without source terms should pass")
 	}
@@ -331,7 +353,6 @@ func TestCheckGlossaryCompliance_SourceTermPresent(t *testing.T) {
 	glossary := map[string]string{
 		"专注": "focus",
 	}
-	// Output still has 专注 — LLM failed to translate it
 	if q.CheckGlossaryCompliance("The 专注 is key.", glossary) {
 		t.Error("output with untranslated source term should fail")
 	}

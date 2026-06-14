@@ -105,6 +105,58 @@
 - prompt 加更强约束（"Translate EVERY paragraph, including opening"）
 - 模型层换 fallback（`qwen3:14b` 非 MoE，prior 可能更弱）
 
+---
+
+## D：非对称 heading tolerance（2026-06-14 增补）
+
+### 触发：长附录 / 长章节的 markdown_structure hard_fail
+
+跑全量翻译时发现：`books/volume-1/advancement-of-reality/` 目录下的 `appendix.md`、`chapter-02.md`、`chapter-03.md` 全部 `hard_fail: [markdown_structure]`，但 `chapter-01.md` / `chapter-04.md` / `chapter-05.md` / `chapter-06.md` PASS。
+
+### Probe 实证（appendix.md）
+
+| Probe 版本 | prompt suffix | heading diff |
+|---|---|---|
+| v1 | 原始 B/A/C prompt | src 46 → out 54 (**+8**) |
+| v2 | 加 `HEADING INVARIANTS` 块 + 明确禁止 "Part One" 分组 + "MUST have exactly 46 heading lines" | src 46 → out 54 (**+8**) |
+
+**Prompt 强化 0 效果**——模型在长附录上"加 Part One/Two/... 中间分组"的 prior 极强，明确禁止 + 数字约束都无效。但 list items 在 v2 里 0→0（模型听话），证明这不是疏忽，是 heading 的认知偏好。
+
+### 设计决策（grill-me Q2 收敛）
+
+走 (b-i) 非对称 tolerance：
+
+```
+旧规则（对称）：  abs(out - src) > tol        → fail
+新规则（非对称）：(src - out) > tol           → fail  # 不允许丢超过 tol 个
+                  out > src * (1 + 0.25)      → fail  # 不允许加超过 25%
+```
+
+**只对 heading 非对称**，list/link/image/codefence 维持对称/严格。
+
+### 实现
+
+- `internal/translate/qwen3/quality.go::CheckMarkdownStructure`：heading 检查从 `abs(out-src) > tol` 拆成两个比较
+- `internal/translate/qwen3/options.go`：新增 `MarkdownHeadingExpansionMax float64`（默认 0.25），defaults() 注入
+- `internal/translate/qwen3/quality_test.go`：6 个新测试 case（appendix 场景 + 边界 + 激进扩张 fail）
+- `docs/adr/0008-translator-capability-qwen3-plugin.md`：新增 §9.3 决策记录 + §9 表格更新（heading 非对称说明）
+
+### 验证（推理验算，未跑 Ollama）
+
+appendix.md 源 46 headings，实测输出 54：
+- loss = 46 - 54 = -8（负数，不算 loss）→ 第一条规则 PASS
+- max allowed = 46 + int(46 * 0.25) = 46 + 11 = 57
+- out 54 ≤ 57 → 第二条规则 PASS
+
+→ appendix.md 在新规则下应该 PASS。等翻译进程跑到该文件实际验证。
+
+### 经验教训
+
+1. **prompt 强化不是万能的**：当模型对某类变换有强 prior（如 heading 重构），明确禁止、显式数字约束、列举反例都可能无效。两次 probe 对照是关键证据。
+2. **区分「丢内容」和「加结构」**：翻译 quality 的真实目标是"内容没丢"。模型加 intermediate 分组对最终阅读无害甚至有益，应该接受而非惩罚。
+3. **非对称 tolerance 是 checker 层的实用工具**：当 prompt 解不了、又不能换模型时，区分正负偏差是务实的兜底。
+4. **失败率监控的偏差**：早期"0% 成功"的报告是抽样偏差（前 5 篇恰好都是长附录/章节）。等 chapter-04/05/06 跑完才发现实际成功率 ~50%。需要更长窗口判断真实失败率。
+
 ## 文件改动清单
 
 - `internal/translate/types.go`：加 `FormatPurity bool`，更新 `HardCheckFailures`

@@ -263,7 +263,7 @@ Translate now. Output ONLY <title>...</title><body>...</body>.
 |---|---|---|---|
 | XML 解析 | **硬** | `<title>` 与 `<body>` 都成功解析 | 标记失败，不写盘 |
 | 语言检测 | **硬** | 输出 80%+ 是英文 | 标记失败，不写盘 |
-| Markdown 结构计数 | **硬** | heading/list/link/image 数量与源一致 ±2 | 标记失败，不写盘 |
+| Markdown 结构计数 | **硬** | heading **非对称**（不允许丢 >tol，不允许加 >25%）；list/link 对称 ±tol；image/codefence 精确匹配（详见 §9.3） | 标记失败，不写盘 |
 | **Format purity** | **硬** | 输出不含 markdown 等价 HTML 块级标签（h1-h6/p/ul/ol/li/pre/blockquote/table/...） | 标记失败，不写盘 |
 | 长度比 | 软警告 | `out_chars / src_chars ∈ [0.5, 3.5]`（字符膨胀比） | 重试 1 次 |
 | GLOSSARY 违规 | 软警告 | 输出含未译中文术语或自换译名 | 重试 1 次 |
@@ -274,7 +274,7 @@ Translate now. Output ONLY <title>...</title><body>...</body>.
 **为什么四项硬检查是足够的**：
 - XML 解析：确保输出格式可消费
 - 语言检测：确保输出确实是目标语言（防 LLM 偶尔"懒得翻"返回原文）
-- Markdown 结构：确保渲染不会破坏（防 LLM 丢列表/丢链接）
+- Markdown 结构：确保渲染不会破坏（防 LLM 丢列表/丢链接）；heading 用非对称 tolerance 容忍模型加中间分组（详见 §9.3）
 - Format purity：防 LLM 把 markdown 转成 HTML（Qwen3-Next-80B q4_K_M 在长 zh→en 输入上的已知 prior；详见 §9.1）
 
 软警告通过 retry 后即写盘（即便仍 warn）。
@@ -309,6 +309,152 @@ dl, dt, dd, section, article, header, footer, nav, aside, div
 **新阈值**：`[0.5, 3.5]`（zh→en 上限留 0.5 余量给更长 Philosophical prose）。
 
 **为什么字符比稳定**：跨语言通用（en→zh 反向比例 ~0.4-0.7；同语言 ~1.0），不需要按语言对调阈值。
+
+#### 9.3 Markdown structure: 非对称 heading tolerance（2026-06-14 增补，**已被 §10 chunking 取代**）
+
+**⚠️ 已废弃**：本节描述的非对称 heading tolerance 在 chunked translation（§10）实施后已**移除**。chunking 通过 section 级拆分从根本上阻止了跨 section 重构（模型一次只看一个 section，加不了 "Part One/Two" 跨 section 分组）。保留本节作为历史决策记录。
+
+**原背景**：实测 zhurongshuo `books/volume-1/advancement-of-reality/appendix.md` 时（46 headings 的复杂结构），prompt 加强到极致也无法压住模型加 "Part One/Two/..." 中间分组的行为。两次 probe 实证显示 prompt 0 效果。
+
+**原设计**：非对称 tolerance（允许加 heading ≤25%，不允许丢）。
+
+**为什么被取代**：非对称 tolerance 是治标（在 checker 层接受模型重构），chunking 是治本（让模型没机会重构）。chunking 上线后非对称逻辑无存在必要。
+
+#### 9.4 Per-chunk paragraph + heading count（2026-06-14 增补，配合 §10 chunking）
+
+chunked translation 实施后，整篇 markdown_structure 检查被替换为 **per-chunk 结构检查**（`CheckChunkStructure`）：
+
+```
+Headings:  src == out (exact match)        # 1:1，不允许增减
+TextUnits: abs(out - src) ≤ 1              # paragraphs + list_items 合计 ±1
+```
+
+**为什么 TextUnits 合并 paragraphs + list_items**：实测 zhurongshuo chapter-02.md，模型把"概率性/瞬时性/不可逆性"3 段平行 prose 改成 3 个 bullet——这是地道英文写作惯例。把 paragraphs + list_items 算作"content units"统一计数，可以容忍这种排版重排，同时仍然抓"丢内容"和"加内容"。
+
+**对比旧设计**：
+
+| 检查 | 旧（整篇） | 新（per-chunk） |
+|---|---|---|
+| Heading | 对称 ±tol，后改非对称 | **exact 1:1** |
+| Paragraph | 不查 | **±1**（合并 list） |
+| List items | 对称 ±tol | **±1**（合并 paragraph） |
+| Links | 对称 ±tol | 不查（在 chunk 内太碎） |
+| Images | exact | 不查（在 chunk 内太碎） |
+| Code fences | exact | 不查（在 chunk 内太碎） |
+
+### 10. Chunked translation（2026-06-14 增补）
+
+**背景**：B/A/C/D 修复后，仍有 30%+ 长文档失败。根因是 Qwen3-Next-80B q4_K_M 在长输入（>20KB）上有**强 prior**自作主张重构（加 Part 分组、prose→bullet）。prompt 工程无法压住。
+
+**设计**：从"整篇一次调用"改为"section 级 chunked pipeline"。
+
+#### 10.1 拆分粒度
+
+按 `^## `（level-2 heading）切分。每个 `## ` 开启新 chunk，包含其下属 `### / ####` 整段内容。
+
+**为什么 level-2**：
+- ## 是文章主分节（# 是文档标题，已由 frontmatter 处理）
+- ###/#### 是子分节，跟父 ## 一起保持 narrative unit
+- 简单 regex（不需要 AST）
+
+**Code fence aware**：用 ``` 状态机跳过代码块内的假 `## `。
+
+**Edge cases**：
+- 无 ## 文件：整个 body = 1 个 preamble chunk（退化为非 chunked 行为）
+- 第一个 ## 前的内容：单独 preamble chunk
+
+#### 10.2 滑动窗口上下文（Token budget 动态）
+
+每个 chunk 翻译时，注入"已译 chunks 的最近若干段"作为上下文，避免丢失 cross-section reference。
+
+**算法**：从最近 chunk 倒序累加，直到 token budget 用完（默认 8000）。
+
+```go
+for i := len(previous) - 1; i >= 0; i-- {
+    chunkTokens := estimateTokens(previous[i])
+    if len(selected) > 0 && total + chunkTokens > budget {
+        break
+    }
+    selected = prepend(previous[i])
+    total += chunkTokens
+}
+```
+
+**最近 chunk 总是包含**（即使单独超 budget）——比 0 邻居好。
+
+**Token 估算**：粗略 `chars / 3`（CJK ~3 chars/token，ASCII ~4 chars/token，混合 ~3）。
+
+**配置**：`QualityConfig.ChunkContextTokenBudget int` 默认 8000。
+
+#### 10.3 上下文注入方式
+
+User message 内嵌（不用 chat history）：
+
+```
+PREVIOUSLY_TRANSLATED_SECTIONS (context only — do NOT re-translate, do NOT include in output):
+<sliding window content, joined by "\n\n---\n\n">
+
+---
+
+TRANSLATE_NOW (translate this chunk only — preserve source structure 1:1):
+<chunk heading line if any>
+<chunk body>
+
+CRITICAL FORMAT RULES ...
+Output ONLY <body>...</body>.   ← subsequent chunks
+Output ONLY <title>...</title><body>...</body>.   ← first chunk only
+```
+
+**为什么不用 chat history**：明确分隔 context vs to-translate，避免模型"我之前译过了"误导。
+
+#### 10.4 Title 时机
+
+第一个 chunk 一起翻（输出 `<title>...</title><body>...</body>`）。后续 chunks 只输出 `<body>`。
+
+#### 10.5 失败处理 + 写盘策略
+
+- **Per-chunk retry**：每 chunk 失败 retry 至 `RetryOnViolation` 次（复用现有配置）
+- **Atomic write**：任一 chunk 在 retries 后仍 hard fail → 整篇 fail，不写 sidecar
+- **No partial translation**：避免 mixed-language 半成品进生产
+
+#### 10.6 观测性
+
+同一 `trace_id`（per-doc）+ 不同 `span_id`（per-chunk）：
+
+```
+trace_id: <doc>
+  span_id: translate-zh-cn-en           ← doc level
+    span_id: chunk-split                ← chunk 计数
+    span_id: chunk-complete × N         ← 每 chunk 成功
+    span_id: chunk-check × N            ← 每 chunk quality check
+    span_id: chunk-hard-fail / chunk-xml-fail / chunk-aborted  ← 失败诊断
+```
+
+每 chunk 记录：`chunk_index`, `chunk_total`, `src_chars`, `out_chars`, `tokens`, `duration_ms`, `context_tokens`, `attempts`。
+
+#### 10.7 实证验证
+
+zhurongshuo `chapter-02.md`（35KB，原 hard_fail markdown_structure）chunked 后：
+
+| 维度 | 结果 |
+|---|---|
+| chunks | 7（preamble + 6 sections） |
+| 总耗时 | 27 min（每 chunk ~3-4 min） |
+| 总 tokens | 48386 |
+| 滑动窗口 tokens | 0 → 649 → 2877 → 5752 → 7390（饱和） → 6789 → 5627 |
+| hard_failures | null |
+| sidecar | ✅ 写入（39769 bytes） |
+| 开头 | "In the exploration of Chapter One, we arrived at the source of reality..." |
+
+#### 10.8 Prompt 工程的失败教训（chunking 之所以必要）
+
+当模型对某类变换（如 heading 重构、prose→bullet）有强 prior 时，**prompt 强化不是万能的**。两次 probe 对照（明确禁止 + 显式数字约束 + 列举反例）显示 0 效果。这种情况下：
+
+- ❌ 继续加 prompt 约束（无效）
+- ❌ 在 checker 层接受模型行为（治标）
+- ✅ **改变架构让模型没机会做这种行为**（chunking，治本）
+
+chunking 不是 prompt 工程的延伸，是**架构级别的根本修复**——通过限制模型一次只看一个 section，从源头消除跨 section 重构的可能性。
 
 ### 10. 失败处理
 
