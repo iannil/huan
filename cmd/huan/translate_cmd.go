@@ -461,6 +461,7 @@ quality_checks:
   xml_parse: %t
   language_detection: %t
   markdown_structure: %t
+  format_purity: %t
   length_ratio: %.4f
   glossary_compliance: %t
   retry_count: %d
@@ -478,6 +479,7 @@ tokens_used: %d
 		resp.QualityChecks.XMLParse,
 		resp.QualityChecks.LanguageDetection,
 		resp.QualityChecks.MarkdownStructure,
+		resp.QualityChecks.FormatPurity,
 		resp.QualityChecks.LengthRatio,
 		resp.QualityChecks.GlossaryCompliance,
 		resp.QualityChecks.RetryCount,

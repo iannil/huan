@@ -108,6 +108,15 @@ type QualityResult struct {
 	// the output match the source ± tolerance (configurable). HARD check.
 	MarkdownStructure bool `json:"markdown_structure"`
 
+	// FormatPurity is true when the output body contains no markdown-
+	// equivalent HTML block tags (h1-h6, p, ul, ol, li, pre, blockquote,
+	// table, tr, td, th, etc.). HARD check.
+	//
+	// Qwen3-Next-80B has a strong prior to convert markdown to HTML on
+	// long zh→en inputs. Since the sidecar contract is `.en.md` (markdown,
+	// not HTML), this check rejects such outputs and triggers retry.
+	FormatPurity bool `json:"format_purity"`
+
 	// LengthRatio is body_words / source_words. Outside [0.5, 2.5]
 	// (configurable) is a soft warning.
 	LengthRatio float64 `json:"length_ratio"`
@@ -133,6 +142,9 @@ func (q QualityResult) HardCheckFailures() []string {
 	}
 	if !q.MarkdownStructure {
 		failed = append(failed, "markdown_structure")
+	}
+	if !q.FormatPurity {
+		failed = append(failed, "format_purity")
 	}
 	return failed
 }

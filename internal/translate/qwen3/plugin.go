@@ -151,6 +151,7 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 					XMLParse:          false,
 					LanguageDetection: false,
 					MarkdownStructure: false,
+					FormatPurity:      false,
 					RetryCount:        attempt,
 				},
 			}
@@ -164,6 +165,7 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 		}
 		qr.LanguageDetection = p.quality.CheckLanguageDetection(parsed.Body)
 		qr.MarkdownStructure = p.quality.CheckMarkdownStructure(req.Content, parsed.Body)
+		qr.FormatPurity = p.quality.CheckFormatPurity(parsed.Body)
 		lengthRatio, lengthOK := p.quality.CheckLengthRatio(req.Content, parsed.Body)
 		qr.LengthRatio = lengthRatio
 		qr.GlossaryCompliance = p.quality.CheckGlossaryCompliance(parsed.Body, req.Glossary)

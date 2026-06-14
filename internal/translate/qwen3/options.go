@@ -56,8 +56,10 @@ type Config struct {
 
 // QualityConfig holds post-translation quality check thresholds.
 type QualityConfig struct {
-	// LengthRatioMin/Max define the acceptable body_words/source_words range.
-	// Outside this range triggers a soft warning (and one retry).
+	// LengthRatioMin/Max define the acceptable out_chars/src_chars range
+	// (character expansion ratio). Outside this range triggers a soft
+	// warning (and one retry). Defaults [0.5, 3.5] accommodate zh→en
+	// expansion (observed up to ~3.0 on long prose).
 	LengthRatioMin float64 `yaml:"length_ratio_min" json:"length_ratio_min"`
 	LengthRatioMax float64 `yaml:"length_ratio_max" json:"length_ratio_max"`
 
@@ -96,7 +98,7 @@ func (c *Config) defaults() {
 		c.Quality.LengthRatioMin = 0.5
 	}
 	if c.Quality.LengthRatioMax == 0 {
-		c.Quality.LengthRatioMax = 2.5
+		c.Quality.LengthRatioMax = 3.5
 	}
 	if c.Quality.TargetLanguageThreshold == 0 {
 		c.Quality.TargetLanguageThreshold = 0.8

@@ -28,6 +28,7 @@ func TestQualityResult_HardCheckFailures_AllPass(t *testing.T) {
 		XMLParse:           true,
 		LanguageDetection:  true,
 		MarkdownStructure:  true,
+		FormatPurity:       true,
 		GlossaryCompliance: true,
 	}
 	if got := q.HardCheckFailures(); len(got) != 0 {
@@ -38,10 +39,15 @@ func TestQualityResult_HardCheckFailures_AllPass(t *testing.T) {
 func TestQualityResult_HardCheckFailures_AllFail(t *testing.T) {
 	q := QualityResult{}
 	failed := q.HardCheckFailures()
-	if len(failed) != 3 {
-		t.Fatalf("expected 3 failures, got %d: %v", len(failed), failed)
+	if len(failed) != 4 {
+		t.Fatalf("expected 4 failures, got %d: %v", len(failed), failed)
 	}
-	wantSet := map[string]bool{"xml_parse": true, "language_detection": true, "markdown_structure": true}
+	wantSet := map[string]bool{
+		"xml_parse":          true,
+		"language_detection": true,
+		"markdown_structure": true,
+		"format_purity":      true,
+	}
 	for _, name := range failed {
 		if !wantSet[name] {
 			t.Errorf("unexpected failure %q", name)
@@ -54,6 +60,7 @@ func TestQualityResult_HardCheckFailures_PartialFail(t *testing.T) {
 		XMLParse:          true,
 		LanguageDetection: false,
 		MarkdownStructure: true,
+		FormatPurity:      true,
 	}
 	failed := q.HardCheckFailures()
 	if len(failed) != 1 || failed[0] != "language_detection" {

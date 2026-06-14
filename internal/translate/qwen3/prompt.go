@@ -89,7 +89,27 @@ func (a *promptAssembler) assembleUserPrompt(req translateRequest, glossary map[
 	b.WriteString(req.Content)
 	b.WriteString("\n\n")
 
-	b.WriteString("Translate now. Output ONLY <title>...</title><body>...</body>.")
+	// Format contract — huan-enforced. Layered on top of the user's
+	// system_prompt_file (which owns translation style/tone). This suffix
+	// is the plugin's output contract: the .en.md sidecar MUST be raw
+	// markdown.
+	//
+	// Why hardcoded here (not in system_prompt_file): Qwen3-Next-80B has
+	// a strong prior to convert markdown to HTML on long zh→en inputs.
+	// Empirically, "preserve markdown structure" alone is insufficient;
+	// explicit prohibition + enumerated markdown equivalents is required.
+	// This is huan's contract, not a user preference — applies regardless
+	// of system_prompt_file content.
+	b.WriteString("Translate now. Output ONLY raw markdown wrapped in <title>...</title><body>...</body>.\n\n")
+	b.WriteString("CRITICAL FORMAT RULES (output will be REJECTED if violated):\n")
+	b.WriteString("- The <body> MUST be raw markdown. Do NOT use any HTML tags.\n")
+	b.WriteString("- Forbidden HTML tags: <p>, <h1>..<h6>, <ul>, <ol>, <li>, <pre>, <blockquote>, <table>, <tr>, <td>, <th>, <div>, <section>.\n")
+	b.WriteString("- Headings: use # / ## / ### (same levels as source).\n")
+	b.WriteString("- Paragraphs: separate with blank lines (NO <p> tags).\n")
+	b.WriteString("- Lists: use - or * or + (same marker style as source).\n")
+	b.WriteString("- Links: [text](url). Images: ![alt](url).\n")
+	b.WriteString("- Code blocks: triple-backtick fences with the same language tag as source.\n")
+	b.WriteString("- Preserve ALL source markdown structure 1:1 (no merging, splitting, or omitting sections).\n")
 
 	return b.String()
 }

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // qualityChecker runs post-translation quality checks against the parsed
@@ -78,6 +79,32 @@ func (q *qualityChecker) CheckLanguageDetection(body string) bool {
 	return cjkFrac <= maxCJKFrac
 }
 
+// htmlBlockTagRe matches opening HTML tags whose existence in translator
+// output is a tell-tale sign that the model converted markdown to HTML
+// rather than preserving it. Closing tags (</h2>) are not matched because
+// any opening tag implies its closer.
+//
+// Blacklist covers markdown-equivalent block-level tags: headings,
+// paragraphs, lists, list items, code blocks, blockquotes, and tables.
+// Inline tags like <span>, <em>, <strong>, <a>, <br> are intentionally
+// excluded — goldmark's unsafe=true mode allows them in source markdown,
+// and we don't want false positives when the model preserves legitimate
+// inline HTML.
+var htmlBlockTagRe = regexp.MustCompile(`(?i)<\s*(/?)(h[1-6]|p|ul|ol|li|pre|blockquote|table|thead|tbody|tfoot|tr|td|th|dl|dt|dd|section|article|header|footer|nav|aside|div)\b`)
+
+// CheckFormatPurity passes when the output contains no markdown-equivalent
+// HTML block tags. The translator contract is raw markdown output (the
+// sidecar is `.en.md`), so HTML-converted output is a hard failure.
+//
+// Why this exists: Qwen3-Next-80B (q4_K_M) on long zh→en inputs has a
+// strong prior to emit <h2>, <p>, <ol>, <li> etc. instead of #, ##, - .
+// markdown_structure check catches this indirectly (heading count → 0),
+// but the error attribution is misleading. This check names the failure
+// mode explicitly.
+func (q *qualityChecker) CheckFormatPurity(body string) bool {
+	return !htmlBlockTagRe.MatchString(body)
+}
+
 // markdownCounts holds counts of structural markers in markdown text.
 type markdownCounts struct {
 	Headings int // # / ## / ### etc.
@@ -148,44 +175,26 @@ func (q *qualityChecker) CheckMarkdownStructure(source, output string) bool {
 	return true
 }
 
-// CheckLengthRatio returns the body_words / source_words ratio and a pass
-// flag. The ratio is computed using countLatinWords on output and source.
-// For zh-cn → en, source is Chinese; we approximate source "words" by
-// counting non-space tokens. This is intentionally rough — the ratio is
-// a sanity check, not a precise metric.
+// CheckLengthRatio returns out_chars / src_chars and a pass flag. This is
+// a cross-language character expansion ratio — stable across language
+// pairs (zh→en typically 1.5-2.5; en→zh typically 0.4-0.7; same-language
+// ~1.0). The previous metric (en_words / cjk_chars) was a poor fit for
+// zh→en because English whitespace-tokenized words are sparse relative to
+// dense CJK — normal translations scored ~0.5 and tripped the lower bound
+// (false truncation signal).
+//
+// Bounds are configurable via QualityConfig.LengthRatioMin/Max. Defaults
+// [0.5, 3.5] accommodate zh→en expansion (observed up to 3.0 on long
+// philosophical prose) without false-positiving on shorter documents.
 func (q *qualityChecker) CheckLengthRatio(source, output string) (float64, bool) {
-	srcWords := countRoughTokens(source)
-	outWords := countLatinWords(output)
-	if srcWords == 0 {
+	srcChars := utf8.RuneCountInString(source)
+	outChars := utf8.RuneCountInString(output)
+	if srcChars == 0 {
 		return 0, false
 	}
-	ratio := float64(outWords) / float64(srcWords)
+	ratio := float64(outChars) / float64(srcChars)
 	pass := ratio >= q.cfg.LengthRatioMin && ratio <= q.cfg.LengthRatioMax
 	return ratio, pass
-}
-
-// countRoughTokens approximates word count for Chinese text by counting
-// CJK runes + Latin words. Each CJK rune counts as 1 token (rough); Latin
-// words count as 1 token per whitespace-separated token.
-func countRoughTokens(s string) int {
-	tokens := 0
-	inLatinWord := false
-	for _, r := range s {
-		if unicode.In(r, unicode.Han) {
-			tokens++
-			inLatinWord = false
-			continue
-		}
-		if unicode.IsLetter(r) {
-			if !inLatinWord {
-				inLatinWord = true
-				tokens++
-			}
-		} else {
-			inLatinWord = false
-		}
-	}
-	return tokens
 }
 
 // CheckGlossaryCompliance passes when no glossary source term appears in

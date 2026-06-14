@@ -112,3 +112,50 @@ Code: ` + "`<a href=\"foo&amp;bar\">`" + `
 		t.Errorf("body should preserve HTML entities: %q", out.Body)
 	}
 }
+
+// promptAssembler tests for the format-contract suffix. Belongs in
+// parse_test.go because the prompt package's other tests live close to
+// the parser — but the suffix is in prompt.go.
+
+func TestAssembleUserPrompt_FormatRulesPresent(t *testing.T) {
+	a := &promptAssembler{systemPrompt: "stub"}
+	req := translateRequest{
+		Title:   "Test Title",
+		Content: "Test body content.",
+	}
+	prompt := a.assembleUserPrompt(req, nil)
+
+	// Hard contractual clauses — must always be present, regardless of
+	// user system_prompt_file content.
+	mustContain := []string{
+		"CRITICAL FORMAT RULES",
+		"raw markdown",
+		"Do NOT use any HTML tags",
+		"<h1>",
+		"<p>",
+		"<ul>",
+		"<body>",
+		"<title>",
+		"Preserve ALL source markdown structure 1:1",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(prompt, s) {
+			t.Errorf("user prompt missing required clause %q", s)
+		}
+	}
+}
+
+func TestAssembleUserPrompt_SourceBodyIncluded(t *testing.T) {
+	a := &promptAssembler{systemPrompt: "stub"}
+	req := translateRequest{
+		Title:   "My Title",
+		Content: "UNIQUE_MARKER_42 in body",
+	}
+	prompt := a.assembleUserPrompt(req, nil)
+	if !strings.Contains(prompt, "My Title") {
+		t.Error("user prompt should include source title")
+	}
+	if !strings.Contains(prompt, "UNIQUE_MARKER_42 in body") {
+		t.Error("user prompt should include source body verbatim")
+	}
+}

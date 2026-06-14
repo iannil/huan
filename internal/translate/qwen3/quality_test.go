@@ -8,7 +8,7 @@ import (
 func newTestChecker() *qualityChecker {
 	return newQualityChecker(QualityConfig{
 		LengthRatioMin:             0.5,
-		LengthRatioMax:             2.5,
+		LengthRatioMax:             3.5,
 		TargetLanguageThreshold:    0.8,
 		MarkdownStructureTolerance: 2,
 		EnforceGlossary:            true,
@@ -162,36 +162,145 @@ func TestCheckMarkdownStructure_ImageMismatch(t *testing.T) {
 
 func TestCheckLengthRatio_NormalRange(t *testing.T) {
 	q := newTestChecker()
-	// 10 Chinese chars source → ~10 tokens
-	src := strings.Repeat("法", 10)
-	// 10 English words output → ratio ~1.0
-	out := "one two three four five six seven eight nine ten"
+	// Char-ratio metric: out_chars / src_chars.
+	// 100 src chars, 200 out chars → ratio 2.0 (typical zh→en expansion).
+	src := strings.Repeat("法", 100)
+	out := strings.Repeat("a", 200)
 	ratio, ok := q.CheckLengthRatio(src, out)
 	if !ok {
-		t.Errorf("ratio %f should be in range, got fail", ratio)
+		t.Errorf("ratio %f should be in range [0.5, 3.5], got fail", ratio)
 	}
-	if ratio < 0.5 || ratio > 2.5 {
+	if ratio < 0.5 || ratio > 3.5 {
 		t.Errorf("ratio %f out of expected range", ratio)
+	}
+	if ratio != 2.0 {
+		t.Errorf("ratio = %f, want 2.0", ratio)
 	}
 }
 
 func TestCheckLengthRatio_TooShort(t *testing.T) {
 	q := newTestChecker()
-	src := strings.Repeat("法", 100) // 100 CJK tokens
-	out := "tiny"                    // 1 word
-	_, ok := q.CheckLengthRatio(src, out)
+	src := strings.Repeat("法", 100) // 100 chars
+	out := "tiny"                    // 4 chars → ratio 0.04
+	ratio, ok := q.CheckLengthRatio(src, out)
 	if ok {
-		t.Error("ratio 0.01 should fail (too short)")
+		t.Error("ratio 0.04 should fail (too short)")
+	}
+	if ratio > 0.5 {
+		t.Errorf("ratio %f should be < 0.5", ratio)
 	}
 }
 
 func TestCheckLengthRatio_TooLong(t *testing.T) {
 	q := newTestChecker()
-	src := "法" // 1 CJK token
-	out := strings.Repeat("word ", 100)
-	_, ok := q.CheckLengthRatio(src, out)
+	src := "法" // 1 char
+	out := strings.Repeat("a", 500)
+	ratio, ok := q.CheckLengthRatio(src, out)
 	if ok {
-		t.Error("ratio 100 should fail (too long)")
+		t.Error("ratio 500 should fail (too long)")
+	}
+	if ratio < 3.5 {
+		t.Errorf("ratio %f should be > 3.5", ratio)
+	}
+}
+
+func TestCheckLengthRatio_ZhEnExpansionObserved(t *testing.T) {
+	// Empirically observed on zhurongshuo chapter-04.md:
+	// src ~12k CJK chars → out ~36k ASCII chars (ratio ~3.0).
+	// This must PASS under the new char-ratio metric (it was a false
+	// soft-warn under the old en_words/cjk_chars metric).
+	q := newQualityChecker(QualityConfig{
+		LengthRatioMin: 0.5,
+		LengthRatioMax: 3.5,
+	})
+	src := strings.Repeat("法", 12000)
+	out := strings.Repeat("a", 36000)
+	ratio, ok := q.CheckLengthRatio(src, out)
+	if !ok {
+		t.Errorf("observed zh→en ratio %f should pass under [0.5, 3.5]", ratio)
+	}
+}
+
+func TestCheckFormatPurity_PureMarkdown(t *testing.T) {
+	q := newTestChecker()
+	out := `# Heading 1
+
+paragraph text
+
+## Heading 2
+
+- list item
+- another item
+
+[a link](/url/)
+`
+	if !q.CheckFormatPurity(out) {
+		t.Error("pure markdown should pass format_purity")
+	}
+}
+
+func TestCheckFormatPurity_HtmlHeadingFails(t *testing.T) {
+	q := newTestChecker()
+	// Observed failure mode: Qwen3-Next-80B converting markdown to HTML.
+	out := `<h1>Title</h1>
+<p>paragraph</p>
+<h2>4.1 Section</h2>`
+	if q.CheckFormatPurity(out) {
+		t.Error("HTML <h1>/<p>/<h2> should fail format_purity")
+	}
+}
+
+func TestCheckFormatPurity_HtmlListFails(t *testing.T) {
+	q := newTestChecker()
+	out := `<ul>
+  <li>one</li>
+  <li>two</li>
+</ul>`
+	if q.CheckFormatPurity(out) {
+		t.Error("HTML <ul>/<li> should fail format_purity")
+	}
+}
+
+func TestCheckFormatPurity_ClosingTagFails(t *testing.T) {
+	q := newTestChecker()
+	// Closing tag implies an opener; flagged for robustness.
+	out := "paragraph</p>"
+	if q.CheckFormatPurity(out) {
+		t.Error("HTML closing tag should fail format_purity")
+	}
+}
+
+func TestCheckFormatPurity_InlineSpanPasses(t *testing.T) {
+	q := newTestChecker()
+	// Inline <span>/<em>/<strong>/<a>/<br> are NOT in the blacklist —
+	// goldmark unsafe=true allows them in source markdown, and the model
+	// legitimately preserves them. No false positives.
+	out := `<span class="red">red text</span> and <em>emphasis</em> and <br/>`
+	if !q.CheckFormatPurity(out) {
+		t.Error("inline span/em/br should pass format_purity")
+	}
+}
+
+func TestCheckFormatPurity_CaseInsensitive(t *testing.T) {
+	q := newTestChecker()
+	out := "<H2>Heading</H2>"
+	if q.CheckFormatPurity(out) {
+		t.Error("uppercase <H2> should fail format_purity")
+	}
+}
+
+func TestCheckFormatPurity_TableFails(t *testing.T) {
+	q := newTestChecker()
+	out := `<table><tr><td>a</td></tr></table>`
+	if q.CheckFormatPurity(out) {
+		t.Error("HTML <table>/<tr>/<td> should fail format_purity")
+	}
+}
+
+func TestCheckFormatPurity_EmptyPasses(t *testing.T) {
+	q := newTestChecker()
+	if !q.CheckFormatPurity("") {
+		t.Error("empty body should pass format_purity")
 	}
 }
 

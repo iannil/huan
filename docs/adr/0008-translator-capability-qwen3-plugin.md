@@ -264,18 +264,51 @@ Translate now. Output ONLY <title>...</title><body>...</body>.
 | XML 解析 | **硬** | `<title>` 与 `<body>` 都成功解析 | 标记失败，不写盘 |
 | 语言检测 | **硬** | 输出 80%+ 是英文 | 标记失败，不写盘 |
 | Markdown 结构计数 | **硬** | heading/list/link/image 数量与源一致 ±2 | 标记失败，不写盘 |
-| 长度比 | 软警告 | `body_words / source_words ∈ [0.5, 2.5]` | 重试 1 次 |
+| **Format purity** | **硬** | 输出不含 markdown 等价 HTML 块级标签（h1-h6/p/ul/ol/li/pre/blockquote/table/...） | 标记失败，不写盘 |
+| 长度比 | 软警告 | `out_chars / src_chars ∈ [0.5, 3.5]`（字符膨胀比） | 重试 1 次 |
 | GLOSSARY 违规 | 软警告 | 输出含未译中文术语或自换译名 | 重试 1 次 |
 | 重复短语检测 | 软警告 | 输出含连续重复短语（hallucination 模式） | 重试 1 次 |
 
-**只有三项硬检查全部通过才允许写盘**；其他检查可配置为 warn-only。
+**四项硬检查全部通过才允许写盘**；其他检查可配置为 warn-only。
 
-**为什么三项硬检查是足够的**：
+**为什么四项硬检查是足够的**：
 - XML 解析：确保输出格式可消费
 - 语言检测：确保输出确实是目标语言（防 LLM 偶尔"懒得翻"返回原文）
 - Markdown 结构：确保渲染不会破坏（防 LLM 丢列表/丢链接）
+- Format purity：防 LLM 把 markdown 转成 HTML（Qwen3-Next-80B q4_K_M 在长 zh→en 输入上的已知 prior；详见 §9.1）
 
 软警告通过 retry 后即写盘（即便仍 warn）。
+
+#### 9.1 Format purity 检查（2026-06-14 增补）
+
+**背景**：首次实测 zhurongshuo `books/volume-1/advancement-of-reality/part-01/chapter-04.md`（35KB / 12k CJK chars）时，模型输出把 markdown 全部转成 HTML（`<h1>`/`<h2>`/`<p>`/`<ol>`/`<li>`）。`markdown_structure` 检查间接抓到（heading 数 6→0），但错误归因误导。新增 `format_purity` 直接命名该失败模式。
+
+**检查规则**（`internal/translate/qwen3/quality.go::CheckFormatPurity`）：regex 命中 markdown 等价块级 HTML 标签即 fail。黑名单：
+
+```
+h1-h6, p, ul, ol, li, pre, blockquote, table, thead, tbody, tfoot, tr, td, th,
+dl, dt, dd, section, article, header, footer, nav, aside, div
+```
+
+**为什么是黑名单而不是零容忍**：
+- goldmark `unsafe: true` 允许源 markdown 含合法 inline HTML（`<span>`/`<em>`/`<a>`/`<br>`），模型保留它们是合规的
+- 块级 HTML 才是"格式转换"的特征信号
+- 黑名单方法误报低、漏报可控（仅当模型用冷门标签如 `<dl>` 时漏报，已在黑名单内）
+
+**为什么不宽容派（接受 HTML 等价）**：
+- `.en.md` sidecar 扩展名就是契约——必须 markdown
+- build pipeline（goldmark 渲染、内链重写、summary 抽取、toc 生成、hreflang）每处都假设 markdown AST
+- 严格化反而是真实信号：HTML 漏出率能反馈 prompt 工程质量
+
+#### 9.2 Length ratio: 字符膨胀比（2026-06-14 修正）
+
+**原 metric**：`out_latin_words / src_rough_tokens`，其中 `src_rough_tokens` 用 CJK 字符 + Latin 词。zh→en 正常翻译此值 ≈ 0.5（一句中文 30 字 → 英文 10 词），落在原 `[0.5, 2.5]` 下界，**对所有正常翻译都触发软警告**。
+
+**新 metric**：`out_chars / src_chars`（字符膨胀比）。zh→en 实测典型 1.5-2.5；chapter-04.md 实测 2.82（12000 src CJK chars → 33810 out chars）。
+
+**新阈值**：`[0.5, 3.5]`（zh→en 上限留 0.5 余量给更长 Philosophical prose）。
+
+**为什么字符比稳定**：跨语言通用（en→zh 反向比例 ~0.4-0.7；同语言 ~1.0），不需要按语言对调阈值。
 
 ### 10. 失败处理
 
