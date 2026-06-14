@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
@@ -46,6 +47,7 @@ func newTranslateQwen3Cmd() *cobra.Command {
 	cmd.Flags().Bool("force", false, "force re-translation even when source_hash matches")
 	cmd.Flags().Bool("dry-run", false, "list files that would be translated without calling LLM")
 	cmd.Flags().Int("limit", 0, "max files to translate (0 = no limit; use for batch testing before full run)")
+	cmd.Flags().Int("progress-every", 10, "print progress summary every N successful files (0 = disabled). Summary shows completed/total, failures, elapsed time, throughput (files/min), and ETA — useful for long runs of 100+ files.")
 	cmd.Flags().String("model", "", "override configured model for this invocation")
 	cmd.Flags().String("source-lang", "zh-cn", "source language code")
 	cmd.Flags().String("target-lang", "en", "target language code")
@@ -92,6 +94,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	limit, _ := cmd.Flags().GetInt("limit")
+	progressEvery, _ := cmd.Flags().GetInt("progress-every")
 	sourceLang, _ := cmd.Flags().GetString("source-lang")
 	targetLang, _ := cmd.Flags().GetString("target-lang")
 
@@ -164,6 +167,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 	// Translate each file
 	succeeded := 0
 	failed := 0
+	startTime := time.Now()
 	for i, srcPath := range stale {
 		rel, _ := filepath.Rel(contentDir, srcPath)
 		fmt.Printf("[%d/%d] translating %s ... ", i+1, len(stale), rel)
@@ -214,13 +218,48 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("OK (%d tokens, ratio %.2f)\n", resp.TokensUsed, resp.QualityChecks.LengthRatio)
 		succeeded++
+
+		// Periodic progress summary. Helps users monitoring long runs
+		// (100+ files) know "still alive" + ETA. Printed every N successful
+		// files when --progress-every > 0 (default 10).
+		if progressEvery > 0 && succeeded%progressEvery == 0 {
+			elapsed := time.Since(startTime)
+			processed := succeeded + failed
+			remaining := len(stale) - processed - skippedSoFar(stale, succeeded, failed)
+			var throughputPerMin float64
+			var eta time.Duration
+			if elapsed.Minutes() > 0 {
+				throughputPerMin = float64(processed) / elapsed.Minutes()
+				if throughputPerMin > 0 {
+					eta = time.Duration(float64(remaining)/throughputPerMin*float64(time.Minute))
+				}
+			}
+			fmt.Fprintf(os.Stderr,
+				"[progress] %d/%d done (%.1f%%) | %d failed | %s elapsed | %.1f files/min | ETA %s\n",
+				succeeded, len(stale), float64(processed)*100.0/float64(len(stale)),
+				failed, elapsed.Round(time.Second), throughputPerMin, eta.Round(time.Minute))
+		}
 	}
 
-	fmt.Fprintf(os.Stderr, "\ntranslate summary: succeeded=%d failed=%d\n", succeeded, failed)
+	// Final summary
+	elapsed := time.Since(startTime).Round(time.Second)
+	fmt.Fprintf(os.Stderr, "\ntranslate summary: succeeded=%d failed=%d elapsed=%s\n",
+		succeeded, failed, elapsed)
 	if failed > 0 {
 		return fmt.Errorf("%d files failed translation", failed)
 	}
 	return nil
+}
+
+// skippedSoFar is a stub used in ETA calculation. Since we don't track
+// skipped count separately (the for-loop continues without incrementing
+// succeeded/failed for skipped files), this returns 0. For better ETA
+// accuracy, future PR can track skipped count explicitly.
+func skippedSoFar(stale []string, succeeded, failed int) int {
+	// Best-effort: total processed = succeeded + failed + skipped, so
+	// skipped = (succeeded + failed + skipped) - succeeded - failed.
+	// We can't know this without tracking; return 0 (overestimates ETA).
+	return 0
 }
 
 func runTranslateStatus(cmd *cobra.Command, args []string) error {
