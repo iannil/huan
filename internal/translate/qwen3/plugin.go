@@ -59,10 +59,10 @@ func (p *Plugin) Config() Config { return p.cfg }
 //  1. Split source body into Chunks by level-2 headings (## ).
 //  2. For each chunk (in document order):
 //     a. Build chunkPromptInput with PREVIOUSLY_TRANSLATED_SECTIONS
-//        (sliding-window context from already-translated chunks).
+//     (sliding-window context from already-translated chunks).
 //     b. Call Ollama.
 //     c. Run per-chunk quality checks (format_purity, language_detection,
-//        chunk_structure, length_ratio, glossary).
+//     chunk_structure, length_ratio, glossary).
 //     d. Retry up to RetryOnViolation times on failure.
 //  3. Concatenate translated chunks into final body.
 //  4. Return Response with aggregated QualityChecks.
@@ -101,9 +101,9 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 	// Split source into chunks by level-2 headings.
 	chunks := splitBySection(req.Content)
 	logger.Log("chunk-split", observability.EventPoint, map[string]any{
-		"chunk_total":      len(chunks),
-		"has_preamble":     chunks[0].IsPreamble,
-		"src_total_chars":  len(req.Content),
+		"chunk_total":     len(chunks),
+		"has_preamble":    chunks[0].IsPreamble,
+		"src_total_chars": len(req.Content),
 	})
 
 	// Translate each chunk with sliding-window context.
@@ -122,6 +122,7 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 	aggChunkStructure := true
 	aggFormatPurity := true
 	aggGlossaryCompliance := true
+	aggResidualCJK := true
 	var lastFailReason string
 
 	for chunkIdx, chunk := range chunks {
@@ -143,12 +144,12 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 		for attempt := 0; attempt <= p.cfg.Quality.RetryOnViolation; attempt++ {
 			retryUsed = attempt
 			in := chunkPromptInput{
-				Title:          req.Title,
-				Hints:          req.Hints,
-				ChunkHeading:   chunk.Heading,
-				ChunkBody:      chunk.Body,
+				Title:           req.Title,
+				Hints:           req.Hints,
+				ChunkHeading:    chunk.Heading,
+				ChunkBody:       chunk.Body,
 				PreviousContext: prevContext,
-				IsFirst:        isFirst,
+				IsFirst:         isFirst,
 			}
 			userPrompt := p.prompt.assembleChunkPrompt(in, req.Glossary)
 			if attempt > 0 {
@@ -203,6 +204,7 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 			formatOK := p.quality.CheckFormatPurity(chunkOut)
 			lengthRatio, lengthOK := p.quality.CheckLengthRatio(chunkSrc, chunkOut)
 			glossaryOK := p.quality.CheckGlossaryCompliance(chunkOut, req.Glossary)
+			residualOK := p.quality.CheckResidualCJK(chunkOut)
 
 			hardFails := []string{}
 			if !langOK {
@@ -218,27 +220,28 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 			if !structOK {
 				diag := p.quality.checkChunkStructureDetailed(chunkSrc, chunkOut)
 				logger.Log("chunk-structure-diag", observability.EventPoint, map[string]any{
-					"chunk_index":       chunk.Index,
-					"attempt":           attempt,
-					"reason":            diag.FailedReason,
-					"src_headings":      diag.SrcHeadings,
-					"out_headings":      diag.OutHeadings,
-					"src_paragraphs":    diag.SrcParagraphs,
-					"out_paragraphs":    diag.OutParagraphs,
-					"src_list_items":    diag.SrcListItems,
-					"out_list_items":    diag.OutListItems,
+					"chunk_index":        chunk.Index,
+					"attempt":            attempt,
+					"reason":             diag.FailedReason,
+					"src_headings":       diag.SrcHeadings,
+					"out_headings":       diag.OutHeadings,
+					"src_paragraphs":     diag.SrcParagraphs,
+					"out_paragraphs":     diag.OutParagraphs,
+					"src_list_items":     diag.SrcListItems,
+					"out_list_items":     diag.OutListItems,
 					"src_content_blocks": diag.SrcContentBlocks,
 					"out_content_blocks": diag.OutContentBlocks,
 				})
 			}
 
 			logger.Log("chunk-check", observability.EventPoint, map[string]any{
-				"chunk_index":    chunk.Index,
-				"attempt":        attempt,
-				"hard_fails":     hardFails,
-				"length_ok":      lengthOK,
-				"glossary_ok":    glossaryOK,
-				"length_ratio":   lengthRatio,
+				"chunk_index":     chunk.Index,
+				"attempt":         attempt,
+				"hard_fails":      hardFails,
+				"length_ok":       lengthOK,
+				"glossary_ok":     glossaryOK,
+				"residual_cjk_ok": residualOK,
+				"length_ratio":    lengthRatio,
 			})
 
 			// Hard fail → no retry (LLM structural issue).
@@ -255,13 +258,14 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 			}
 
 			// Soft fail → retry if budget remains.
-			if (!lengthOK || !glossaryOK) && attempt < p.cfg.Quality.RetryOnViolation {
+			if (!lengthOK || !glossaryOK || !residualOK) && attempt < p.cfg.Quality.RetryOnViolation {
 				logger.Log("chunk-soft-fail", observability.EventPoint, map[string]any{
-					"chunk_index": chunk.Index,
-					"attempt":     attempt,
-					"length_ok":   lengthOK,
-					"glossary_ok": glossaryOK,
-					"will_retry":  true,
+					"chunk_index":     chunk.Index,
+					"attempt":         attempt,
+					"length_ok":       lengthOK,
+					"glossary_ok":     glossaryOK,
+					"residual_cjk_ok": residualOK,
+					"will_retry":      true,
 				})
 				continue
 			}
@@ -274,6 +278,9 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 			// don't block but are reflected in the final QualityResult.
 			if !glossaryOK {
 				aggGlossaryCompliance = false
+			}
+			if !residualOK {
+				aggResidualCJK = false
 			}
 			break
 		}
@@ -319,14 +326,14 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 		}
 
 		logger.Log("chunk-complete", observability.EventPoint, map[string]any{
-			"chunk_index":   chunk.Index,
-			"chunk_total":   len(chunks),
-			"src_chars":     len(chunk.Source()),
-			"out_chars":     len(parsedChunk.Body),
-			"tokens":        chunkTokens,
-			"duration_ms":   chunkDurationMs,
+			"chunk_index":    chunk.Index,
+			"chunk_total":    len(chunks),
+			"src_chars":      len(chunk.Source()),
+			"out_chars":      len(parsedChunk.Body),
+			"tokens":         chunkTokens,
+			"duration_ms":    chunkDurationMs,
 			"context_tokens": estimateTokens(prevContext),
-			"attempts":      retryUsed + 1,
+			"attempts":       retryUsed + 1,
 		})
 	}
 
@@ -359,19 +366,21 @@ func (p *Plugin) Translate(ctx context.Context, req translate.Request) (*transla
 			FormatPurity:       aggFormatPurity,
 			LengthRatio:        docLengthRatio,
 			GlossaryCompliance: aggGlossaryCompliance,
+			ResidualCJK:        aggResidualCJK,
 			RetryCount:         maxRetryCount,
 		},
 	}
 
 	logger.LogFunctionEnd(spanID, time.Since(overallStart), map[string]any{
-		"status":         status,
-		"hard_failures":  resp.QualityChecks.HardCheckFailures(),
-		"chunks_total":   len(chunks),
-		"chunks_ok":      len(translatedChunks),
-		"tokens":         totalTokensUsed,
-		"glossary_ok":    aggGlossaryCompliance,
-		"retries_max":    maxRetryCount,
-		"last_fail":      lastFailReason,
+		"status":          status,
+		"hard_failures":   resp.QualityChecks.HardCheckFailures(),
+		"chunks_total":    len(chunks),
+		"chunks_ok":       len(translatedChunks),
+		"tokens":          totalTokensUsed,
+		"glossary_ok":     aggGlossaryCompliance,
+		"residual_cjk_ok": aggResidualCJK,
+		"retries_max":     maxRetryCount,
+		"last_fail":       lastFailReason,
 	})
 
 	return resp, nil

@@ -125,6 +125,12 @@ type QualityResult struct {
 	// applied in the output. Soft check.
 	GlossaryCompliance bool `json:"glossary_compliance"`
 
+	// ResidualCJK is true when the output prose (outside code blocks/spans)
+	// contains no more than the configured number of CJK runes. Catches
+	// per-term drops that the fraction-based LanguageDetection check misses
+	// (e.g. "state-level博弈" in an otherwise-English document). Soft check.
+	ResidualCJK bool `json:"residual_cjk"`
+
 	// RetryCount is the number of retries triggered by quality failures.
 	RetryCount int `json:"retry_count"`
 }

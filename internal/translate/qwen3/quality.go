@@ -80,6 +80,62 @@ func (q *qualityChecker) CheckLanguageDetection(body string) bool {
 	return cjkFrac <= maxCJKFrac
 }
 
+// cjkRunesOutsideCode counts CJK Han runes in s, EXCLUDING any that appear
+// inside fenced code blocks (``` ... ```) or inline code spans (`...`).
+//
+// Why exclude code: legitimate code examples may contain CJK string literals
+// or comments that are not translation defects. The residual-CJK check
+// targets the systematic failure mode where the LLM drops a prose term and
+// leaves it glued into English text (e.g. "state-level博弈"). Code-comment
+// translation is a content decision handled separately, not by this gate.
+func cjkRunesOutsideCode(s string) int {
+	count := 0
+	inFence := false
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		count += countCJKRunes(stripInlineCode(line))
+	}
+	return count
+}
+
+// stripInlineCode removes inline code spans (text between backticks) from a
+// single line so CJK inside `code` is not counted as prose residue. Unpaired
+// trailing backticks are left as-is (their content stays counted).
+func stripInlineCode(line string) string {
+	var b strings.Builder
+	inCode := false
+	for _, r := range line {
+		if r == '`' {
+			inCode = !inCode
+			continue
+		}
+		if !inCode {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// CheckResidualCJK passes when the number of CJK runes in prose (outside code
+// blocks/spans) is at or below cfg.MaxResidualCJK. Default threshold 0 means
+// the English sidecar must contain NO Chinese prose ("no Chinese in .en.md"
+// policy).
+//
+// This complements CheckLanguageDetection: the fraction-based check catches
+// "LLM returned mostly Chinese", but a handful of dropped terms in a long
+// English document score a negligible fraction and slip through. This check
+// names that failure mode with an absolute count. Soft check — triggers a
+// retry, then surfaces in the report if still failing.
+func (q *qualityChecker) CheckResidualCJK(body string) bool {
+	return cjkRunesOutsideCode(body) <= q.cfg.MaxResidualCJK
+}
+
 // htmlBlockTagRe matches opening HTML tags whose existence in translator
 // output is a tell-tale sign that the model converted markdown to HTML
 // rather than preserving it. Closing tags (</h2>) are not matched because
@@ -175,12 +231,12 @@ func countChunkStructure(s string) chunkStructure {
 // CheckChunkStructureResult holds the per-element diff for diagnostic
 // logging when the overall check fails.
 type CheckChunkStructureResult struct {
-	Pass                          bool
-	SrcHeadings, OutHeadings      int
-	SrcParagraphs, OutParagraphs  int
-	SrcListItems, OutListItems    int
+	Pass                               bool
+	SrcHeadings, OutHeadings           int
+	SrcParagraphs, OutParagraphs       int
+	SrcListItems, OutListItems         int
 	SrcContentBlocks, OutContentBlocks int // Headings + Paragraphs + ListItems
-	FailedReason                  string
+	FailedReason                       string
 }
 
 // CheckChunkStructure verifies the model preserved chunk content 1:1.
@@ -214,14 +270,14 @@ func (q *qualityChecker) checkChunkStructureDetailed(srcChunk, outChunk string) 
 	outBlocks := out.Headings + out.Paragraphs + out.ListItems
 
 	r := CheckChunkStructureResult{
-		SrcHeadings:        src.Headings,
-		OutHeadings:        out.Headings,
-		SrcParagraphs:      src.Paragraphs,
-		OutParagraphs:      out.Paragraphs,
-		SrcListItems:       src.ListItems,
-		OutListItems:       out.ListItems,
-		SrcContentBlocks:   srcBlocks,
-		OutContentBlocks:   outBlocks,
+		SrcHeadings:      src.Headings,
+		OutHeadings:      out.Headings,
+		SrcParagraphs:    src.Paragraphs,
+		OutParagraphs:    out.Paragraphs,
+		SrcListItems:     src.ListItems,
+		OutListItems:     out.ListItems,
+		SrcContentBlocks: srcBlocks,
+		OutContentBlocks: outBlocks,
 	}
 
 	blockDiff := outBlocks - srcBlocks

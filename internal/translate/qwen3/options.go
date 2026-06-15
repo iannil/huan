@@ -88,14 +88,21 @@ type QualityConfig struct {
 
 	// RetryOnViolation is the max retry count when soft checks fail.
 	RetryOnViolation int `yaml:"retry_on_violation" json:"retry_on_violation"`
+
+	// MaxResidualCJK is the maximum number of CJK runes allowed in
+	// translated prose (outside code blocks/spans). Default 0 enforces the
+	// "no Chinese in .en.md" policy. Soft check — failing triggers a retry,
+	// then surfaces in the report. A value > 0 tolerates that many residual
+	// CJK runes (e.g. intentionally-kept proper nouns).
+	MaxResidualCJK int `yaml:"max_residual_cjk" json:"max_residual_cjk"`
 }
 
 // SiteTranslation holds translated site-level metadata for one language.
 type SiteTranslation struct {
-	SubTitle      string   `yaml:"subTitle" json:"subTitle"`
-	Description   string   `yaml:"description" json:"description"`
-	Keywords      []string `yaml:"keywords" json:"keywords"`
-	FooterSlogan  string   `yaml:"footerSlogan" json:"footerSlogan"`
+	SubTitle     string   `yaml:"subTitle" json:"subTitle"`
+	Description  string   `yaml:"description" json:"description"`
+	Keywords     []string `yaml:"keywords" json:"keywords"`
+	FooterSlogan string   `yaml:"footerSlogan" json:"footerSlogan"`
 }
 
 // defaults applies sensible defaults for unset fields. Called by ParseConfig.

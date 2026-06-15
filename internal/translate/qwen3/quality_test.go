@@ -75,6 +75,50 @@ func TestCheckLanguageDetection(t *testing.T) {
 	}
 }
 
+func TestCJKRunesOutsideCode(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"clean English", "The quick brown fox.", 0},
+		{"inline prose drop", "geopolitics and state-level博弈.", 2},
+		{"fenced code ignored", "intro\n```go\n// 设置回调\nfmt.Println(\"你好\")\n```\nend", 0},
+		{"inline code ignored", "use the `配置` flag here", 0},
+		{"prose counted but code not", "the 博弈 of `规则` engines\n```\n回调\n```", 2},
+		{"indented fence", "  ```\n  中文\n  ```\nclean", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cjkRunesOutsideCode(tc.in); got != tc.want {
+				t.Errorf("cjkRunesOutsideCode(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckResidualCJK(t *testing.T) {
+	q := newTestChecker() // MaxResidualCJK defaults to 0
+	if !q.CheckResidualCJK("Fully translated English prose.") {
+		t.Error("clean English should pass residual-CJK check")
+	}
+	if q.CheckResidualCJK("Path Four: Organizational博弈") {
+		t.Error("inline prose CJK drop should fail residual-CJK check")
+	}
+	if !q.CheckResidualCJK("intro\n```python\nprint(\"发现新无人机\")\n```\nend") {
+		t.Error("CJK confined to a code fence should pass (excluded from gate)")
+	}
+
+	// Threshold > 0 tolerates a bounded number of residual runes.
+	qTol := newQualityChecker(QualityConfig{MaxResidualCJK: 2})
+	if !qTol.CheckResidualCJK("kept term 博弈 here") {
+		t.Error("2 residual runes should pass when MaxResidualCJK=2")
+	}
+	if qTol.CheckResidualCJK("too much 博弈 残留 here") {
+		t.Error("4 residual runes should fail when MaxResidualCJK=2")
+	}
+}
+
 func TestCountChunkStructure_HeadingsAndParagraphs(t *testing.T) {
 	src := "# H1\n\npara 1 line a\npara 1 line b\n\n## H2\n\npara 2\n\n### H3\n\npara 3"
 	c := countChunkStructure(src)
