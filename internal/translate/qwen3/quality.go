@@ -220,9 +220,10 @@ func (q *qualityChecker) checkChunkStructureDetailed(srcChunk, outChunk string) 
 	}
 
 	blockDiff := outBlocks - srcBlocks
-	if abs(blockDiff) > 1 {
-		r.FailedReason = fmt.Sprintf("content_blocks diff %d beyond tol ±1 (src: headings=%d paragraphs=%d list=%d total=%d, out: headings=%d paragraphs=%d list=%d total=%d)",
-			blockDiff,
+	tol := q.cfg.MarkdownStructureTolerance
+	if abs(blockDiff) > tol {
+		r.FailedReason = fmt.Sprintf("content_blocks diff %d beyond tol ±%d (src: headings=%d paragraphs=%d list=%d total=%d, out: headings=%d paragraphs=%d list=%d total=%d)",
+			blockDiff, tol,
 			src.Headings, src.Paragraphs, src.ListItems, srcBlocks,
 			out.Headings, out.Paragraphs, out.ListItems, outBlocks)
 		return r
