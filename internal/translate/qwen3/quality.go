@@ -125,6 +125,10 @@ func countChunkStructure(s string) chunkStructure {
 	inParagraph := false
 
 	headingRe := regexp.MustCompile(`^#{1,6}\s`)
+	// orderedListItemRe matches `1.`, `12.`, `1)` style ordered list markers
+	// at the start of a line. Recognizes them as list items so numbered
+	// source lists aren't miscounted as paragraphs.
+	orderedListItemRe := regexp.MustCompile(`^(\d+[.)]|[a-zA-Z][.)])\s`)
 
 	for _, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
@@ -143,7 +147,8 @@ func countChunkStructure(s string) chunkStructure {
 		isHeading := headingRe.MatchString(trimmed)
 		isListItem := strings.HasPrefix(trimmed, "- ") ||
 			strings.HasPrefix(trimmed, "* ") ||
-			strings.HasPrefix(trimmed, "+ ")
+			strings.HasPrefix(trimmed, "+ ") ||
+			orderedListItemRe.MatchString(trimmed)
 
 		switch {
 		case isHeading:
