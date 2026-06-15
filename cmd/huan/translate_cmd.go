@@ -172,7 +172,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		rel, _ := filepath.Rel(contentDir, srcPath)
 		fmt.Printf("[%d/%d] translating %s ... ", i+1, len(stale), rel)
 
-		title, body, err := readSourceMarkdown(srcPath)
+		title, body, srcFM, err := readSourceMarkdown(srcPath)
 		if err != nil {
 			fmt.Printf("READ FAIL: %v\n", err)
 			failed++
@@ -211,7 +211,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 
 		// Write .en.md sidecar
 		outPath := sidecarPath(srcPath, targetLang)
-		if err := writeTranslatedSidecar(outPath, srcPath, sourceLang, targetLang, resp); err != nil {
+		if err := writeTranslatedSidecar(outPath, srcPath, sourceLang, targetLang, resp, srcFM, glossary); err != nil {
 			fmt.Printf("WRITE FAIL: %v\n", err)
 			failed++
 			continue
@@ -393,7 +393,8 @@ func sidecarPath(srcPath, targetLang string) string {
 	return filepath.Join(dir, base)
 }
 
-// readSourceMarkdown extracts the title and body from a source markdown file.
+// readSourceMarkdown extracts the title, body, and full frontmatter map
+// from a source markdown file.
 //
 // Uses internal/content.ParseFrontmatter for proper YAML frontmatter parsing
 // (handles --- / +++ delimiters, escaped quotes, multi-line values). Title
@@ -402,18 +403,22 @@ func sidecarPath(srcPath, targetLang string) string {
 //
 // Body is the markdown content AFTER frontmatter (no YAML leak into LLM
 // prompt). Trailing/leading whitespace is trimmed.
-func readSourceMarkdown(path string) (title, body string, err error) {
+//
+// frontmatter is the full parsed map (used by writeTranslatedSidecar to
+// mirror date/hidden/draft/slug/tags/keywords/description into the en
+// sidecar, with tags translated via the glossary).
+func readSourceMarkdown(path string) (title, body string, fm map[string]interface{}, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	fm, bodyText, err := content.ParseFrontmatter(data)
+	fmMap, bodyText, err := content.ParseFrontmatter(data)
 	if err != nil {
-		return "", "", fmt.Errorf("parse frontmatter: %w", err)
+		return "", "", nil, fmt.Errorf("parse frontmatter: %w", err)
 	}
 
 	// Extract title from frontmatter; fall back to filename if absent
-	if t, ok := fm["title"]; ok {
+	if t, ok := fmMap["title"]; ok {
 		switch v := t.(type) {
 		case string:
 			title = v
@@ -426,12 +431,14 @@ func readSourceMarkdown(path string) (title, body string, err error) {
 		title = strings.TrimSuffix(base, ".md")
 	}
 
-	return title, bodyText, nil
+	return title, bodyText, fmMap, nil
 }
 
 // writeTranslatedSidecar writes the translated content as a .en.md sidecar
-// with frontmatter metadata per ADR 0008 §5.
-func writeTranslatedSidecar(outPath, srcPath, sourceLang, targetLang string, resp *translate.Response) error {
+// with frontmatter metadata per ADR 0008 §5 + frontmatter parity (date /
+// hidden / draft / slug / tags / keywords / description mirrored from
+// source; tags translated via glossary with fail-fast on missing terms).
+func writeTranslatedSidecar(outPath, srcPath, sourceLang, targetLang string, resp *translate.Response, srcFM map[string]interface{}, glossary map[string]string) error {
 	// Compute source hash
 	srcData, err := os.ReadFile(srcPath)
 	if err != nil {
@@ -445,50 +452,227 @@ func writeTranslatedSidecar(outPath, srcPath, sourceLang, targetLang string, res
 		relSrc = srcPath
 	}
 
-	// Build frontmatter + body. Include translated title so build pipeline
-	// can render the en page with proper page title (otherwise title falls
-	// back to filename-based placeholder).
-	frontmatter := fmt.Sprintf(`---
-title: %q
-translation_of: %s
-source_lang: %s
-target_lang: %s
-source_hash: %s
-model: %s
-translated_at: %s
-translator: qwen3
-quality_checks:
-  xml_parse: %t
-  language_detection: %t
-  markdown_structure: %t
-  format_purity: %t
-  length_ratio: %.4f
-  glossary_compliance: %t
-  retry_count: %d
-tokens_used: %d
----
+	// Translate tags via glossary (fail-fast on missing).
+	translatedTags, err := translateTagList(srcFM, glossary)
+	if err != nil {
+		return fmt.Errorf("translate tags: %w", err)
+	}
+	// Keywords share the same dictionary as tags (in zhurongshuo they're
+	// usually identical; if not, still translates via same glossary).
+	translatedKeywords, err := translateKeywordList(srcFM, glossary)
+	if err != nil {
+		return fmt.Errorf("translate keywords: %w", err)
+	}
 
-`,
-		resp.Title,
-		relSrc,
-		sourceLang,
-		targetLang,
-		sourceHash,
-		resp.Model,
-		utcNow(),
-		resp.QualityChecks.XMLParse,
-		resp.QualityChecks.LanguageDetection,
-		resp.QualityChecks.MarkdownStructure,
-		resp.QualityChecks.FormatPurity,
-		resp.QualityChecks.LengthRatio,
-		resp.QualityChecks.GlossaryCompliance,
-		resp.QualityChecks.RetryCount,
-		resp.TokensUsed,
-	)
+	// Build frontmatter. Mirror source fields first (date / hidden / draft /
+	// slug / description), then huan-managed metadata. Tags use translated
+	// list; if source had no tags field, omit it (true mirror).
+	var b strings.Builder
+	b.WriteString("---\n")
+	b.WriteString(fmt.Sprintf("title: %q\n", resp.Title))
+
+	// Mirror scalar fields from source frontmatter (skip if absent in source)
+	if v, ok := srcFM["date"]; ok {
+		// yaml.v3 parses ISO timestamps into time.Time; preserve ISO 8601
+		// format (RFC3339) instead of Go's default Time.String() which
+		// produces "2006-01-02 15:04:05 -0700 MST".
+		if t, isTime := v.(time.Time); isTime {
+			b.WriteString(fmt.Sprintf("date: %s\n", t.Format(time.RFC3339)))
+		} else {
+			b.WriteString(fmt.Sprintf("date: %v\n", v))
+		}
+	}
+	if v, ok := srcFM["hidden"]; ok {
+		b.WriteString(fmt.Sprintf("hidden: %v\n", v))
+	}
+	if v, ok := srcFM["draft"]; ok {
+		b.WriteString(fmt.Sprintf("draft: %v\n", v))
+	}
+	// Translated tags (if source had tags)
+	if translatedTags != nil {
+		b.WriteString("tags: " + formatYAMLStringList(translatedTags) + "\n")
+	}
+	// Translated keywords (if source had keywords)
+	if translatedKeywords != nil {
+		b.WriteString("keywords: " + formatYAMLStringList(translatedKeywords) + "\n")
+	}
+	// description: only write if source has non-CJK description (no
+	// Chinese in .en.md policy). Source Chinese descriptions are dropped.
+	if desc, ok := descriptionForSidecar(srcFM); ok {
+		b.WriteString(fmt.Sprintf("description: %q\n", desc))
+	}
+	if v, ok := srcFM["slug"]; ok {
+		if s, isStr := v.(string); isStr {
+			b.WriteString(fmt.Sprintf("slug: %q\n", s))
+		} else {
+			b.WriteString(fmt.Sprintf("slug: %v\n", v))
+		}
+	}
+
+	// huan-managed metadata
+	b.WriteString(fmt.Sprintf("translation_of: %s\n", relSrc))
+	b.WriteString(fmt.Sprintf("source_lang: %s\n", sourceLang))
+	b.WriteString(fmt.Sprintf("target_lang: %s\n", targetLang))
+	b.WriteString(fmt.Sprintf("source_hash: %s\n", sourceHash))
+	b.WriteString(fmt.Sprintf("model: %s\n", resp.Model))
+	b.WriteString(fmt.Sprintf("translated_at: %s\n", utcNow()))
+	b.WriteString("translator: qwen3\n")
+	b.WriteString("quality_checks:\n")
+	b.WriteString(fmt.Sprintf("  xml_parse: %t\n", resp.QualityChecks.XMLParse))
+	b.WriteString(fmt.Sprintf("  language_detection: %t\n", resp.QualityChecks.LanguageDetection))
+	b.WriteString(fmt.Sprintf("  markdown_structure: %t\n", resp.QualityChecks.MarkdownStructure))
+	b.WriteString(fmt.Sprintf("  format_purity: %t\n", resp.QualityChecks.FormatPurity))
+	b.WriteString(fmt.Sprintf("  length_ratio: %.4f\n", resp.QualityChecks.LengthRatio))
+	b.WriteString(fmt.Sprintf("  glossary_compliance: %t\n", resp.QualityChecks.GlossaryCompliance))
+	b.WriteString(fmt.Sprintf("  retry_count: %d\n", resp.QualityChecks.RetryCount))
+	b.WriteString(fmt.Sprintf("tokens_used: %d\n", resp.TokensUsed))
+	b.WriteString("---\n\n")
 
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	return os.WriteFile(outPath, []byte(frontmatter+resp.Body+"\n"), 0644)
+	return os.WriteFile(outPath, []byte(b.String()+resp.Body+"\n"), 0644)
+}
+
+// translateTagList translates source frontmatter tags via glossary.
+// Returns nil if source has no tags field. Returns error (fail-fast) if
+// any tag is missing from glossary — per ADR 0008 §8, partial tag
+// translation would fragment taxonomy.
+func translateTagList(srcFM map[string]interface{}, glossary map[string]string) ([]string, error) {
+	v, ok := srcFM["tags"]
+	if !ok {
+		return nil, nil
+	}
+	rawTags, err := toStringList(v)
+	if err != nil {
+		return nil, fmt.Errorf("tags field: %w", err)
+	}
+	return translateTerms(rawTags, glossary, "tag")
+}
+
+// translateKeywordList translates source frontmatter keywords via glossary.
+// Drops any term that has no translation — keeps .en.md sidecar Chinese-free.
+// Source keywords are usually 1-3 word tags (covered by glossary) or long
+// descriptive phrases (book chapter titles — not in glossary). The latter
+// are intentionally dropped rather than mirrored because the en sidecar
+// must not contain Chinese (per user policy).
+//
+// Returns nil if source has no keywords field (so writeTranslatedSidecar
+// omits the field entirely). Returns empty slice if source has empty list.
+func translateKeywordList(srcFM map[string]interface{}, glossary map[string]string) ([]string, error) {
+	v, ok := srcFM["keywords"]
+	if !ok {
+		return nil, nil
+	}
+	rawKw, err := toStringList(v)
+	if err != nil {
+		return nil, fmt.Errorf("keywords field: %w", err)
+	}
+	out := make([]string, 0, len(rawKw))
+	for _, s := range rawKw {
+		if en, ok := glossary[s]; ok && en != "" {
+			out = append(out, en)
+		}
+		// Drop untranslated (don't append source term)
+	}
+	return out, nil
+}
+
+// descriptionForSidecar returns the description value to write to .en.md, or
+// ("", false) to omit the field. Per user policy, .en.md must not contain
+// Chinese. Source descriptions are usually empty (zhurongshuo convention)
+// or contain long Chinese prose (book introductions). The latter is dropped
+// rather than mirrored — translating them would require an LLM call per
+// file (out of scope for tag-mirror feature).
+func descriptionForSidecar(srcFM map[string]interface{}) (string, bool) {
+	v, ok := srcFM["description"]
+	if !ok {
+		return "", false
+	}
+	s, isStr := v.(string)
+	if !isStr {
+		return "", false
+	}
+	// Drop if contains any CJK rune (no Chinese in .en.md policy)
+	if hasCJK(s) {
+		return "", false
+	}
+	return s, true
+}
+
+// hasCJK returns true if s contains any CJK Unified Ideograph rune.
+func hasCJK(s string) bool {
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return true
+		}
+	}
+	return false
+}
+
+// translateTerms maps each source term through glossary, fail-fast on miss.
+// Used for tags (taxonomy drivers — partial translation would fragment URL
+// space). For lenient handling (keywords), see translateKeywordList.
+func translateTerms(src []string, glossary map[string]string, kind string) ([]string, error) {
+	if len(src) == 0 {
+		return []string{}, nil
+	}
+	out := make([]string, 0, len(src))
+	var missing []string
+	for _, s := range src {
+		if en, ok := glossary[s]; ok && en != "" {
+			out = append(out, en)
+		} else {
+			missing = append(missing, s)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("%s not in glossary (add to i18n/terms.yaml): %v", kind, missing)
+	}
+	return out, nil
+}
+
+// toStringList coerces a parsed YAML value to []string. Accepts []interface{}
+// (standard yaml.v3 output) or []string (already typed).
+func toStringList(v interface{}) ([]string, error) {
+	switch s := v.(type) {
+	case []string:
+		return s, nil
+	case []interface{}:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				out = append(out, str)
+			} else {
+				out = append(out, fmt.Sprintf("%v", item))
+			}
+		}
+		return out, nil
+	case nil:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("expected list, got %T", v)
+	}
+}
+
+// formatYAMLStringList formats []string as YAML inline list: ["a", "b", "c"].
+// Empty list → "[]".
+func formatYAMLStringList(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	var b strings.Builder
+	b.WriteString("[")
+	for i, s := range items {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		// YAML double-quoted string with escape
+		b.WriteString("\"")
+		b.WriteString(strings.ReplaceAll(s, "\"", "\\\""))
+		b.WriteString("\"")
+	}
+	b.WriteString("]")
+	return b.String()
 }
 

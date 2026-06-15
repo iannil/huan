@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -19,6 +20,11 @@ import (
 //	道: the Way
 //
 // Comments (lines starting with #) and blank lines are ignored.
+//
+// Values are parsed as STRINGS, even when they look like booleans / numbers
+// (e.g., `虚假: false` → "false" not boolean False). The dictionary is a
+// zh→en mapping of category labels; English values like "false", "true",
+// "null" are legitimate translations and must not be coerced.
 func loadGlossary(path string) (map[string]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -27,12 +33,34 @@ func loadGlossary(path string) (map[string]string, error) {
 	// Strip comment lines (YAML allows # comments but only at start of line
 	// when key starts unquoted — be defensive and strip them).
 	stripped := stripYAMLComments(string(data))
-	var out map[string]string
-	if err := yaml.Unmarshal([]byte(stripped), &out); err != nil {
+
+	// Decode into map[string]interface{} first to avoid YAML scalar coercion
+	// (false → bool, 42 → int), then stringify values. Decoding directly into
+	// map[string]string works for most cases but silently drops entries whose
+	// values YAML parses as non-string scalars.
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(stripped), &raw); err != nil {
 		return nil, fmt.Errorf("parse glossary YAML: %w", err)
 	}
-	if out == nil {
-		out = make(map[string]string)
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		switch s := v.(type) {
+		case string:
+			out[k] = s
+		case nil:
+			// skip — empty value
+		default:
+			// Use yaml.Marshal to round-trip non-string scalars (bool/int/float)
+			// back to their YAML representation. This makes `false` → "false",
+			// `42` → "42", etc.
+			var buf bytes.Buffer
+			enc := yaml.NewEncoder(&buf)
+			enc.SetIndent(2)
+			if err := enc.Encode(v); err == nil {
+				enc.Close()
+				out[k] = strings.TrimSpace(buf.String())
+			}
+		}
 	}
 	return out, nil
 }
