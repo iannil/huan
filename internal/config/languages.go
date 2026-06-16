@@ -1,6 +1,9 @@
 package config
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // LanguageConfig holds per-language settings declared under the `languages:`
 // block in huan.yaml. Mirrors Hugo's languages map structure for familiarity.
@@ -43,6 +46,29 @@ type LanguageConfig struct {
 	// LanguageCode is the BCP-47 language code (e.g. "zh-cn", "en").
 	// Empty means use the map key from `languages:` block.
 	LanguageCode string `yaml:"languageCode"`
+
+	// ExcludeSections lists top-level content sections (e.g. "books",
+	// "gallery") that should NOT appear in this language. Pages under these
+	// sections are dropped from the build (no content/listing pages, no
+	// sitemap entries), and templates use IsSectionExcludedForLang to hide
+	// their entry points (menu items, social icons). Typically used to keep
+	// untranslated or intentionally-monolingual sections off a translated
+	// site. Empty means no exclusion (default).
+	ExcludeSections []string `yaml:"excludeSections"`
+
+	// CatalogSections lists top-level sections rendered in this language as
+	// "catalog-only": the section index page renders (from its `_index.<lang>.md`
+	// sidecar), but the section's content pages are dropped from the build (no
+	// content pages, no sitemap entries). Used to advertise an untranslated
+	// section's contents (e.g. a disabled book index) without publishing the
+	// individual pages.
+	CatalogSections []string `yaml:"catalogSections"`
+
+	// NeutralSections lists top-level sections whose content is language-neutral
+	// (e.g. an image gallery). In this (non-default) language's build, the
+	// section's default-language content pages are included as-is, while the
+	// section index uses this language's `_index.<lang>.md` sidecar.
+	NeutralSections []string `yaml:"neutralSections"`
 }
 
 // IsMultiLanguage reports whether cfg has a non-empty Languages map with at
@@ -146,4 +172,62 @@ func (c *Config) IsDefaultLanguageCurrent() bool {
 		return true
 	}
 	return c.LanguageCode == c.DefaultLanguageCode()
+}
+
+// TopSection returns the first path segment of a URL or content-relative path,
+// e.g. "/books/foo/" → "books", "products/x.md" → "products",
+// "http://h/books/" → "books". Returns "" when there is no segment.
+func TopSection(urlOrPath string) string {
+	s := urlOrPath
+	// Strip scheme://host if present.
+	if i := strings.Index(s, "://"); i >= 0 {
+		rest := s[i+3:]
+		if slash := strings.IndexByte(rest, '/'); slash >= 0 {
+			s = rest[slash:]
+		} else {
+			return ""
+		}
+	}
+	s = strings.TrimLeft(s, "/")
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		s = s[:i]
+	}
+	return s
+}
+
+// IsSectionExcludedForLang reports whether the section that urlOrPath belongs
+// to is excluded for the given language code. The language's BaseURL prefix
+// (e.g. "/en") is stripped first so both raw config URLs ("/books/") and
+// language-prefixed URLs ("/en/books/") resolve to the same top section.
+func (c *Config) IsSectionExcludedForLang(code, urlOrPath string) bool {
+	lang, ok := c.Languages[code]
+	if !ok || len(lang.ExcludeSections) == 0 {
+		return false
+	}
+	s := urlOrPath
+	// Strip scheme://host so we can trim a leading language prefix uniformly.
+	if i := strings.Index(s, "://"); i >= 0 {
+		rest := s[i+3:]
+		if slash := strings.IndexByte(rest, '/'); slash >= 0 {
+			s = rest[slash:]
+		} else {
+			s = "/"
+		}
+	}
+	if base := strings.Trim(lang.BaseURL, "/"); base != "" {
+		trimmed := strings.TrimLeft(s, "/")
+		if trimmed == base {
+			trimmed = ""
+		} else if rest, found := strings.CutPrefix(trimmed, base+"/"); found {
+			trimmed = rest
+		}
+		s = "/" + trimmed
+	}
+	top := TopSection(s)
+	for _, ex := range lang.ExcludeSections {
+		if ex == top {
+			return true
+		}
+	}
+	return false
 }

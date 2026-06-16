@@ -3,6 +3,8 @@ package template
 import (
 	"html/template"
 	"testing"
+
+	"github.com/iannil/huan/internal/config"
 )
 
 // getFunc returns a named function from FuncMap. Fatals if missing so test
@@ -15,6 +17,36 @@ func getFunc(t *testing.T, name string) interface{} {
 		t.Fatalf("FuncMap missing %q", name)
 	}
 	return fn
+}
+
+func TestSectionExcludedFunc(t *testing.T) {
+	cfg := &config.Config{
+		Languages: map[string]config.LanguageConfig{
+			"zh-cn": {BaseURL: ""},
+			"en":    {BaseURL: "/en", ExcludeSections: []string{"books", "gallery"}},
+		},
+	}
+	enCtx := &Context{Site: &SiteContext{Config: cfg, LanguageCode: "en"}}
+	zhCtx := &Context{Site: &SiteContext{Config: cfg, LanguageCode: "zh-cn"}}
+
+	if !sectionExcludedFunc(enCtx, "/books/") {
+		t.Error("en /books/ should be excluded")
+	}
+	if !sectionExcludedFunc(enCtx, "/gallery/") {
+		t.Error("en /gallery/ should be excluded")
+	}
+	if sectionExcludedFunc(enCtx, "/products/") {
+		t.Error("en /products/ should NOT be excluded")
+	}
+	if sectionExcludedFunc(zhCtx, "/books/") {
+		t.Error("zh-cn /books/ should NOT be excluded")
+	}
+	if sectionExcludedFunc(nil, "/books/") {
+		t.Error("nil ctx should not be excluded")
+	}
+	if sectionExcludedFunc(enCtx, "") {
+		t.Error("empty url should not be excluded")
+	}
 }
 
 func TestMathFuncs_AddSupportsFloat(t *testing.T) {

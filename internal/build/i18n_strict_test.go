@@ -120,6 +120,58 @@ Body translation.
 	}
 }
 
+func TestCheckStaleTranslations_EmptyBodySourceSkipped(t *testing.T) {
+	dir := t.TempDir()
+	// Frontmatter-only source (e.g. a section _index.md) — translate SKIPs it,
+	// so its manually-authored sidecar has no source_hash and must NOT be flagged.
+	if err := os.WriteFile(filepath.Join(dir, "_index.md"),
+		[]byte("---\ntitle: Books\n---\n"), 0644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "_index.en.md"),
+		[]byte("---\ntitle: Books\n---\n"), 0644); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+	// A normal-body source with a hashless sidecar SHOULD still be flagged.
+	if err := os.WriteFile(filepath.Join(dir, "real.md"),
+		[]byte("---\ntitle: R\n---\nBody.\n"), 0644); err != nil {
+		t.Fatalf("write real src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "real.en.md"),
+		[]byte("---\ntitle: R\n---\nTranslated.\n"), 0644); err != nil {
+		t.Fatalf("write real sidecar: %v", err)
+	}
+
+	report, err := checkStaleTranslations(dir)
+	if err != nil {
+		t.Fatalf("checkStaleTranslations: %v", err)
+	}
+	if report.Missing != 1 {
+		t.Errorf("missing = %d, want 1 (only real.en.md); files=%v", report.Missing, report.MissingHashFiles)
+	}
+	for _, f := range report.MissingHashFiles {
+		if f == "_index.en.md" {
+			t.Errorf("_index.en.md (empty-body source) must not be flagged missing")
+		}
+	}
+}
+
+func TestMarkdownBodyIsEmpty(t *testing.T) {
+	cases := map[string]bool{
+		"---\ntitle: X\n---\n":            true,
+		"---\ntitle: X\n---\n\n  \n":      true,
+		"---\ntitle: X\n---\nBody here\n": false,
+		"":                               true,
+		"   ":                            true,
+		"No frontmatter body":            false,
+	}
+	for in, want := range cases {
+		if got := markdownBodyIsEmpty(in); got != want {
+			t.Errorf("markdownBodyIsEmpty(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestCheckStaleTranslations_StaleDetected(t *testing.T) {
 	dir := t.TempDir()
 	// Source file (current)

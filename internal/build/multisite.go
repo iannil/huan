@@ -62,6 +62,13 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		return nil, fmt.Errorf("BuildMultiSite: cfg has no languages: block; use BuildSite for single-language builds")
 	}
 
+	// serve mode passes a dev BaseURL override; apply it at the master level so
+	// per-language prefixes (e.g. /en/) are computed from the dev URL. Cleared
+	// per-language below so BuildSite doesn't re-clobber the computed prefix.
+	if opts.BaseURLOverride != "" {
+		masterCfg.BaseURL = opts.BaseURLOverride
+	}
+
 	// Pre-scan content directory to build the AvailableTranslations map.
 	// This lets hreflang output skip languages that don't have sidecar files
 	// for a given page (prevents SEO 404s).
@@ -101,6 +108,9 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 
 		// Per-language Options
 		langOpts := opts
+		// BaseURLOverride already applied to masterCfg above; clear it so
+		// BuildSite doesn't overwrite the per-language baseURL prefix.
+		langOpts.BaseURLOverride = ""
 		// Append language baseURL to OutputDir for non-default languages
 		if lang.BaseURL != "" {
 			langOpts.OutputDir = filepath.Join(opts.OutputDir, lang.BaseURL)
@@ -109,14 +119,41 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		langOpts.CfgOverride = &langCfg
 		langOpts.AvailableTranslations = available
 		cc := code
+		def := defaultCode
 		isDefault := code == defaultCode
+		excluded := lang.ExcludeSections
+		catalog := lang.CatalogSections
+		neutral := lang.NeutralSections
 		langOpts.PageFilter = func(p *content.Page) bool {
 			if isDefault {
 				// Default language: pages with empty Language OR explicit default code
 				return p.Language == "" || p.Language == cc
 			}
-			// Non-default language: only pages with explicit matching code
-			return p.Language == cc
+			// Non-default language: classify the page's top-level section.
+			// Note: Page.Kind is assigned in BuildTree (after this filter runs),
+			// so section-index pages are detected by filename (_index.*), not
+			// IsSection().
+			top := config.TopSection(p.RelPath)
+			isIndex := strings.HasPrefix(filepath.Base(p.RelPath), "_index.")
+			switch {
+			case sectionInList(top, excluded):
+				// Fully hidden: drop everything (no index, content, or sitemap).
+				return false
+			case sectionInList(top, catalog):
+				// Catalog-only: render the section index from this language's
+				// _index.<lang>.md sidecar; drop all content pages.
+				return isIndex && p.Language == cc
+			case sectionInList(top, neutral):
+				// Language-neutral (e.g. image gallery): index from this
+				// language's sidecar; content from the default language.
+				if isIndex {
+					return p.Language == cc
+				}
+				return p.Language == "" || p.Language == def
+			default:
+				// Normal: only pages with the explicit matching language code.
+				return p.Language == cc
+			}
 		}
 
 		// Dispatch to single-language BuildSite
@@ -132,6 +169,17 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 
 	result.TotalDuration = time.Since(multiStart)
 	return result, nil
+}
+
+// sectionInList reports whether the given top-level section name is present in
+// list. Used by the per-language PageFilter to classify pages.
+func sectionInList(top string, list []string) bool {
+	for _, s := range list {
+		if s == top {
+			return true
+		}
+	}
+	return false
 }
 
 // buildAvailableTranslations scans the content directory and returns a map

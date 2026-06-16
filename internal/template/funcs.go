@@ -152,6 +152,7 @@ func FuncMap(baseURL string) template.FuncMap {
 		"hreflang":                hreflangFunc,
 		"langPrefix":              langPrefixFunc,
 		"translationLinks":        translationLinksFunc,
+		"sectionExcluded":         sectionExcludedFunc,
 		"safeCSS":                 func(v interface{}) template.CSS { return template.CSS(toString(v)) },
 		"safeHTMLAttr":            func(v interface{}) template.HTMLAttr { return template.HTMLAttr(toString(v)) },
 	}
@@ -483,6 +484,24 @@ func translationLinksFunc(ctx interface{}) []TranslationLink {
 		return nil
 	}
 	return c.TranslationLinks
+}
+
+// sectionExcludedFunc reports whether the section that url belongs to is
+// excluded for the current page's language (cfg.languages.<code>.excludeSections).
+// Used by themes to hide entry points (menu items, social icons) that point to
+// sections not present in the current language.
+//
+// Usage (note `$` is the root Context inside a range):
+//
+//	{{ range .Site.Menus.main }}{{ if not (sectionExcluded $ .URL) }}<li>…</li>{{ end }}{{ end }}
+//
+// Safe-by-default: returns false when ctx/site/config is nil or url is empty.
+func sectionExcludedFunc(ctx interface{}, url string) bool {
+	c, ok := ctx.(*Context)
+	if !ok || c == nil || c.Site == nil || c.Site.Config == nil || url == "" {
+		return false
+	}
+	return c.Site.Config.IsSectionExcludedForLang(c.Site.LanguageCode, url)
 }
 
 func jsonifyFunc(v interface{}) (string, error) {

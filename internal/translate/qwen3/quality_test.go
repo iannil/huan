@@ -17,51 +17,6 @@ func newTestChecker() *qualityChecker {
 	})
 }
 
-func TestCountLatinWords(t *testing.T) {
-	tests := []struct {
-		in   string
-		want int
-	}{
-		{"", 0},
-		{"hello", 1},
-		{"hello world", 2},
-		{"  multiple   spaces  ", 2},
-		{"one\ntwo\nthree", 3},
-		{"punctuation! counts? yes.", 3},
-	}
-	for _, tc := range tests {
-		got := countLatinWords(tc.in)
-		if got != tc.want {
-			t.Errorf("countLatinWords(%q) = %d, want %d", tc.in, got, tc.want)
-		}
-	}
-}
-
-func TestCountCJKRunes(t *testing.T) {
-	if got := countCJKRunes("hello world"); got != 0 {
-		t.Errorf("countCJKRunes(english) = %d, want 0", got)
-	}
-	if got := countCJKRunes("hello 世界"); got != 2 {
-		t.Errorf("countCJKRunes(mixed) = %d, want 2", got)
-	}
-	if got := countCJKRunes("法不净空"); got != 4 {
-		t.Errorf("countCJKRunes(all CJK) = %d, want 4", got)
-	}
-}
-
-func TestDetectLanguageFraction(t *testing.T) {
-	if got := detectLanguageFraction("the quick brown fox"); got > 0.01 {
-		t.Errorf("pure English fraction = %f, want ~0", got)
-	}
-	if got := detectLanguageFraction("法不净空觉无性也"); got < 0.99 {
-		t.Errorf("pure CJK fraction = %f, want ~1", got)
-	}
-	got := detectLanguageFraction("ab 世界")
-	if got < 0.4 || got > 0.6 {
-		t.Errorf("mixed fraction = %f, want ~0.5", got)
-	}
-}
-
 func TestCheckLanguageDetection(t *testing.T) {
 	q := newTestChecker()
 	if !q.CheckLanguageDetection("The quick brown fox jumps over the lazy dog") {
@@ -72,28 +27,6 @@ func TestCheckLanguageDetection(t *testing.T) {
 	}
 	if !q.CheckLanguageDetection("hello world 你好") {
 		t.Error("borderline 20% CJK should pass")
-	}
-}
-
-func TestCJKRunesOutsideCode(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want int
-	}{
-		{"clean English", "The quick brown fox.", 0},
-		{"inline prose drop", "geopolitics and state-level博弈.", 2},
-		{"fenced code ignored", "intro\n```go\n// 设置回调\nfmt.Println(\"你好\")\n```\nend", 0},
-		{"inline code ignored", "use the `配置` flag here", 0},
-		{"prose counted but code not", "the 博弈 of `规则` engines\n```\n回调\n```", 2},
-		{"indented fence", "  ```\n  中文\n  ```\nclean", 0},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := cjkRunesOutsideCode(tc.in); got != tc.want {
-				t.Errorf("cjkRunesOutsideCode(%q) = %d, want %d", tc.in, got, tc.want)
-			}
-		})
 	}
 }
 

@@ -106,8 +106,18 @@ func checkStaleTranslations(contentDir string) (*I18nStaleReport, error) {
 
 		// Find corresponding source file (strip .<lang> suffix)
 		srcPath := stripSidecarLangSuffix(path, lang)
-		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
-			return nil // source gone; skip (separate concern)
+		srcData, srcErr := os.ReadFile(srcPath)
+		if srcErr != nil {
+			return nil // source gone/unreadable; skip (separate concern)
+		}
+
+		// Empty-body sources (e.g. section _index.md with only frontmatter) are
+		// SKIPPED by `huan translate` (translate_cmd.go), so their sidecars never
+		// receive a source_hash. Don't flag them as stale/missing — mirror the
+		// translator's own skip rule so manually-authored _index.<lang>.md don't
+		// break strict CI.
+		if markdownBodyIsEmpty(string(srcData)) {
+			return nil
 		}
 
 		// Parse sidecar frontmatter for source_hash
@@ -123,11 +133,7 @@ func checkStaleTranslations(contentDir string) (*I18nStaleReport, error) {
 			return nil
 		}
 
-		// Compute current source hash
-		srcData, err := os.ReadFile(srcPath)
-		if err != nil {
-			return nil
-		}
+		// Compute current source hash (srcData already read above).
 		sum := sha256.Sum256(srcData)
 		currentHash := hex.EncodeToString(sum[:])
 
@@ -219,6 +225,29 @@ func extractFrontmatter(markdown string) (string, bool) {
 		return "", false
 	}
 	return rest[:end], true
+}
+
+// markdownBodyIsEmpty reports whether the markdown has no body content after
+// its frontmatter (i.e. frontmatter-only, like a section _index.md). Content
+// with no frontmatter is treated as body (non-empty unless blank).
+func markdownBodyIsEmpty(markdown string) bool {
+	trimmed := strings.TrimSpace(markdown)
+	if strings.HasPrefix(trimmed, "---") {
+		rest := trimmed[3:]
+		if strings.HasPrefix(rest, "\n") {
+			if end := strings.Index(rest[1:], "\n---"); end >= 0 {
+				body := rest[1+end+len("\n---"):]
+				// Drop the remainder of the closing delimiter line.
+				if nl := strings.IndexByte(body, '\n'); nl >= 0 {
+					body = body[nl+1:]
+				} else {
+					body = ""
+				}
+				return strings.TrimSpace(body) == ""
+			}
+		}
+	}
+	return strings.TrimSpace(trimmed) == ""
 }
 
 // xmlEscape is a helper for XML sitemap output. Unused here but kept for

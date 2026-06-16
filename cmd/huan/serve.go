@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/iannil/huan/internal/build"
+	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/serve"
 	"github.com/spf13/cobra"
 )
@@ -19,6 +20,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	disableWatch, _ := cmd.Flags().GetBool("disableWatch")
 	debounce, _ := cmd.Flags().GetDuration("debounce")
 	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
+
+	// Load config to decide single- vs multi-language build dispatch (mirrors
+	// the build command in main.go). Multi-language configs must render every
+	// language under its baseURL prefix, not just the default.
+	cfg, err := config.Load(sourceDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
 	// For browser-facing URLs, wildcard binds (0.0.0.0, ::) aren't reachable
 	// from the browser; use localhost. Same-machine clients hit localhost,
@@ -63,7 +72,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
 	}
 
-	if _, err := build.BuildSite(buildOpts); err != nil {
+	// Dispatch helper: multi-language configs render every language under its
+	// baseURL prefix via BuildMultiSite; single-language uses BuildSite.
+	runBuild := func(opts build.Options) error {
+		if cfg.IsMultiLanguage() {
+			res, err := build.BuildMultiSite(opts)
+			if err != nil {
+				return err
+			}
+			fmt.Println(build.SummarizeMultiSite(res))
+			return nil
+		}
+		_, err := build.BuildSite(opts)
+		return err
+	}
+
+	if err := runBuild(buildOpts); err != nil {
 		return err
 	}
 
@@ -97,7 +121,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			start := time.Now()
 			_ = os.RemoveAll(nextDir) // clear any leftover from previous failed rebuild
 			buildOpts.OutputDir = nextDir
-			if _, err := build.BuildSite(buildOpts); err != nil {
+			if err := runBuild(buildOpts); err != nil {
 				_ = os.RemoveAll(nextDir)
 				buildOpts.OutputDir = tmpDir // restore so next iteration re-stages correctly
 				fmt.Printf("[watch] rebuild error: %v\n", err)

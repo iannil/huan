@@ -32,6 +32,7 @@ func newTranslateCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTranslateQwen3Cmd())
 	cmd.AddCommand(newTranslateStatusCmd())
+	cmd.AddCommand(newTranslateAuditCmd())
 	return cmd
 }
 

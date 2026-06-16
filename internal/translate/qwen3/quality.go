@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/iannil/huan/internal/i18n/langdetect"
 )
 
 // qualityChecker runs post-translation quality checks against the parsed
@@ -20,106 +21,13 @@ func newQualityChecker(cfg QualityConfig) *qualityChecker {
 	return &qualityChecker{cfg: cfg}
 }
 
-// countLatinWords returns the number of whitespace-separated tokens in s.
-// Used for diagnostics (length-ratio now uses char count, see
-// CheckLengthRatio).
-func countLatinWords(s string) int {
-	count := 0
-	inWord := false
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			inWord = false
-			continue
-		}
-		if !inWord {
-			inWord = true
-			count++
-		}
-	}
-	return count
-}
-
-// countCJKRunes returns the number of CJK Unified Ideograph runes in s.
-// Used to detect "LLM was lazy and returned Chinese source unchanged".
-func countCJKRunes(s string) int {
-	count := 0
-	for _, r := range s {
-		if unicode.In(r, unicode.Han) {
-			count++
-		}
-	}
-	return count
-}
-
-// detectLanguageFraction returns the fraction of CJK runes / total runes
-// (alphabetic + CJK). For English output, this should be very low (< 0.2).
-// A high fraction means the output is still mostly Chinese.
-func detectLanguageFraction(s string) float64 {
-	total := 0
-	cjk := 0
-	for _, r := range s {
-		if unicode.IsLetter(r) {
-			total++
-			if unicode.In(r, unicode.Han) {
-				cjk++
-			}
-		}
-	}
-	if total == 0 {
-		return 0
-	}
-	return float64(cjk) / float64(total)
-}
-
 // CheckLanguageDetection passes when the output's CJK fraction is below
 // (1 - TargetLanguageThreshold). For threshold=0.8 (80% English), CJK
 // fraction must be ≤ 0.2.
 func (q *qualityChecker) CheckLanguageDetection(body string) bool {
-	cjkFrac := detectLanguageFraction(body)
+	cjkFrac := langdetect.CJKFraction(body)
 	maxCJKFrac := 1.0 - q.cfg.TargetLanguageThreshold
 	return cjkFrac <= maxCJKFrac
-}
-
-// cjkRunesOutsideCode counts CJK Han runes in s, EXCLUDING any that appear
-// inside fenced code blocks (``` ... ```) or inline code spans (`...`).
-//
-// Why exclude code: legitimate code examples may contain CJK string literals
-// or comments that are not translation defects. The residual-CJK check
-// targets the systematic failure mode where the LLM drops a prose term and
-// leaves it glued into English text (e.g. "state-level博弈"). Code-comment
-// translation is a content decision handled separately, not by this gate.
-func cjkRunesOutsideCode(s string) int {
-	count := 0
-	inFence := false
-	for _, line := range strings.Split(s, "\n") {
-		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "```") {
-			inFence = !inFence
-			continue
-		}
-		if inFence {
-			continue
-		}
-		count += countCJKRunes(stripInlineCode(line))
-	}
-	return count
-}
-
-// stripInlineCode removes inline code spans (text between backticks) from a
-// single line so CJK inside `code` is not counted as prose residue. Unpaired
-// trailing backticks are left as-is (their content stays counted).
-func stripInlineCode(line string) string {
-	var b strings.Builder
-	inCode := false
-	for _, r := range line {
-		if r == '`' {
-			inCode = !inCode
-			continue
-		}
-		if !inCode {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // CheckResidualCJK passes when the number of CJK runes in prose (outside code
@@ -133,7 +41,7 @@ func stripInlineCode(line string) string {
 // names that failure mode with an absolute count. Soft check — triggers a
 // retry, then surfaces in the report if still failing.
 func (q *qualityChecker) CheckResidualCJK(body string) bool {
-	return cjkRunesOutsideCode(body) <= q.cfg.MaxResidualCJK
+	return langdetect.CJKRunesOutsideCode(body) <= q.cfg.MaxResidualCJK
 }
 
 // htmlBlockTagRe matches opening HTML tags whose existence in translator
