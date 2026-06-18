@@ -68,8 +68,14 @@ func (r *I18nStaleReport) Error() string {
 			b.WriteString("    - " + f + "\n")
 		}
 	}
-	b.WriteString("\nRun `huan translate qwen3` to refresh stale translations.\n")
-	b.WriteString("Or set HUAN_STRICT_I18N=false to bypass (not recommended in CI).")
+	if r.Stale > 0 {
+		b.WriteString("\nRun `huan translate qwen3` to refresh stale translations.\n")
+	}
+	if r.Missing > 0 {
+		b.WriteString("\nRun `huan translate backfill` to stamp source_hash on sidecars that\n")
+		b.WriteString("already match the current source (sidecar body left untouched).\n")
+	}
+	b.WriteString("\nOr set HUAN_STRICT_I18N=false to bypass (not recommended in CI).")
 	return b.String()
 }
 
