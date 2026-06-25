@@ -1,4 +1,4 @@
-# huan（焕）
+# huan（幻）
 
 **中文** | [English](./README.md)
 
