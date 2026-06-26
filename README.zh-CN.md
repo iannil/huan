@@ -34,9 +34,8 @@
 - **单一二进制**，零运行时依赖，冷启动快
 - 使用 **goldmark** 渲染 Markdown——与 Hugo 同一个库
 - 使用 **`huan.yaml`** 作为配置（YAML，而非 TOML）
-- **内建管理后台**：`/admin` 下的内容管理 UI——Go JSON API + React SPA（Shadcn UI）。在浏览器中浏览、创建、编辑、删除 Markdown 内容，无需触碰命令行。
+- **内建管理后台**：`/admin` 下的内容管理 UI——Go JSON API + React SPA（Shadcn UI）。在浏览器中浏览、创建、编辑、删除 Markdown 内容；管理站点设置（标题、描述、GA、CDN URL）；仪表盘含统计与最近内容。集成在 `huan serve` 中——零额外配置。
 - **CJK 友好**：字数统计、标题 ID、摘要截断都能正确处理中文 / 日文 / 韩文，无需额外配置
-- **内建管理后台**：`/admin` 下的内容管理 UI（Go JSON API + React SPA）。浏览、创建、编辑、删除 Markdown 内容；管理站点设置（标题、描述、GA、CDN URL）；仪表盘含统计与最近内容。集成在 `huan serve` 中——零额外配置。
 - **默认 AI 友好**：内置 `llms.txt`、内容 API（`/api/{section}.json`）、每页 Markdown 镜像——为 LLM 爬虫和 AI 消费者而设计，而不仅是 SEO 爬虫
 - **开箱即用的双语能力**：一套 i18n 构建系统将 `.zh-cn`/`.en` 边车文件渲染为完整的本地化站点，并内置一个翻译插件用本地 LLM 补齐缺口
 - **统一插件系统**（[ADR 0003](docs/adr/0003-unified-plugin-system.md)）：基于能力（capability）的扩展——`Deployer`（Cloudflare）和 `Translator`（Qwen3）内置并共享同一个注册表

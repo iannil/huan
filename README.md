@@ -34,9 +34,8 @@ Key characteristics:
 - **Single binary**, no runtime dependencies, fast cold start
 - **goldmark** for Markdown rendering — the same library Hugo uses
 - **`huan.yaml`** for configuration (YAML, not TOML)
-- **Built-in admin panel**: a content management UI at `/admin` — Go JSON API + React SPA with Shadcn UI. Browse, create, edit, and delete Markdown content from your browser without touching the command line.
+- **Built-in admin panel**: a content management UI at `/admin` — Go JSON API + React SPA with Shadcn UI. Browse, create, edit, and delete Markdown content from your browser; manage site settings (title, description, GA, CDN URL); dashboard with stats and recent content. Integrated into `huan serve` — zero extra setup.
 - **CJK-aware**: word counting, heading IDs, and summary truncation all handle Chinese / Japanese / Korean correctly without extra configuration
-- **Admin panel**: built-in content management UI at `/admin` (Go JSON API + React SPA). Browse, create, edit, and delete Markdown content; manage site settings (title, description, GA, CDN URL); dashboard with stats and recent content. Integrated into `huan serve` — zero extra setup.
 - **AI-friendly by default**: built-in `llms.txt`, content API (`/api/{section}.json`), and per-page Markdown mirrors — designed for LLM crawlers and AI consumers, not just SEO bots
 - **Bilingual out of the box**: an i18n build system that renders `.zh-cn`/`.en` sidecars into a fully localized site, plus a built-in translator plugin that fills the gaps with a local LLM
 - **Unified plugin system** ([ADR 0003](docs/adr/0003-unified-plugin-system.md)): capability-based extensions — `Deployer` (Cloudflare) and `Translator` (Qwen3) ship built-in and share one registry
@@ -115,6 +114,10 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 - Serialized rebuilds (`atomic.Bool` busy + pending flags) — bursts of edits coalesce into one rebuild
 - Rebuild errors broadcast as LiveReload `alert` messages; dev server keeps running
 - Always serves from a temp dir; never touches the real `publishDir`
+
+---
+
+## Quick Start
 
 ### Install
 
