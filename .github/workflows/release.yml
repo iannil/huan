@@ -61,8 +61,6 @@ jobs:
           cd web/admin
           npm ci
           npm run build
-          mkdir -p ../../internal/admin/dist
-          cp -r dist/* ../../internal/admin/dist/
 
       - name: Build release artifacts
         run: |
