@@ -17,11 +17,12 @@ import (
 
 // ServerOptions configures a Server.
 type ServerOptions struct {
-	OutputDir string
-	Bind      string
-	Port      string // ":0" or "0" makes the OS pick a free port
-	Hub       *LiveReloadHub // optional; if nil, /livereload route returns 404
-	Logf      func(format string, args ...any)
+	OutputDir    string
+	Bind         string
+	Port         string // ":0" or "0" makes the OS pick a free port
+	Hub          *LiveReloadHub // optional; if nil, /livereload route returns 404
+	AdminHandler http.Handler   // optional; if non-nil, mounted at /admin/
+	Logf         func(format string, args ...any)
 }
 
 // Server serves the built site over HTTP.
@@ -70,6 +71,9 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.hub != nil {
 		hub := s.hub // capture for closure
 		mux.HandleFunc("/livereload", hub.AcceptHTTP)
+	}
+	if s.opts.AdminHandler != nil {
+		mux.Handle("/admin/", s.opts.AdminHandler)
 	}
 	// Static file server with custom 404.html fallback: if the requested
 	// path doesn't resolve to a file or directory index, and 404.html

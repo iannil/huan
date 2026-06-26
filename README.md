@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) | **English**
 
-> A Go-based static site generator, built as a focused Hugo replacement for [zhurongshuo.com](https://zhurongshuo.com) — now a general-purpose, AI-friendly SSG with a built-in bilingual translation pipeline.
+> A Go-based all-in-one content engine — replaces traditional CMS systems with file-based content management, a built-in admin panel, and a static site generation pipeline.
 
 `huan` turns Markdown + a single YAML config + Go templates into a static website whose output is **byte-for-byte verifiable against Hugo** (99.7% identical on the reference site, 0 differences on the SEO and AI dimensions). It ships as a single binary with zero runtime dependencies, uses the same goldmark engine as Hugo, treats CJK content as a first-class citizen, and bundles deploy, release, and LLM-powered translation into the same CLI.
 
@@ -27,7 +27,7 @@
 
 ## What is huan?
 
-`huan` is a static site generator written in Go. It was born to fully replace Hugo for building [zhurongshuo.com](https://zhurongshuo.com) — with the hard requirement that every HTML, RSS, sitemap, and search-index byte be reproducible and verifiable against Hugo's output. With that parity goal essentially met, huan has grown into a general-purpose, **AI-first** SSG.
+`huan` is an all-in-one content engine written in Go. It was born to fully replace Hugo for building [zhurongshuo.com](https://zhurongshuo.com) — with the hard requirement that every HTML, RSS, sitemap, and search-index byte be reproducible and verifiable against Hugo's output. With that parity goal essentially met (99.7% byte-identical, 0 differences on SEO and AI dimensions), huan has evolved into a **full CMS replacement** — a file-based content engine with a built-in admin panel that manages your content right where it lives.
 
 Key characteristics:
 
@@ -322,16 +322,24 @@ huan/
 
 ## Roadmap
 
-**Stage 1 polish:**
+**Stage 4 — Admin Panel（一体化内容引擎管理后台）**
 
-- Close the remaining chroma/version edge-case diffs vs Hugo
-- Expand test coverage across `internal/{config,content,markdown,output,template,i18n}`
+以 huan 新定位「一体化内容引擎」为轴心，构建内置管理后台，实现基于文件系统的内容管理。
+
+| PR | 范围 | 内容 |
+|----|------|------|
+| 1 | `web/admin/` + `internal/admin/` | 前后端一起：Vite+React+TS+Tailwind+Shadcn UI 骨架 + Go JSON API（内容CRUD）+ `//go:embed` 挂载到 `huan serve` 的 `/admin` 路由 |
+
+**技术栈**：Go JSON API + 嵌入式 React SPA · React 19 + Shadcn UI · Vite + TypeScript + Tailwind CSS · 无认证（localhost only）
 
 **Beyond:**
 
-- Additional translator providers (cloud APIs, other local models) under the existing `Translator` capability
-- Additional deploy targets under the existing `Deployer` capability
-- Further plugin capabilities sketched in [`docs/technical-plan.md`](docs/technical-plan.md)
+- Admin 认证系统（session/token）
+- 媒体库管理（相册）
+- 用户与权限管理
+- Dashboard 站点统计
+- Admin 内集成 i18n / deploy 配置
+- 从其他 CMS（WordPress / Ghost）的迁移工具
 
 ---
 

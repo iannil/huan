@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 经验教训 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-06-14（v0.3.0 上线：i18n 双语 + Docker image + 多 Worker + .env 加载；zhurongshuo 生产 deploy 成功；总 ~180 commits）
+> 最近更新：2026-06-26（定位重新定义：从 SSG 升级为一体化内容引擎，替代所有 CMS；grill-me 达成共识，5 份文档同步更新）
 
 ## 用户偏好
 
@@ -15,7 +15,7 @@
 
 ## 项目上下文
 
-- **huan** = Go 静态站点生成器，阶段一目标：替代 Hugo 构建 zhurongshuo.com，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](../docs/standards/equivalence.md) 与 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)
+- **huan** = Go 编写的一体化内容引擎（All-in-One Content Engine），基于文件管理内容，内置管理后台（huan serve 的 /admin 路由），替代所有 CMS。前身为静态站点生成器（阶段一目标：替代 Hugo 构建 zhurongshuo.com，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异），该等价目标已基本达成（99.7% 字节一致），2026-06-26 正式将定位升级为 CMS 替代品——详见 [`docs/reports/completed/2026-06-26-positioning-redefine.md`](../docs/reports/completed/2026-06-26-positioning-redefine.md)
 - 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），**生产已于 2026-06-13 前从 Hugo 迁移到 huan**（commit `309eb8087` "ci: pull huan v0.2.0 from GitHub Release instead of go install"），CI 走 `huan build` + GitHub Pages + Cloudflare 自动镜像
 - **当前版本：v0.2.3**（git tags：v0.1.0/v0.2.0/v0.2.1/v0.2.2；v0.2.3 已 commit 未 push tag）。**stage 1（2026-06-12 完成）+ stage 2 全部 phase（2026-06-13 完成）+ stage 3 三维度全 PASS 审计（2026-06-13 晚完成）**——byte/normalized/seo/ai 四模式均通过，剩 6 个 chroma/RSS/sitemap 永久差异走 allowlist（`scripts/allowed-diffs.txt`），详见 [ADR 0001](../docs/adr/0001-redefine-equivalence.md)。v0.2.x 系列详见 [ADR 0005](../docs/adr/0005-remove-encrypt-and-v02-feature-batch.md)
 - stage 2 phase 拆解：1 meta plainify / 2 中文排序 port + tags RSS 顺序 / 3 RSS items 内容差 3 子项 / 4 CJK URL 编码 + 空 tag RSS / 5a-e summary + section + WordCount + part 顺序 + link text + home RSS；stage 3 含 chroma port + plainify 双逃逸 + canonify code-skip + slug collision 4 处源 typo + AI 友好输出（llms.txt + content API + markdown mirror）

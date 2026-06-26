@@ -5,7 +5,7 @@
 
 ## 一句话定位
 
-**huan** 是用 Go 编写的静态站点生成器。阶段一目标：替代 Hugo 构建 [zhurongshuo.com](https://zhurongshuo.com)，输出与 Hugo 在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`standards/equivalence.md`](standards/equivalence.md)。
+**huan** 是用 Go 编写的一体化内容引擎（All-in-One Content Engine）。阶段一的 Hugo 替代目标（三维度等价）已基本达成，当前定位转向替代所有 CMS——基于文件管理内容，内置管理后台（huan serve 的 /admin 路由）。
 
 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前处于 Hugo→huan 迁移 Phase 1。
 
@@ -151,6 +151,7 @@ huan/
 
 | 版本 | 日期 | commit | 关键变更 |
 |---|---|---|---|
+| **v0.3.0** | 2026-06-26（规划） | — | Stage 4：admin panel（Go API + 嵌入式 React SPA，内容 CRUD 管理后台） |
 | **v0.2.3** | 2026-06-14 | — | 移除 `huan.yaml` 的 `encryptGroups` dead config + 全文档同步（反转 ADR 0005 §1.2），详见 [ADR 0006](adr/0006-remove-encryptgroups-dead-config.md) |
 | **v0.2.2** | 2026-06-13 | `393ba19` | CI 自动建 GitHub Release（`.github/workflows/release.yml`），详见 [ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md) |
 | **v0.2.1** | 2026-06-13 | `afe89a9` | `huan toc/export/sync` 子命令 + multi-archetype `huan new`（zhurongshuo Phase 1） |

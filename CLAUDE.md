@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-huan 是一个用 Go 编写的静态站点生成器，用于替代 Hugo 构建 zhurongshuo.com 网站。
+huan 是一个用 Go 编写的一体化内容引擎（All-in-One Content Engine），基于文件管理内容，内置管理后台（huan serve 的 /admin 路由），替代所有 CMS。
 
 ## 关联项目
 

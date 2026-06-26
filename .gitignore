@@ -1,3 +1,11 @@
 /huan
 /release/
 .DS_Store
+
+# Admin frontend
+web/admin/node_modules/
+
+# Editor / IDE
+.agents/
+.claude/
+skills-lock.json

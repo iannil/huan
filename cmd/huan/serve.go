@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/iannil/huan/internal/admin"
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/serve"
@@ -166,12 +167,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Press Ctrl+C to stop")
 
+	serveURL := fmt.Sprintf("http://%s:%s/", browserHost, port)
+	adminHandler := admin.NewHandler(cfg, sourceDir, doRebuild, serveURL)
+
 	srv := serve.New(serve.ServerOptions{
-		OutputDir: tmpDir,
-		Bind:      bind,
-		Port:      port,
-		Hub:       hub,
-		Logf:      func(format string, a ...any) { fmt.Printf(format, a...) },
+		OutputDir:    tmpDir,
+		Bind:         bind,
+		Port:         port,
+		Hub:          hub,
+		AdminHandler: adminHandler,
+		Logf:         func(format string, a ...any) { fmt.Printf(format, a...) },
 	})
 	return srv.Run(ctx)
 }

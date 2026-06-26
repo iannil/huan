@@ -6,7 +6,7 @@
 
 ## 1. 项目定位
 
-huan 是一个用 Go 编写的静态站点生成器。阶段一目标是将 zhurongshuo.com 从 Hugo 迁移到 huan，**生成的站点输出与 Hugo 在肉眼 / SEO / AI 三维度无差异（甚至更好）**——不是逐字节 100% 一致，而是三维度门禁通过（[ADR 0001](adr/0001-redefine-equivalence.md)）。阶段二/三通过统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）增量扩展 deploy / 未来付费 / 多语言等能力。
+huan 是一个用 Go 编写的一体化内容引擎（All-in-One Content Engine）。阶段一的 Hugo 替代目标（三维度等价）已基本达成（99.7% 字节一致，SEO/AI 维度 0 差异），当前定位转向替代所有 CMS——基于文件管理内容，内置管理后台（huan serve 的 /admin 路由），保留 SSG 的全部能力以及通过统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）增量扩展 deploy / 翻译 / 多语言等能力。
 
 ## 2. 架构决策
 

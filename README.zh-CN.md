@@ -2,7 +2,7 @@
 
 **中文** | [English](./README.md)
 
-> 一个用 Go 编写的静态站点生成器，最初作为 [zhurongshuo.com](https://zhurongshuo.com) 的 Hugo 替代品而生，现已成长为一个 AI 友好、内置双语翻译流水线的通用 SSG。
+> 一个用 Go 编写的一体化内容引擎——基于文件管理内容，内置管理后台，替代所有 CMS。
 
 `huan` 将 Markdown + 单个 YAML 配置 + Go 模板编译为静态网站，其输出**可与 Hugo 逐字节对比验证**（在参照站点上 99.7% 字节一致，SEO 与 AI 两个维度 0 差异）。它是一个零运行时依赖的单一二进制文件，使用与 Hugo 同源的 goldmark 引擎，将 CJK 内容视为一等公民，并把部署、发布、LLM 翻译都集成在同一个 CLI 中。
 
@@ -27,7 +27,7 @@
 
 ## huan 是什么？
 
-`huan` 是一个用 Go 编写的静态站点生成器。它最初的目标是完全替代 Hugo 来构建 [zhurongshuo.com](https://zhurongshuo.com)——并带有一条硬性要求：每一个 HTML、RSS、sitemap、搜索索引的字节都必须可复现、可与 Hugo 输出对比验证。在该等价目标基本达成后，huan 已扩展为一个 **AI 优先**的通用 SSG。
+`huan` 是一个用 Go 编写的一体化内容引擎。它最初的目标是完全替代 Hugo 来构建 [zhurongshuo.com](https://zhurongshuo.com)——每一个 HTML、RSS、sitemap、搜索索引的字节都必须可复现、可与 Hugo 输出对比验证。在该等价目标基本达成后（99.7% 字节一致，SEO/AI 维度 0 差异），huan 已进化为**全功能 CMS 替代品**——基于文件管理内容，内置管理后台，保留 SSG 全部能力。
 
 核心特征：
 
