@@ -5,6 +5,7 @@ import ContentList from './pages/ContentList'
 import ContentEdit from './pages/ContentEdit'
 import ContentNew from './pages/ContentNew'
 import MediaPage from './pages/MediaPage'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/admin/content" element={<ContentList />} />
         <Route path="/admin/content/new" element={<ContentNew />} />
         <Route path="/admin/media" element={<MediaPage />} />
+        <Route path="/admin/settings" element={<Settings />} />
       </Route>
       {/* Full-screen editor outside layout — no sidebar, no chrome */}
       <Route path="/admin/content/edit" element={<ContentEdit />} />

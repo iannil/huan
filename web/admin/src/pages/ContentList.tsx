@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   FileText,
   Plus,
@@ -39,7 +39,16 @@ interface ContentItem {
 
 interface ContentListResponse {
   sections: Record<string, ContentItem[]>
+  tree: TreeNode[]
   total: number
+}
+
+interface TreeNode {
+  name: string
+  path: string
+  type: 'folder' | 'file'
+  count: number
+  children: TreeNode[]
 }
 
 type SortField = 'title' | 'date' | 'status'
@@ -48,13 +57,95 @@ type DraftFilter = 'all' | 'draft' | 'published'
 
 const PAGE_SIZES = [20, 50, 100] as const
 
+// Recursive tree node renderer — standalone component outside ContentList.
+function TreeView({
+  nodes,
+  depth = 0,
+  activePath,
+  expandedPaths,
+  onToggle,
+  onSelect,
+}: {
+  nodes: TreeNode[]
+  depth?: number
+  activePath: string
+  expandedPaths: Set<string>
+  onToggle: (path: string) => void
+  onSelect: (path: string) => void
+}) {
+  return (
+    <div className={depth > 0 ? 'ml-2' : ''}>
+      {nodes.map((node) => {
+        const isExpanded = expandedPaths.has(node.path)
+        const isActive = activePath === node.path
+        return (
+          <div key={node.path}>
+            <button
+              onClick={() => {
+                if (node.type === 'folder') {
+                  onToggle(node.path)
+                }
+                onSelect(node.path)
+              }}
+              className={
+                `w-full text-left px-2.5 py-1 text-sm rounded-md transition-colors flex items-center gap-1.5 ` +
+                (isActive
+                  ? 'bg-muted text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted')
+              }
+            >
+              {node.type === 'folder' && (
+                <ChevronRight
+                  className={
+                    `h-3 w-3 shrink-0 transition-transform text-muted-foreground/50 ` +
+                    (isExpanded ? 'rotate-90' : '')
+                  }
+                />
+              )}
+              {node.type === 'file' && (
+                <FileText className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+              )}
+              <span className="truncate flex-1">{node.name}</span>
+              {node.type === 'folder' && (
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  {node.count}
+                </span>
+              )}
+            </button>
+            {node.type === 'folder' && isExpanded && node.children.length > 0 && (
+              <TreeView
+                nodes={node.children}
+                depth={depth + 1}
+                activePath={activePath}
+                expandedPaths={expandedPaths}
+                onToggle={onToggle}
+                onSelect={onSelect}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function ContentList() {
   const [data, setData] = useState<ContentListResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const activeSection = searchParams.get('section') || ''
+
+  // Pure local state for the active path — no URL-sync interference.
+  // URL is updated via history.replaceState for shareability without
+  // triggering React Router's async re-render cycle.
+  const [activePath, setActivePath] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    const params = new URLSearchParams(window.location.search)
+    return params.get('path') || ''
+  })
+
+  // Collapsible tree state
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
 
   // --- search / sort / filter state ---
   const [query, setQuery] = useState('')
@@ -81,68 +172,93 @@ export default function ContentList() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Flatten all items
-  const allItems = useMemo(() => {
+  // --- data processing (inline, no memo — avoids React 19 stale-closure issues) ---
+  const allItems = (() => {
     if (!data) return []
-    return Object.entries(data.sections)
-      .filter(
-        ([sec]) =>
-          !activeSection || sec === activeSection || sec === '_root'
-      )
-      .flatMap(([, items]) => items)
-  }, [data, activeSection])
+    const items = Object.values(data.sections).flat()
+    if (!activePath) return items
+    const prefix = activePath.endsWith('/') ? activePath : activePath + '/'
+    return items.filter((it) => it.relPath.startsWith(prefix))
+  })()
 
-  // --- filter + sort + paginate ---
-  const processed = useMemo(() => {
-    let items = allItems
+  let processed = allItems
+  if (query.trim()) {
+    const q = query.toLowerCase()
+    processed = processed.filter(
+      (it) =>
+        it.title.toLowerCase().includes(q) ||
+        it.relPath.toLowerCase().includes(q)
+    )
+  }
+  if (draftFilter === 'draft') processed = processed.filter((it) => it.draft)
+  else if (draftFilter === 'published')
+    processed = processed.filter((it) => !it.draft)
 
-    // Search
-    if (query.trim()) {
-      const q = query.toLowerCase()
-      items = items.filter(
-        (it) =>
-          it.title.toLowerCase().includes(q) ||
-          it.relPath.toLowerCase().includes(q)
-      )
+  processed = [...processed].sort((a, b) => {
+    let cmp = 0
+    if (sortField === 'title') {
+      cmp = a.title.localeCompare(b.title)
+    } else if (sortField === 'date') {
+      cmp = (a.date || '').localeCompare(b.date || '')
+    } else if (sortField === 'status') {
+      cmp = Number(a.draft) - Number(b.draft)
     }
-
-    // Draft filter
-    if (draftFilter === 'draft') items = items.filter((it) => it.draft)
-    else if (draftFilter === 'published')
-      items = items.filter((it) => !it.draft)
-
-    // Sort
-    items = [...items].sort((a, b) => {
-      let cmp = 0
-      if (sortField === 'title') {
-        cmp = a.title.localeCompare(b.title)
-      } else if (sortField === 'date') {
-        cmp = (a.date || '').localeCompare(b.date || '')
-      } else if (sortField === 'status') {
-        cmp = Number(a.draft) - Number(b.draft)
-      }
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-
-    return items
-  }, [allItems, query, draftFilter, sortField, sortDir])
+    return sortDir === 'asc' ? cmp : -cmp
+  })
 
   const totalPages = Math.max(1, Math.ceil(processed.length / pageSize))
   const safePage = Math.min(page, totalPages)
-  const paginatedItems = useMemo(() => {
-    const start = (safePage - 1) * pageSize
-    return processed.slice(start, start + pageSize)
-  }, [processed, safePage, pageSize])
+  const paginatedItems = processed.slice((safePage - 1) * pageSize, safePage * pageSize)
 
-  // Reset page when filters change
+  // Reset page when filters change (including folder switch)
   useEffect(() => {
     setPage(1)
-  }, [query, draftFilter, sortField, sortDir])
+  }, [query, draftFilter, sortField, sortDir, activePath])
 
   // Reset selection when data changes
   useEffect(() => {
     setSelected(new Set())
   }, [data])
+
+  // --- tree view logic ---
+  // Auto-expand ancestors of the active path.
+  useEffect(() => {
+    if (!activePath || !data) return
+    const parts = activePath.split('/')
+    const ancestors: string[] = []
+    for (let i = 1; i <= parts.length; i++) {
+      ancestors.push(parts.slice(0, i).join('/'))
+    }
+    setExpandedPaths((prev) => {
+      const next = new Set(prev)
+      ancestors.forEach((a) => next.add(a))
+      return next
+    })
+  }, [activePath, data])
+
+  const toggleFolder = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }, [])
+
+  const selectFolder = useCallback(
+    (path: string) => {
+      setActivePath(path)
+      // Update URL silently for shareability — no React Router re-render.
+      const newUrl = path
+        ? `/admin/content?path=${encodeURIComponent(path)}`
+        : '/admin/content'
+      window.history.replaceState(null, '', newUrl)
+    },
+    []
+  )
 
   // --- sort toggle ---
   const toggleSort = useCallback(
@@ -272,10 +388,6 @@ export default function ContentList() {
     )
   if (!data) return null
 
-  const sections = Object.entries(data.sections).sort(([a], [b]) =>
-    a.localeCompare(b)
-  )
-
   return (
     <div>
       {/* ============ Page header ============ */}
@@ -285,8 +397,8 @@ export default function ContentList() {
             内容管理
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {activeSection
-              ? `${activeSection === '_root' ? '根目录' : activeSection} · ${allItems.length} 篇`
+            {activePath
+              ? `${activePath} · ${allItems.length} 篇`
               : `全部 · ${data.total} 篇`}
           </p>
         </div>
@@ -299,100 +411,87 @@ export default function ContentList() {
         </button>
       </div>
 
-      <div className="flex gap-6">
-        {/* ============ Section sidebar ============ */}
-        <aside className="w-44 shrink-0">
+      <div className="flex gap-5">
+        {/* ============ Folder tree sidebar ============ */}
+        <aside className="w-48 shrink-0">
           <div className="space-y-0.5">
             <button
-              onClick={() => setSearchParams({})}
+              onClick={() => selectFolder('')}
               className={
-                `w-full text-left px-2.5 py-1.5 text-sm rounded-md transition-colors ` +
-                (!activeSection
+                `w-full text-left px-2.5 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2 ` +
+                (!activePath
                   ? 'bg-muted text-foreground font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted')
               }
             >
-              <span>全部</span>
-              <span className="text-muted-foreground ml-1.5">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+              <span className="flex-1">全部内容</span>
+              <span className="text-muted-foreground text-xs tabular-nums font-normal">
                 {data.total}
               </span>
             </button>
-            {sections.map(([section, items]) => {
-              const isActive =
-                activeSection === section ||
-                (!activeSection && section === '_root')
-              return (
-                <button
-                  key={section}
-                  onClick={() =>
-                    setSearchParams(
-                      section === '_root' ? {} : { section }
-                    )
-                  }
-                  className={
-                    `w-full text-left px-2.5 py-1.5 text-sm rounded-md transition-colors ` +
-                    (isActive
-                      ? 'bg-muted text-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted')
-                  }
-                >
-                  <span className="capitalize">
-                    {section === '_root' ? '根目录' : section}
-                  </span>
-                  <span className="text-muted-foreground ml-1.5">
-                    {items.length}
-                  </span>
-                </button>
-              )
-            })}
+            <div className="border-t border-border my-1.5" />
+            <div className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider px-2.5 pb-1">
+              分类
+            </div>
+            <TreeView
+              nodes={data.tree}
+              activePath={activePath}
+              expandedPaths={expandedPaths}
+              onToggle={toggleFolder}
+              onSelect={selectFolder}
+            />
           </div>
         </aside>
 
         {/* ============ Main content area ============ */}
         <div className="flex-1 min-w-0">
           {/* ---- Toolbar: search + draft filter ---- */}
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-2 mb-4">
             {/* Search */}
             <div className="relative flex-1 max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索标题或路径..."
-                className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-border bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground transition-colors"
+                placeholder="搜索..."
+                className="w-full pl-8 pr-7 py-1.5 text-sm rounded-md border border-border bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground transition-colors"
               />
               {query && (
                 <button
                   onClick={() => setQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
 
-            {/* Draft filter pills */}
-            {(
-              [
-                { value: 'all', label: '全部' },
-                { value: 'draft', label: '草稿' },
-                { value: 'published', label: '已发布' },
-              ] as { value: DraftFilter; label: string }[]
-            ).map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setDraftFilter(opt.value)}
-                className={
-                  `px-3 py-1.5 text-sm rounded-md transition-colors ` +
-                  (draftFilter === opt.value
-                    ? 'bg-muted text-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground')
-                }
-              >
-                {opt.label}
-              </button>
-            ))}
+            {/* Draft filter segmented control */}
+            <div className="flex items-center border border-border rounded-md overflow-hidden">
+              {(
+                [
+                  { value: 'all', label: '全部' },
+                  { value: 'draft', label: '草稿' },
+                  { value: 'published', label: '已发布' },
+                ] as { value: DraftFilter; label: string }[]
+              ).map((opt, i) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setDraftFilter(opt.value)}
+                  className={
+                    `px-3 py-1.5 text-sm transition-colors ` +
+                    (i > 0 ? 'border-l border-border ' : '') +
+                    (draftFilter === opt.value
+                      ? 'bg-muted text-foreground font-medium'
+                      : 'text-muted-foreground hover:text-foreground')
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {processed.length === 0 ? (
@@ -401,10 +500,10 @@ export default function ContentList() {
             </div>
           ) : (
             <>
-              {/* ---- Table ---- */}
-              <div>
+              {/* ---- List table ---- */}
+              <div className="border border-border rounded-md overflow-hidden">
                 {/* Header row */}
-                <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground items-center">
+                <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-4 py-2.5 text-xs font-medium text-muted-foreground bg-muted/40 border-b border-border items-center">
                   {/* Checkbox (select all) */}
                   <div>
                     <input
@@ -450,15 +549,15 @@ export default function ContentList() {
                 </div>
 
                 {/* Data rows */}
-                <div className="divide-y divide-border/50">
+                <div className="divide-y divide-border">
                   {paginatedItems.map((item) => {
                     const isSelected = selected.has(item.relPath)
                     return (
                       <div
-                        key={item.relPath}
+                        key={`${item.relPath}:${item.language || 'default'}`}
                         className={
-                          `grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-2 px-4 py-2.5 items-center text-sm transition-colors ` +
-                          (isSelected ? 'bg-muted/50' : 'hover:bg-muted/50')
+                          `grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-sm transition-colors group ` +
+                          (isSelected ? 'bg-muted/50' : 'hover:bg-muted/30')
                         }
                       >
                         {/* Checkbox */}
@@ -474,7 +573,7 @@ export default function ContentList() {
                         {/* Title + path */}
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                             <button
                               onClick={() =>
                                 navigate(
@@ -486,7 +585,7 @@ export default function ContentList() {
                               {item.title || '(无标题)'}
                             </button>
                           </div>
-                          <div className="text-xs text-muted-foreground mt-0.5 truncate ml-5.5">
+                          <div className="text-xs text-muted-foreground/60 mt-0.5 truncate ml-5.5">
                             {item.relPath}
                           </div>
                         </div>
@@ -494,9 +593,9 @@ export default function ContentList() {
                         {/* Kind badge */}
                         <div>
                           {item.kind === 'section' ? (
-                            <Badge variant="outline">section</Badge>
+                            <Badge variant="outline" className="text-[11px] px-1.5 py-0">section</Badge>
                           ) : (
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-muted-foreground/60">
                               page
                             </span>
                           )}
@@ -505,12 +604,12 @@ export default function ContentList() {
                         {/* Status */}
                         <div className="flex items-center">
                           {item.draft ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border border-border text-muted-foreground">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] border border-border text-muted-foreground">
                               <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
                               草稿
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border border-border text-foreground">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] border border-border/60 text-foreground/80">
                               <span className="w-1.5 h-1.5 rounded-full bg-foreground/70" />
                               已发布
                             </span>
@@ -522,8 +621,8 @@ export default function ContentList() {
                           {item.date ? item.date.substring(0, 10) : '—'}
                         </div>
 
-                        {/* Edit button */}
-                        <div>
+                        {/* Edit button — appears on row hover */}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() =>
                               navigate(
@@ -542,10 +641,10 @@ export default function ContentList() {
               </div>
 
               {/* ---- Pagination ---- */}
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-                <div className="text-xs text-muted-foreground">
+              <div className="flex items-center justify-between mt-4">
+                <div className="text-xs text-muted-foreground tabular-nums">
                   {processed.length > 0
-                    ? `第 ${(safePage - 1) * pageSize + 1}-${Math.min(safePage * pageSize, processed.length)} 条，共 ${processed.length} 条`
+                    ? `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, processed.length)} / ${processed.length}`
                     : '0 条'}
                 </div>
 
@@ -576,47 +675,40 @@ export default function ContentList() {
                       disabled={safePage <= 1}
                       className="p-1 rounded text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
-                      <ChevronLeft className="h-4 w-4" />
+                      <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
 
-                    {/* Page numbers (simple: show current + neighbors) */}
-                    {Array.from(
-                      { length: Math.min(5, totalPages) },
-                      (_, i) => {
-                        const start = Math.max(
-                          1,
-                          Math.min(
-                            safePage - 2,
-                            totalPages - 4
+                    <div className="flex items-center gap-0.5">
+                      {Array.from(
+                        { length: Math.min(5, totalPages) },
+                        (_, i) => {
+                          const start = Math.max(1, Math.min(safePage - 2, totalPages - 4))
+                          const p = start + i
+                          if (p > totalPages) return null
+                          return (
+                            <button
+                              key={p}
+                              onClick={() => setPage(p)}
+                              className={
+                                `min-w-[24px] h-6 text-xs rounded transition-colors ` +
+                                (p === safePage
+                                  ? 'bg-muted text-foreground font-medium'
+                                  : 'text-muted-foreground hover:text-foreground')
+                              }
+                            >
+                              {p}
+                            </button>
                           )
-                        )
-                        const p = start + i
-                        if (p > totalPages) return null
-                        return (
-                          <button
-                            key={p}
-                            onClick={() => setPage(p)}
-                            className={
-                              `px-2 py-0.5 text-xs rounded transition-colors ` +
-                              (p === safePage
-                                ? 'bg-muted text-foreground font-medium'
-                                : 'text-muted-foreground hover:text-foreground')
-                            }
-                          >
-                            {p}
-                          </button>
-                        )
-                      }
-                    )}
+                        }
+                      )}
+                    </div>
 
                     <button
-                      onClick={() =>
-                        setPage((p) => Math.min(totalPages, p + 1))
-                      }
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                       disabled={safePage >= totalPages}
                       className="p-1 rounded text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
-                      <ChevronRight className="h-4 w-4" />
+                      <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
@@ -626,15 +718,15 @@ export default function ContentList() {
 
           {/* ---- Batch action bar ---- */}
           {selected.size > 0 && !loading && (
-            <div className="mt-4 px-4 py-2.5 rounded-md bg-muted flex items-center justify-between">
-              <span className="text-sm text-foreground">
+            <div className="sticky bottom-0 mt-4 px-4 py-2.5 rounded-md bg-background border border-border flex items-center justify-between shadow-xs">
+              <span className="text-sm text-foreground font-medium tabular-nums">
                 已选 {selected.size} 项
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={batchBusy}
-                  className="flex items-center gap-1 px-2.5 py-1 text-sm rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   <span>删除</span>
@@ -642,7 +734,7 @@ export default function ContentList() {
                 <button
                   onClick={doBatchToggleDraft}
                   disabled={batchBusy}
-                  className="flex items-center gap-1 px-2.5 py-1 text-sm rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
                 >
                   {allItems.every(
                     (it) => !selected.has(it.relPath) || it.draft

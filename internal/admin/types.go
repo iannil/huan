@@ -26,6 +26,7 @@ type ContentDetail struct {
 // ContentListResponse wraps the content listing.
 type ContentListResponse struct {
 	Sections map[string][]ContentItem `json:"sections"`
+	Tree     []*TreeNode              `json:"tree"`
 	Total    int                      `json:"total"`
 }
 
@@ -53,6 +54,15 @@ type CreateContentRequest struct {
 type UpdateContentRequest struct {
 	Frontmatter map[string]interface{} `json:"frontmatter"`
 	RawContent  string                 `json:"rawContent"`
+}
+
+// TreeNode represents a node in the content directory tree for the admin navigation.
+type TreeNode struct {
+	Name     string      `json:"name"`
+	Path     string      `json:"path"`
+	Type     string      `json:"type"`      // "folder" or "file"
+	Count    int         `json:"count"`     // number of content items in this subtree (folders only)
+	Children []*TreeNode `json:"children"`
 }
 
 // APIError represents a JSON error response.

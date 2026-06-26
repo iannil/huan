@@ -22,7 +22,7 @@ func NewHandler(cfg *config.Config, sourceDir string, rebuild func(), serveURL s
 	// API routes
 	contentDir := filepath.Join(sourceDir, "content")
 	staticDir := filepath.Join(sourceDir, "static")
-	api := newAPIHandler(contentDir, staticDir, rebuild, cfg.Title, cfg.BaseURL, serveURL)
+	api := newAPIHandler(contentDir, staticDir, sourceDir, rebuild, cfg.Title, cfg.BaseURL, serveURL)
 	mux.Handle("/admin/api/", api)
 
 	// Static SPA files from embedded dist/

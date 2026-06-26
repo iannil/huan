@@ -11,16 +11,18 @@ type apiHandler struct {
 	ops       *contentOps
 	media     *mediaOps
 	rebuild   func()
+	sourceDir string
 	siteTitle string
 	baseURL   string
 	serveURL  string
 	staticDir string
 }
 
-func newAPIHandler(contentDir, staticDir string, rebuild func(), siteTitle, baseURL, serveURL string) *apiHandler {
+func newAPIHandler(contentDir, staticDir, sourceDir string, rebuild func(), siteTitle, baseURL, serveURL string) *apiHandler {
 	return &apiHandler{
 		ops:       newContentOps(contentDir),
 		media:     newMediaOps(staticDir),
+		sourceDir: sourceDir,
 		rebuild:   rebuild,
 		siteTitle: siteTitle,
 		baseURL:   baseURL,
@@ -55,6 +57,14 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleMediaUpload(w, r)
 	case strings.HasPrefix(path, "media/") && r.Method == http.MethodDelete:
 		h.handleMediaDelete(w, r, strings.TrimPrefix(path, "media/"))
+	case path == "settings" && r.Method == http.MethodGet:
+		h.getSettings(w, r)
+	case path == "settings" && r.Method == http.MethodPut:
+		h.updateSettings(w, r)
+	case path == "settings/yaml" && r.Method == http.MethodGet:
+		h.getSettingsYaml(w, r)
+	case path == "settings/yaml" && r.Method == http.MethodPut:
+		h.updateSettingsYaml(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, APIError{Error: "not found"})
 	}
@@ -67,10 +77,13 @@ func (h *apiHandler) listContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	total := 0
+	var allItems []ContentItem
 	for _, items := range sections {
 		total += len(items)
+		allItems = append(allItems, items...)
 	}
-	writeJSON(w, http.StatusOK, ContentListResponse{Sections: sections, Total: total})
+	tree := h.ops.buildTree(allItems)
+	writeJSON(w, http.StatusOK, ContentListResponse{Sections: sections, Tree: tree, Total: total})
 }
 
 func (h *apiHandler) readContent(w http.ResponseWriter, r *http.Request, relPath string) {
@@ -178,4 +191,59 @@ func (h *apiHandler) triggerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	go h.rebuild()
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "rebuild triggered"})
+}
+
+func (h *apiHandler) getSettings(w http.ResponseWriter, r *http.Request) {
+	s, err := readSettings(h.sourceDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
+}
+
+func (h *apiHandler) updateSettings(w http.ResponseWriter, r *http.Request) {
+	var s SiteSettings
+	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	if err := updateSettings(h.sourceDir, &s); err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
+		return
+	}
+	// Trigger rebuild after saving settings
+	if h.rebuild != nil {
+		go h.rebuild()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+func (h *apiHandler) getSettingsYaml(w http.ResponseWriter, r *http.Request) {
+	content, err := readSettingsYaml(h.sourceDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(content))
+}
+
+func (h *apiHandler) updateSettingsYaml(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	if err := updateSettingsYaml(h.sourceDir, body.Content); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: err.Error()})
+		return
+	}
+	// Trigger rebuild after saving YAML
+	if h.rebuild != nil {
+		go h.rebuild()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }

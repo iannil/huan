@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -179,6 +180,164 @@ func (co *contentOps) remove(relPath string) error {
 }
 
 // --- helpers ---
+
+// buildTree constructs a hierarchical folder tree from the flat content items.
+// Only folder nodes are returned; file-level nodes are not included since the
+// tree is used purely for navigation in the admin sidebar. Each folder node
+// shows the recursive count of content items under it.
+// The display name of each folder uses the directory's own name.
+func (co *contentOps) buildTree(items []ContentItem) []*TreeNode {
+	// First pass: build a map of every directory path → set of subdirectory names.
+	// Track which directories contain _index.md so we can get a proper label.
+	type dirInfo struct {
+		hasIndex bool
+		title    string
+		count    int // recursive file count including all descendants
+	}
+	dirs := map[string]*dirInfo{}
+	fileCount := map[string]int{} // directory path → number of files in that dir
+
+	// Collect all unique directory paths from item RelPaths.
+	for _, item := range items {
+		dir := filepath.Dir(item.RelPath)
+		if dir == "." {
+			rootKey := "/" // sentinel for root-level files
+			if _, ok := dirs[rootKey]; !ok {
+				dirs[rootKey] = &dirInfo{}
+			}
+			fileCount[rootKey]++
+			continue
+		}
+		if _, ok := dirs[dir]; !ok {
+			dirs[dir] = &dirInfo{}
+		}
+		fileCount[dir]++
+
+		// Walk up to ensure all parent dirs exist in the map.
+		parent := filepath.Dir(dir)
+		for parent != "." {
+			if _, ok := dirs[parent]; !ok {
+				dirs[parent] = &dirInfo{}
+			}
+			parent = filepath.Dir(parent)
+		}
+		// Ensure root sentinel exists.
+		if _, ok := dirs["/"]; !ok {
+			dirs["/"] = &dirInfo{}
+		}
+	}
+
+	// Detect _index.md entries to annotate folder titles.
+	for _, item := range items {
+		base := filepath.Base(item.RelPath)
+		dir := filepath.Dir(item.RelPath)
+		if base == "_index.md" {
+			key := dir
+			if key == "." {
+				key = "/"
+			}
+			if d, ok := dirs[key]; ok {
+				d.hasIndex = true
+				d.title = item.Title
+			}
+		}
+	}
+
+	// Compute recursive counts: for each dir, add up file counts of all subdirs.
+	// Sort dirs by path length (descending) so children are accumulated before parents.
+	type dirEntry struct {
+		path  string
+		entry *dirInfo
+	}
+	sorted := make([]dirEntry, 0, len(dirs))
+	for path, info := range dirs {
+		sorted = append(sorted, dirEntry{path, info})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return len(sorted[i].path) > len(sorted[j].path) // longer paths first (children before parents)
+	})
+	for _, de := range sorted {
+		parent := filepath.Dir(de.path)
+		if parent == "." {
+			parent = "/"
+		}
+		if p, ok := dirs[parent]; ok {
+			// Accumulate this dir's count into its parent.
+			p.count += de.entry.count + fileCount[de.path]
+		}
+		// Also accumulate the direct file count into the dir's own recursive count.
+		de.entry.count += fileCount[de.path]
+	}
+
+	// Build sorted root-level children.
+	var rootNodes []*TreeNode
+	for path, info := range dirs {
+		if path == "/" {
+			continue
+		}
+		base := filepath.Base(path)
+		name := base
+		if info.hasIndex && info.title != "" {
+			name = info.title
+		}
+		node := &TreeNode{
+			Name:     name,
+			Path:     path,
+			Type:     "folder",
+			Count:    info.count,
+			Children: []*TreeNode{},
+		}
+		rootNodes = append(rootNodes, node)
+	}
+
+	// Sort root nodes by name.
+	sort.Slice(rootNodes, func(i, j int) bool {
+		return rootNodes[i].Name < rootNodes[j].Name
+	})
+
+	// Now build the hierarchy by parent assignment.
+	// Map path → node for lookup.
+	nodeMap := make(map[string]*TreeNode, len(rootNodes))
+	for _, node := range rootNodes {
+		nodeMap[node.Path] = node
+	}
+
+	// Assign children to parents.
+	var topLevel []*TreeNode
+	for _, node := range rootNodes {
+		parent := filepath.Dir(node.Path)
+		if parent == "." {
+			// This is a top-level section.
+			topLevel = append(topLevel, node)
+			continue
+		}
+		if p, ok := nodeMap[parent]; ok {
+			p.Children = append(p.Children, node)
+		} else {
+			// Parent not in tree (unlikely but safe).
+			topLevel = append(topLevel, node)
+		}
+	}
+
+	// Sort children of each folder by name.
+	var sortChildren func(nodes []*TreeNode)
+	sortChildren = func(nodes []*TreeNode) {
+		for _, n := range nodes {
+			if len(n.Children) > 0 {
+				sort.Slice(n.Children, func(i, j int) bool {
+					return n.Children[i].Name < n.Children[j].Name
+				})
+				sortChildren(n.Children)
+			}
+		}
+	}
+	sort.Slice(topLevel, func(i, j int) bool {
+		return topLevel[i].Name < topLevel[j].Name
+	})
+	sortChildren(topLevel)
+
+	return topLevel
+}
 
 // coalesce returns first non-empty string, or "" if both empty.
 func coalesce(s ...string) string {
