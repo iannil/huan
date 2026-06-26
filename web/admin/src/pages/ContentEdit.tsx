@@ -64,13 +64,19 @@ export default function ContentEdit() {
     }
   }, [body])
 
-  // Sync editor scroll → preview scroll
-  const handleEditorScroll = useCallback(() => {
-    if (previewMode !== 'split' || !previewRef.current || !editorRef.current) return
-    const el = editorRef.current
-    const ratio = el.scrollTop / (el.scrollHeight - el.clientHeight)
-    previewRef.current.scrollTop =
-      ratio * (previewRef.current.scrollHeight - previewRef.current.clientHeight)
+  // Bidirectional scroll sync — ratio-based (best-effort approximation since
+  // monospace markdown and rendered prose have different densities).
+
+  const syncScroll = useCallback((source: 'editor' | 'preview') => {
+    if (previewMode !== 'split') return
+    const from = source === 'editor' ? editorRef.current : previewRef.current
+    const to = source === 'editor' ? previewRef.current : editorRef.current
+    if (!from || !to) return
+
+    const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight)
+    if (isFinite(ratio)) {
+      to.scrollTop = ratio * (to.scrollHeight - to.clientHeight)
+    }
   }, [previewMode])
 
   const handleSave = useCallback(async () => {
@@ -303,7 +309,7 @@ export default function ContentEdit() {
                 ref={editorRef}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                onScroll={handleEditorScroll}
+                onScroll={() => syncScroll('editor')}
                 placeholder=""
                 className="relative z-10 w-full h-full resize-none border-0 bg-transparent font-mono text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/30 focus:outline-none"
                 spellCheck={false}
@@ -320,6 +326,7 @@ export default function ContentEdit() {
             </div>
             <div
               ref={previewRef}
+              onScroll={() => syncScroll('preview')}
               className="flex-1 min-h-0 overflow-y-auto"
             >
               {bodyEmpty ? (
@@ -348,6 +355,10 @@ export default function ContentEdit() {
           line-height: 1.8;
           color: var(--color-foreground);
           font-size: 0.9375rem;
+          /* Align first content line with textarea start (offset for editor's
+             title input + draft toggle above the textarea, minus the preview
+             label row: ~82px - 20px ≈ 62px). */
+          padding-top: 62px;
         }
 
         .prose-preview > *:first-child {
