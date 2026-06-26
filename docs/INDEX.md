@@ -33,6 +33,12 @@
 
 | 日期 | 文档 | 主题 |
 |------|------|------|
+| 2026-06-26 | [`admin-content-redesign.md`](reports/completed/2026-06-26-admin-content-redesign.md) | /admin/content 页面全面重设计（中英文合并+语言徽章+3列布局） |
+| 2026-06-26 | [`positioning-redefine.md`](reports/completed/2026-06-26-positioning-redefine.md) | 定位从 SSG 升级为一体化内容引擎，替代所有 CMS |
+| 2026-06-26 | [`admin-settings-phase1.md`](reports/completed/2026-06-26-admin-settings-phase1.md) | Admin Settings 页面 Phase 1（表单+YAML 双轨编辑） |
+| 2026-06-14 | [`i18n-plugin-implementation.md`](reports/completed/2026-06-14-i18n-plugin-implementation.md) | i18n 多语言系统 v1 完整实施（7 PR + Worker 部署） |
+| 2026-06-14 | [`chunked-translation.md`](reports/completed/2026-06-14-chunked-translation.md) | 翻译插件 section 级切块 + sliding window |
+| 2026-06-14 | [`translate-format-purity-fix.md`](reports/completed/2026-06-14-translate-format-purity-fix.md) | 翻译插件质量门修复（format_purity + length_ratio + heading 非对称） |
 | 2026-06-13 | [`release-command.md`](reports/completed/2026-06-13-release-command.md) | `huan release` 本地打包发布命令（v0.1.0 首发） |
 | 2026-06-12 | [`serve-implementation-report.md`](reports/completed/2026-06-12-serve-implementation-report.md) | huan serve 实现完成报告（HTTP+fsnotify+LiveReload） |
 | 2026-06-12 | [`redefine-equivalence-report.md`](reports/completed/2026-06-12-redefine-equivalence-report.md) | 三维度等价标准重定义完成报告 |
@@ -94,7 +100,7 @@ go test -race ./...                                 # 全量 + race 检测
 ```
 huan/
 ├── cmd/
-│   ├── huan/                # CLI 入口（13 子命令，见下表）
+│   ├── huan/                # CLI 入口（14 子命令，见下表）
 │   └── equiv-check/         # 三维度等价检查独立工具（byte/normalized/seo/ai 四模式）
 ├── internal/
 │   ├── build/               # BuildSite 主流程（含 LiveReload 注入、原子 swap）
@@ -132,7 +138,7 @@ huan/
 | 子命令 | 用途 | 实现文件 |
 |---|---|---|
 | `build` | 构建静态站点（支持 draft/future/expired 过滤） | main.go |
-| `serve` | 开发服务器（HTTP + LiveReload） | serve.go |
+| `serve` | 开发服务器（HTTP + LiveReload + /admin 路由） | serve.go |
 | `deploy` | 部署到 Cloudflare（pages/r2/worker） | deploy.go |
 | `plugin` | 插件管理（list/info） | plugin_cmd.go |
 | `release` | 本地打包发布（5 平台 tarball+checksums+manifest） | release.go |
@@ -144,6 +150,7 @@ huan/
 | `sync` | 同步资源（gallery scaffold，v0.2.1） | sync.go |
 | `toc` | 生成 TOC（byte-identical generate-toc.js，v0.2.1） | toc.go |
 | `export` | 导出 CSV（md5-identical export.sh，v0.2.1） | export.go |
+| `translate` | 翻译内容（qwen3 插件 + audit 审计，v0.3.0） | translate_cmd.go |
 
 ---
 
@@ -151,7 +158,7 @@ huan/
 
 | 版本 | 日期 | commit | 关键变更 |
 |---|---|---|---|
-| **v0.3.0** | 2026-06-26（规划） | — | Stage 4：admin panel（Go API + 嵌入式 React SPA，内容 CRUD 管理后台） |
+| **v0.3.0** | 2026-06-14~26 | `6364086f`~`f877b2a` | i18n 多语言系统（Translator 插件+MultiSite+双语上线）+ Stage 4 Admin Panel（Go API+React SPA CRUD）+ Settings+Dashboard+v0.2.3 encryptGroups cleanup |
 | **v0.2.3** | 2026-06-14 | — | 移除 `huan.yaml` 的 `encryptGroups` dead config + 全文档同步（反转 ADR 0005 §1.2），详见 [ADR 0006](adr/0006-remove-encryptgroups-dead-config.md) |
 | **v0.2.2** | 2026-06-13 | `393ba19` | CI 自动建 GitHub Release（`.github/workflows/release.yml`），详见 [ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md) |
 | **v0.2.1** | 2026-06-13 | `afe89a9` | `huan toc/export/sync` 子命令 + multi-archetype `huan new`（zhurongshuo Phase 1） |
@@ -170,3 +177,7 @@ huan/
   - `2026-06-12.md`：stage 1 收尾 + stage 2 phase 1（meta plainify）
   - `2026-06-13.md`：stage 2 phase 2~5 + stage 3 + Cloudflare 插件 + v0.1.0 发版
   - `2026-06-13-v02.md`：v0.2.0/v0.2.1/v0.2.2 三个发版续记
+  - `2026-06-14.md`：i18n 翻译系统 grill-me + 实施 + v0.3.0 上线
+  - `2026-06-15.md`：英文站三态栏目 + translate audit + serve 多语言修复
+  - `2026-06-16.md`：盘古之白 CSS
+  - `2026-06-26.md`：定位升级 + Stage 4 Admin Panel 实施 + ContentList 重设计 + 多语言管理

@@ -34,7 +34,9 @@ Key characteristics:
 - **Single binary**, no runtime dependencies, fast cold start
 - **goldmark** for Markdown rendering — the same library Hugo uses
 - **`huan.yaml`** for configuration (YAML, not TOML)
+- **Built-in admin panel**: a content management UI at `/admin` — Go JSON API + React SPA with Shadcn UI. Browse, create, edit, and delete Markdown content from your browser without touching the command line.
 - **CJK-aware**: word counting, heading IDs, and summary truncation all handle Chinese / Japanese / Korean correctly without extra configuration
+- **Admin panel**: built-in content management UI at `/admin` (Go JSON API + React SPA). Browse, create, edit, and delete Markdown content; manage site settings (title, description, GA, CDN URL); dashboard with stats and recent content. Integrated into `huan serve` — zero extra setup.
 - **AI-friendly by default**: built-in `llms.txt`, content API (`/api/{section}.json`), and per-page Markdown mirrors — designed for LLM crawlers and AI consumers, not just SEO bots
 - **Bilingual out of the box**: an i18n build system that renders `.zh-cn`/`.en` sidecars into a fully localized site, plus a built-in translator plugin that fills the gaps with a local LLM
 - **Unified plugin system** ([ADR 0003](docs/adr/0003-unified-plugin-system.md)): capability-based extensions — `Deployer` (Cloudflare) and `Translator` (Qwen3) ship built-in and share one registry
@@ -66,7 +68,7 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 | Command | Purpose |
 |---|---|
 | `huan build` | Build the site into `publishDir` |
-| `huan serve` | Start dev server with file watching + LiveReload |
+| `huan serve` | Start dev server with file watching + LiveReload + admin panel at `/admin` |
 | `huan new <kind>/<path>` | Scaffold content from `archetypes/<kind>.md` (multi-archetype) |
 | `huan sync gallery` | Scaffold `content/gallery/<name>.md` for new images |
 | `huan toc` | Generate TOC markdown for books / practices / products |
@@ -106,16 +108,13 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 ### Dev server internals
 
 - HTTP static file server with custom 404
+- **Admin panel at `/admin`**: live content management UI (read/write markdown files, edit settings, manage media)
 - Recursive fsnotify watcher with configurable debounce
 - LiveReload WebSocket hub with per-client broadcast channels (slow clients don't block)
 - Atomic rebuild: writes to a sibling staging directory, then `rename(2)` swaps it in — old content stays served during multi-second rebuilds, no 404s
 - Serialized rebuilds (`atomic.Bool` busy + pending flags) — bursts of edits coalesce into one rebuild
 - Rebuild errors broadcast as LiveReload `alert` messages; dev server keeps running
 - Always serves from a temp dir; never touches the real `publishDir`
-
----
-
-## Quick Start
 
 ### Install
 
@@ -256,7 +255,7 @@ The `Translator` capability is part of the unified plugin system, so additional 
 
 ## Project Status
 
-**Current version: v0.3.3.**
+**Current version: v0.4.2.**
 
 **Stage 1 (Hugo parity): complete.** On the reference site ([zhurongshuo.com](https://zhurongshuo.com)), the three-dimension equivalence gate passes:
 
@@ -281,6 +280,7 @@ huan/
 │   ├── huan/              # CLI entrypoint (main.go + per-command files)
 │   └── equiv-check/       # equivalence-check helper binary
 ├── internal/
+│   ├── admin/             # Go JSON API for admin panel (content CRUD + settings + media)
 │   ├── build/             # BuildSite core + atomic swap
 │   ├── config/            # huan.yaml parser
 │   ├── content/           # content loader + tree + frontmatter
@@ -298,7 +298,9 @@ huan/
 │   ├── equiv/             # Hugo equivalence checks
 │   ├── observability/     # structured logging / tracing
 │   ├── version/           # build version info
-│   └── serve/             # HTTP server + watcher + LiveReload
+│   └── serve/             # HTTP server + watcher + LiveReload + admin panel mount
+├── web/
+│   └── admin/             # React SPA (admin UI — Vite + Shadcn UI + Tailwind)
 ├── scripts/               # diff-build.sh + diff-summary.sh + diff-patterns.*
 ├── docs/                  # see docs/INDEX.md
 ├── memory/                # project memory (MEMORY.md + daily notes)
@@ -322,24 +324,24 @@ huan/
 
 ## Roadmap
 
-**Stage 4 — Admin Panel（一体化内容引擎管理后台）**
+**Stage 4 — Admin Panel ✅ (shipped in v0.3.0–v0.4.x)**
 
-以 huan 新定位「一体化内容引擎」为轴心，构建内置管理后台，实现基于文件系统的内容管理。
+| Component | Status |
+|---|---|
+| ContentList (search/sort/filter/pagination/batch) | ✅ |
+| ContentEdit (Markdown preview, multilingual switch) | ✅ |
+| ContentNew (auto `{title}.{lang}.md` naming) | ✅ |
+| Settings Page (form + YAML dual mode) | ✅ |
+| Dashboard (6-card stats + recent content) | ✅ |
+| Multilingual management (badges, filtering, sidecar discovery) | ✅ |
 
-| PR | 范围 | 内容 |
-|----|------|------|
-| 1 | `web/admin/` + `internal/admin/` | 前后端一起：Vite+React+TS+Tailwind+Shadcn UI 骨架 + Go JSON API（内容CRUD）+ `//go:embed` 挂载到 `huan serve` 的 `/admin` 路由 |
+**Next up:**
 
-**技术栈**：Go JSON API + 嵌入式 React SPA · React 19 + Shadcn UI · Vite + TypeScript + Tailwind CSS · 无认证（localhost only）
-
-**Beyond:**
-
-- Admin 认证系统（session/token）
-- 媒体库管理（相册）
-- 用户与权限管理
-- Dashboard 站点统计
-- Admin 内集成 i18n / deploy 配置
-- 从其他 CMS（WordPress / Ghost）的迁移工具
+- Admin authentication (session/token)
+- Media library management (upload, crop, gallery)
+- User & permission management
+- CMS migration tools (WordPress / Ghost → huan)
+- Admin-integrated deploy configuration
 
 ---
 

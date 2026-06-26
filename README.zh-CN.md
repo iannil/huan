@@ -34,7 +34,9 @@
 - **单一二进制**，零运行时依赖，冷启动快
 - 使用 **goldmark** 渲染 Markdown——与 Hugo 同一个库
 - 使用 **`huan.yaml`** 作为配置（YAML，而非 TOML）
+- **内建管理后台**：`/admin` 下的内容管理 UI——Go JSON API + React SPA（Shadcn UI）。在浏览器中浏览、创建、编辑、删除 Markdown 内容，无需触碰命令行。
 - **CJK 友好**：字数统计、标题 ID、摘要截断都能正确处理中文 / 日文 / 韩文，无需额外配置
+- **内建管理后台**：`/admin` 下的内容管理 UI（Go JSON API + React SPA）。浏览、创建、编辑、删除 Markdown 内容；管理站点设置（标题、描述、GA、CDN URL）；仪表盘含统计与最近内容。集成在 `huan serve` 中——零额外配置。
 - **默认 AI 友好**：内置 `llms.txt`、内容 API（`/api/{section}.json`）、每页 Markdown 镜像——为 LLM 爬虫和 AI 消费者而设计，而不仅是 SEO 爬虫
 - **开箱即用的双语能力**：一套 i18n 构建系统将 `.zh-cn`/`.en` 边车文件渲染为完整的本地化站点，并内置一个翻译插件用本地 LLM 补齐缺口
 - **统一插件系统**（[ADR 0003](docs/adr/0003-unified-plugin-system.md)）：基于能力（capability）的扩展——`Deployer`（Cloudflare）和 `Translator`（Qwen3）内置并共享同一个注册表
@@ -66,7 +68,7 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 | 命令 | 用途 |
 |---|---|
 | `huan build` | 构建站点到 `publishDir` |
-| `huan serve` | 启动带文件监听 + LiveReload 的开发服务器 |
+| `huan serve` | 启动带文件监听 + LiveReload + `/admin` 管理后台的开发服务器 |
 | `huan new <kind>/<path>` | 从 `archetypes/<kind>.md` 脚手架内容（多 archetype） |
 | `huan sync gallery` | 为新图片脚手架 `content/gallery/<name>.md` |
 | `huan toc` | 为 books / practices / products 生成 TOC markdown |
@@ -106,6 +108,7 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 ### 开发服务器内部
 
 - 带自定义 404 的 HTTP 静态文件服务器
+- **`/admin` 管理后台**：在线内容管理 UI（读写 Markdown 文件、编辑设置、管理媒体）
 - 递归 fsnotify 监听器，可配置防抖
 - LiveReload WebSocket hub，每客户端独立广播通道（慢客户端不阻塞）
 - 原子重建：先写入同级 staging 目录，再用 `rename(2)` 换入——重建期间继续服务旧内容，无 404
@@ -256,7 +259,7 @@ huan 把双语站点变成构建期问题（[ADR 0007](docs/adr/0007-i18n-build-
 
 ## 项目状态
 
-**当前版本：v0.3.3。**
+**当前版本：v0.4.2。**
 
 **阶段一（Hugo 等价）：已完成。** 在参照站点（[zhurongshuo.com](https://zhurongshuo.com)）上，三维度等价门禁通过：
 
@@ -281,6 +284,7 @@ huan/
 │   ├── huan/              # CLI 入口（main.go + 各命令文件）
 │   └── equiv-check/       # 等价检查辅助二进制
 ├── internal/
+│   ├── admin/             # 管理后台 Go JSON API（内容 CRUD + 设置 + 媒体）
 │   ├── build/             # BuildSite 核心 + 原子换入
 │   ├── config/            # huan.yaml 解析
 │   ├── content/           # 内容加载 + tree + frontmatter
@@ -298,7 +302,9 @@ huan/
 │   ├── equiv/             # Hugo 等价检查
 │   ├── observability/     # 结构化日志 / 追踪
 │   ├── version/           # 构建版本信息
-│   └── serve/             # HTTP 服务器 + 监听 + LiveReload
+│   └── serve/             # HTTP 服务器 + 监听 + LiveReload + 管理后台挂载
+├── web/
+│   └── admin/             # React SPA（管理后台 UI — Vite + Shadcn UI + Tailwind）
 ├── scripts/               # diff-build.sh + diff-summary.sh + diff-patterns.*
 ├── docs/                  # 见 docs/INDEX.md
 ├── memory/                # 项目记忆（MEMORY.md + 每日笔记）
@@ -322,16 +328,24 @@ huan/
 
 ## 路线图
 
-**阶段一打磨：**
+**Stage 4 — 管理后台 ✅（v0.3.0–v0.4.x 已交付）**
 
-- 收尾剩余的 chroma/版本边缘差异 vs Hugo
-- 扩展 `internal/{config,content,markdown,output,template,i18n}` 的测试覆盖
+| 组件 | 状态 |
+|---|---|
+| ContentList（搜索/排序/筛选/分页/批量操作） | ✅ |
+| ContentEdit（Markdown 实时预览、多语言切换） | ✅ |
+| ContentNew（自动 `{title}.{lang}.md` 命名） | ✅ |
+| Settings 页面（表单 + YAML 双轨编辑） | ✅ |
+| Dashboard（6 张统计卡片 + 最近内容） | ✅ |
+| 多语言管理（彩色徽章、筛选、边车发现） | ✅ |
 
-**更远：**
+**后续方向：**
 
-- 在现有 `Translator` 能力下新增翻译 provider（云端 API、其他本地模型）
-- 在现有 `Deployer` 能力下新增部署目标
-- [`docs/technical-plan.md`](docs/technical-plan.md) 中勾勒的更多插件能力
+- Admin 认证系统（session/token）
+- 媒体库管理（上传、裁剪、图库）
+- 用户与权限管理
+- CMS 迁移工具（WordPress / Ghost → huan）
+- Admin 内集成 deploy 配置
 
 ---
 

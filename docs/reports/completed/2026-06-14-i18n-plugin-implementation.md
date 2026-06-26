@@ -35,101 +35,101 @@ zhurongshuo 双语化：默认中文 + deploy 时翻译为英文 + Cloudflare Wo
 ## PR1 详细任务清单
 
 ### Step 1：包骨架
-- [ ] 创建 `internal/translate/types.go`：Translator 接口 + Request/Response/QualityResult
-- [ ] 创建 `internal/translate/types_test.go`：接口 conformance 测试
+- [x] 创建 `internal/translate/types.go`：Translator 接口 + Request/Response/QualityResult
+- [x] 创建 `internal/translate/types_test.go`：接口 conformance 测试
 
 ### Step 2：Qwen3 实现
-- [ ] 创建 `internal/translate/qwen3/options.go`：Config struct + ParseConfig
-- [ ] 创建 `internal/translate/qwen3/client.go`：Ollama HTTP client wrapper
-- [ ] 创建 `internal/translate/qwen3/parse.go`：XML tag parser
-- [ ] 创建 `internal/translate/qwen3/prompt.go`：System prompt assembly
-- [ ] 创建 `internal/translate/qwen3/quality.go`：Quality checks
-- [ ] 创建 `internal/translate/qwen3/plugin.go`：Plugin struct + New() + Translate()
+- [x] 创建 `internal/translate/qwen3/options.go`：Config struct + ParseConfig
+- [x] 创建 `internal/translate/qwen3/client.go`：Ollama HTTP client wrapper
+- [x] 创建 `internal/translate/qwen3/parse.go`：XML tag parser
+- [x] 创建 `internal/translate/qwen3/prompt.go`：System prompt assembly
+- [x] 创建 `internal/translate/qwen3/quality.go`：Quality checks
+- [x] 创建 `internal/translate/qwen3/plugin.go`：Plugin struct + New() + Translate()
 
 ### Step 3：CLI
-- [ ] 创建 `cmd/huan/translate_cmd.go`：`huan translate` 子命令树
-- [ ] 改造 `cmd/huan/plugins.go`：加 qwen3_translate case + capabilityLabels
+- [x] 创建 `cmd/huan/translate_cmd.go`：`huan translate` 子命令树
+- [x] 改造 `cmd/huan/plugins.go`：加 qwen3_translate case + capabilityLabels
 
 ### Step 4：测试
-- [ ] `internal/translate/qwen3/plugin_test.go`：plugin 行为测试
-- [ ] `internal/translate/qwen3/client_test.go`：mock Ollama server
-- [ ] `internal/translate/qwen3/quality_test.go`：quality check 单元测试
-- [ ] `internal/translate/qwen3/parse_test.go`：XML parse 单元测试
+- [x] `internal/translate/qwen3/plugin_test.go`：plugin 行为测试
+- [x] `internal/translate/qwen3/client_test.go`：mock Ollama server
+- [x] `internal/translate/qwen3/quality_test.go`：quality check 单元测试
+- [x] `internal/translate/qwen3/parse_test.go`：XML parse 单元测试
 
 ### Step 5：Observability
-- [ ] 复用 `internal/observability.Logger`
-- [ ] 结构化日志（trace_id / span_id / event_type / payload）
-- [ ] Execution Trace Report 输出
+- [x] 复用 `internal/observability.Logger`
+- [x] 结构化日志（trace_id / span_id / event_type / payload）
+- [x] Execution Trace Report 输出
 
 ### Step 6：验证
-- [ ] `go test -race ./internal/translate/...`
-- [ ] `go build ./cmd/huan`
-- [ ] `./huan plugin list` 显示 qwen3_translate
-- [ ] 实跑一篇 zhurongshuo 中文文章翻译为英文
+- [x] `go test -race ./internal/translate/...`
+- [x] `go build ./cmd/huan`
+- [x] `./huan plugin list` 显示 qwen3_translate
+- [x] 实跑一篇 zhurongshuo 中文文章翻译为英文
 
 ## PR2 详细任务清单
 
 ### Step 1：Config
-- [ ] `internal/config/languages.go`：languages 块解析
-- [ ] `internal/config/config.go`：加 DefaultContentLanguage / Languages 字段
+- [x] `internal/config/languages.go`：languages 块解析
+- [x] `internal/config/config.go`：加 DefaultContentLanguage / Languages 字段
 
 ### Step 2：Content discovery
-- [ ] `internal/content/discover.go`：识别 `.en.md` sidecar
-- [ ] `internal/content/types.go`：加 MultiLanguagePage
+- [x] `internal/content/discover.go`：识别 `.en.md` sidecar
+- [x] `internal/content/types.go`：加 MultiLanguagePage
 
 ### Step 3：MultiSite build
-- [ ] `internal/build/multisite.go`：MultiSite 结构
-- [ ] `internal/build/build.go`：BuildSite → BuildMultiSite（单语言兼容）
+- [x] `internal/build/multisite.go`：MultiSite 结构
+- [x] `internal/build/build.go`：BuildSite → BuildMultiSite（单语言兼容）
 
 ### Step 4：Output paths
-- [ ] `internal/output/`：per-lang 路径计算
+- [x] `internal/output/`：per-lang 路径计算
 
 ### Step 5：测试
-- [ ] 单语言场景回归（无 `languages:` 块时行为不变）
-- [ ] 双语言场景 e2e
+- [x] 单语言场景回归（无 `languages:` 块时行为不变）
+- [x] 双语言场景 e2e
 
 ## PR3 详细任务清单
 
 ### Step 1：模板 context
-- [ ] `internal/template/context.go`：加 Language / IsDefaultLanguage / Translations
+- [x] `internal/template/context.go`：加 Language / IsDefaultLanguage / Translations
 
 ### Step 2：模板函数
-- [ ] `internal/template/funcs.go`：加 i18n / translations / hreflang / langPrefix
+- [x] `internal/template/funcs.go`：加 i18n / translations / hreflang / langPrefix
 
 ### Step 3：内链 rewriting
-- [ ] `internal/build/i18n_rewrite.go`：RewriteInternalLinks
+- [x] `internal/build/i18n_rewrite.go`：RewriteInternalLinks
 
 ### Step 4：Sitemap
-- [ ] `internal/build/sitemap.go`：统一 sitemap + hreflang annotation
+- [x] `internal/build/sitemap.go`：统一 sitemap + hreflang annotation
 
 ### Step 5：测试
-- [ ] 内链 rewriting 单元测试（覆盖外链/锚点/静态资源 case）
-- [ ] hreflang 模板函数测试
+- [x] 内链 rewriting 单元测试（覆盖外链/锚点/静态资源 case）
+- [x] hreflang 模板函数测试
 
 ## PR4 详细任务清单（zhurongshuo 仓库）
 
 ### Step 1：Worker
-- [ ] `worker/i18n-router/`：Cloudflare Worker（302 + Cookie）
-- [ ] Worker 测试（不同 Accept-Language 场景）
+- [x] `worker/i18n-router/`：Cloudflare Worker（302 + Cookie）
+- [x] Worker 测试（不同 Accept-Language 场景）
 
 ### Step 2：i18n 资源
-- [ ] `i18n/terms.yaml` 初稿（50-100 高频 tag）
-- [ ] `i18n/translate-prompt-zh-en.md` 初稿
+- [x] `i18n/terms.yaml` 初稿（50-100 高频 tag）
+- [x] `i18n/translate-prompt-zh-en.md` 初稿
 
 ### Step 3：模板改造
-- [ ] `layouts/_default/baseof.html`：加 `{{ hreflang . }}`
-- [ ] `layouts/partials/header.html`：加语言切换按钮
-- [ ] `layouts/partials/post_meta.html`：日期格式按语言
-- [ ] 替换 ~30 处硬编码中文为 `{{ i18n "key" }}`
+- [x] `layouts/_default/baseof.html`：加 `{{ hreflang . }}`
+- [x] `layouts/partials/header.html`：加语言切换按钮
+- [x] `layouts/partials/post_meta.html`：日期格式按语言
+- [x] 替换 ~30 处硬编码中文为 `{{ i18n "key" }}`
 
 ### Step 4：CI
-- [ ] `.github/workflows/deploy.yml`：加 `HUAN_STRICT_I18N=true` env
-- [ ] `deploy.sh`：加 `huan deploy cloudflare worker` 部署 i18n router
+- [x] `.github/workflows/deploy.yml`：加 `HUAN_STRICT_I18N=true` env
+- [x] `deploy.sh`：加 `huan deploy cloudflare worker` 部署 i18n router
 
 ### Step 5：首次翻译
-- [ ] `huan translate qwen3`（全量翻译 ~1500 篇）
-- [ ] 抽样 75 篇人工 review（≥95% 通过率）
-- [ ] commit + push + deploy
+- [x] `huan translate qwen3`（全量翻译 ~1500 篇）
+- [x] 抽样 75 篇人工 review（≥95% 通过率）
+- [x] commit + push + deploy
 
 ## 风险跟踪
 

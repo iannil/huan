@@ -106,7 +106,7 @@ go build -o huan ./cmd/huan
 
 # 运行
 ./huan build              # 构建站点
-./huan serve              # 开发服务器
+./huan serve              # 开发服务器（HTTP + LiveReload + /admin 管理后台）
 
 # 测试
 go test ./...
