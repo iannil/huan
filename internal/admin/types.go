@@ -4,6 +4,7 @@ package admin
 type ContentItem struct {
 	Title       string   `json:"title"`
 	RelPath     string   `json:"relPath"`
+	FilePath    string   `json:"filePath"`
 	Section     string   `json:"section"`
 	Kind        string   `json:"kind"`
 	Draft       bool     `json:"draft"`
@@ -63,6 +64,20 @@ type TreeNode struct {
 	Type     string      `json:"type"`      // "folder" or "file"
 	Count    int         `json:"count"`     // number of content items in this subtree (folders only)
 	Children []*TreeNode `json:"children"`
+}
+
+// LanguageInfo represents a single language version of a content file.
+type LanguageInfo struct {
+	Language string `json:"language"`
+	RelPath  string `json:"relPath"`
+	Title    string `json:"title"`
+	Draft    bool   `json:"draft"`
+}
+
+// SiblingResponse wraps the sibling language versions for a content file.
+type SiblingResponse struct {
+	Current   string         `json:"current"`
+	Siblings  []LanguageInfo `json:"siblings"`
 }
 
 // APIError represents a JSON error response.

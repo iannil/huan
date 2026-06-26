@@ -44,7 +44,12 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "content" && r.Method == http.MethodPost:
 		h.createContent(w, r)
 	case strings.HasPrefix(path, "content/") && r.Method == http.MethodGet:
-		h.readContent(w, r, strings.TrimPrefix(path, "content/"))
+		rest := strings.TrimPrefix(path, "content/")
+		if strings.HasSuffix(rest, "/languages") {
+			h.getContentLanguages(w, r, strings.TrimSuffix(rest, "/languages"))
+		} else {
+			h.readContent(w, r, rest)
+		}
 	case strings.HasPrefix(path, "content/") && r.Method == http.MethodPut:
 		h.updateContent(w, r, strings.TrimPrefix(path, "content/"))
 	case strings.HasPrefix(path, "content/") && r.Method == http.MethodDelete:
@@ -93,6 +98,17 @@ func (h *apiHandler) readContent(w http.ResponseWriter, r *http.Request, relPath
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func (h *apiHandler) getContentLanguages(w http.ResponseWriter, r *http.Request, relPath string) {
+	relPath = strings.TrimPrefix(relPath, "/")
+	siblings, err := h.ops.siblings(relPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
+		return
+	}
+	current := detectLanguage(relPath)
+	writeJSON(w, http.StatusOK, SiblingResponse{Current: current, Siblings: siblings})
 }
 
 func (h *apiHandler) createContent(w http.ResponseWriter, r *http.Request) {

@@ -115,9 +115,24 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-sigCh:
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return httpSrv.Shutdown(shutdownCtx)
+	// Second signal cancels the 5s shutdown context immediately, forcing
+	// http.Server.Shutdown to return early. Also ensures the process exits
+	// even if Shutdown isn't the one blocking.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	go func() {
+		select {
+		case <-sigCh:
+			s.logf("forced exit on second signal\n")
+			os.Exit(1)
+		case <-shutdownCtx.Done():
+		}
+	}()
+
+	err = httpSrv.Shutdown(shutdownCtx)
+	signal.Stop(sigCh)
+	return err
 }
 
 // pathResolvesToFile reports whether a request for urlPath under outputDir

@@ -21,6 +21,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	disableWatch, _ := cmd.Flags().GetBool("disableWatch")
 	debounce, _ := cmd.Flags().GetDuration("debounce")
 	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
+	adminDevURL, _ := cmd.Flags().GetString("adminDev")
 
 	// Load config to decide single- vs multi-language build dispatch (mirrors
 	// the build command in main.go). Multi-language configs must render every
@@ -169,6 +170,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	serveURL := fmt.Sprintf("http://%s:%s/", browserHost, port)
 	adminHandler := admin.NewHandler(cfg, sourceDir, doRebuild, serveURL)
+	if adminDevURL != "" {
+		fmt.Printf("Admin UI dev mode: proxying to %s\n", adminDevURL)
+		adminHandler = serve.NewAdminDevProxy(adminDevURL, adminHandler)
+	}
 
 	srv := serve.New(serve.ServerOptions{
 		OutputDir:    tmpDir,

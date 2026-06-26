@@ -1,16 +1,29 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save, FileText } from 'lucide-react'
+import { ArrowLeft, Save, FileText, Globe } from 'lucide-react'
 import { marked } from 'marked'
 
 interface ContentDetail {
   title: string
   relPath: string
+  filePath: string
   section: string
   kind: string
   draft: boolean
   rawContent: string
   frontmatter: Record<string, unknown>
+}
+
+interface LanguageInfo {
+  language: string
+  relPath: string
+  title: string
+  draft: boolean
+}
+
+interface SiblingResponse {
+  current: string
+  siblings: LanguageInfo[]
 }
 
 /** GitHub-style slug matching marked's default. */
@@ -130,6 +143,10 @@ export default function ContentEdit() {
   const [dirty, setDirty] = useState(false)
   const [fatalError, setFatalError] = useState<string | null>(null)
 
+  // ---- Sibling languages ----
+  const [siblings, setSiblings] = useState<LanguageInfo[]>([])
+  const [currentLang, setCurrentLang] = useState('')
+
   const previewRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLPreElement>(null)
@@ -158,6 +175,15 @@ export default function ContentEdit() {
       .then(d => { setDetail(d); setBody(d.rawContent); setTitle(d.title); setDraft(d.draft) })
       .catch(e => setFatalError(e.message))
       .finally(() => setLoading(false))
+  }, [path])
+
+  // ---- Sibling languages fetch ----
+  useEffect(() => {
+    if (!path) return
+    fetch(`/admin/api/content/${encodeURIComponent(path)}/languages`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then((d: SiblingResponse) => { setSiblings(d.siblings ?? []); setCurrentLang(d.current) })
+      .catch(() => { /* non-fatal */ })
   }, [path])
 
   // ---- Heading extraction ----
@@ -316,8 +342,39 @@ export default function ContentEdit() {
           <span className="hidden sm:block h-3 w-px bg-border" />
           <FileText className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 hidden sm:block" />
           <span className="text-xs text-muted-foreground/50 font-mono truncate max-w-[360px] select-none">
-            {detail.relPath}
+            {detail.filePath || detail.relPath}
           </span>
+
+          {/* Language switcher */}
+          <span className="hidden sm:block h-3 w-px bg-border" />
+          {currentLang && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Globe className="h-3 w-3 text-muted-foreground/40" />
+              {siblings.length > 0 ? (
+                <select
+                  value={currentLang}
+                  onChange={(e) => {
+                    const sibling = siblings.find((s) => s.language === e.target.value)
+                    if (sibling) {
+                      navigate(`/admin/content/edit?path=${encodeURIComponent(sibling.relPath)}`)
+                    }
+                  }}
+                  className="text-[11px] font-mono uppercase tracking-wider bg-transparent border border-border rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground focus:outline-none focus:border-foreground transition-colors cursor-pointer"
+                >
+                  <option value={currentLang}>{currentLang}</option>
+                  {siblings.filter((s) => s.language !== currentLang).map((s) => (
+                    <option key={s.language} value={s.language}>
+                      {s.language}{s.draft ? ' (草稿)' : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground/60">
+                  {currentLang}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: draft toggle + save */}

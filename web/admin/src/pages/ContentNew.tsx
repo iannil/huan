@@ -24,6 +24,7 @@ export default function ContentNew() {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
   const [section, setSection] = useState('posts')
+  const [language, setLanguage] = useState('en')
   const [draft, setDraft] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -42,10 +43,13 @@ export default function ContentNew() {
         .replace(/^-+|-+$/g, '')
         .substring(0, 80)
 
+      // Append language suffix for multi-language filename convention
+      const langFilename = language ? `${filename}.${language}` : filename
+
       const res = await fetch('/admin/api/content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title.trim(), section, filename, draft }),
+        body: JSON.stringify({ title: title.trim(), section, filename: langFilename, draft }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
@@ -55,7 +59,7 @@ export default function ContentNew() {
     } finally {
       setSaving(false)
     }
-  }, [title, section, draft, navigate])
+  }, [title, section, language, draft, navigate])
 
   return (
     <div>
@@ -116,6 +120,28 @@ export default function ContentNew() {
                   {s.label}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <label className="block text-sm text-muted-foreground mb-1.5">
+            语言
+          </label>
+          <Select value={language} onValueChange={(v) => v && setLanguage(v)}>
+            <SelectTrigger className="w-full border-border">
+              <SelectValue placeholder="选择语言" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">EN — 英语</SelectItem>
+              <SelectItem value="zh-CN">ZH-CN — 简体中文</SelectItem>
+              <SelectItem value="zh-TW">ZH-TW — 繁体中文</SelectItem>
+              <SelectItem value="ja">JA — 日语</SelectItem>
+              <SelectItem value="ko">KO — 韩语</SelectItem>
+              <SelectItem value="es">ES — 西班牙语</SelectItem>
+              <SelectItem value="fr">FR — 法语</SelectItem>
+              <SelectItem value="de">DE — 德语</SelectItem>
+              <SelectItem value="pt">PT — 葡萄牙语</SelectItem>
             </SelectContent>
           </Select>
         </div>

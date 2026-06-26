@@ -36,6 +36,7 @@ func (co *contentOps) listAll() (map[string][]ContentItem, error) {
 		item := ContentItem{
 			Title:       p.Title,
 			RelPath:     p.RelPath,
+			FilePath:    realFilePath(p.RelPath, coalesce(p.Language, detectLanguage(p.RelPath))),
 			Section:     coalesce(p.Section, detectSection(p.RelPath)),
 			Kind:        coalesce(p.Kind, detectKind(p.RelPath)),
 			Draft:       p.Draft,
@@ -86,6 +87,7 @@ func (co *contentOps) readOne(relPath string) (*ContentDetail, error) {
 		ContentItem: ContentItem{
 			Title:       p.Title,
 			RelPath:     p.RelPath,
+			FilePath:    realFilePath(p.RelPath, detectLanguage(relPath)),
 			Section:     p.Section,
 			Kind:        p.Kind,
 			Draft:       p.Draft,
@@ -177,6 +179,58 @@ func (co *contentOps) update(relPath string, req UpdateContentRequest) (*Content
 func (co *contentOps) remove(relPath string) error {
 	fullPath := filepath.Join(co.contentDir, relPath)
 	return os.Remove(fullPath)
+}
+
+// siblings finds all language variants of the same content file.
+// The naming convention is {base}.{lang}.md, e.g. "post.en.md", "post.zh-CN.md".
+// For files without a language suffix, no siblings are returned.
+func (co *contentOps) siblings(relPath string) ([]LanguageInfo, error) {
+	dir := filepath.Dir(relPath)
+	baseName := filepath.Base(relPath)
+	nameWithoutExt := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+
+	// Extract the base name by removing the language suffix.
+	// e.g. "post.en" → parts = ["post", "en"], base = "post"
+	parts := strings.SplitN(nameWithoutExt, ".", 2)
+	if len(parts) < 2 {
+		// No language suffix — no siblings possible
+		return nil, nil
+	}
+	base := parts[0]
+
+	entries, err := os.ReadDir(filepath.Join(co.contentDir, dir))
+	if err != nil {
+		return nil, fmt.Errorf("read dir: %w", err)
+	}
+
+	result := make([]LanguageInfo, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		if entry.Name() == baseName {
+			continue // skip self
+		}
+		entryName := strings.TrimSuffix(entry.Name(), ".md")
+		entryParts := strings.SplitN(entryName, ".", 2)
+		if len(entryParts) < 2 || entryParts[0] != base {
+			continue
+		}
+		// Found a sibling with the same base
+		siblingRelPath := filepath.Join(dir, entry.Name())
+		siblingDetail, err := co.readOne(siblingRelPath)
+		if err != nil {
+			continue // skip unreadable files
+		}
+		result = append(result, LanguageInfo{
+			Language: siblingDetail.Language,
+			RelPath:  siblingRelPath,
+			Title:    siblingDetail.Title,
+			Draft:    siblingDetail.Draft,
+		})
+	}
+
+	return result, nil
 }
 
 // --- helpers ---
@@ -377,6 +431,17 @@ func detectLanguage(relPath string) string {
 		return parts[len(parts)-1]
 	}
 	return ""
+}
+
+// realFilePath reconstructs the actual filename including language suffix.
+// e.g. realFilePath("products/huan.md", "en") → "products/huan.en.md"
+// When lang is empty, returns relPath unchanged.
+func realFilePath(relPath, lang string) string {
+	if lang == "" {
+		return relPath
+	}
+	ext := filepath.Ext(relPath)
+	return relPath[:len(relPath)-len(ext)] + "." + lang + ext
 }
 
 // marshalMapToStruct unmarshals a map into a struct via YAML round-trip.

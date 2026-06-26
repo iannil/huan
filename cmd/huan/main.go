@@ -46,6 +46,7 @@ func main() {
 	serveCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
 	serveCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
 	serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
+	serveCmd.Flags().String("adminDev", "", "admin UI Vite dev server URL (e.g. http://localhost:5173) for hot reload")
 
 	rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), newPluginCmd(), newReleaseCmd(), newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd(), newSyncCmd(), newTocCmd(), newExportCmd(), newTranslateCmd())
 
