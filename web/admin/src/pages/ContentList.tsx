@@ -549,7 +549,7 @@ export default function ContentList() {
           </div>
 
           {/* Folder tree */}
-          {data.tree.length > 0 && (
+          {data.tree?.length > 0 && (
             <div className="border-t border-border pt-2">
               <TreeView
                 nodes={data.tree}

@@ -239,14 +239,11 @@ func (co *contentOps) siblings(relPath string) ([]LanguageInfo, error) {
 // Only folder nodes are returned; file-level nodes are not included since the
 // tree is used purely for navigation in the admin sidebar. Each folder node
 // shows the recursive count of content items under it.
-// The display name of each folder uses the directory's own name.
+// The display name of each folder is the directory's own name (no title override).
 func (co *contentOps) buildTree(items []ContentItem) []*TreeNode {
 	// First pass: build a map of every directory path → set of subdirectory names.
-	// Track which directories contain _index.md so we can get a proper label.
 	type dirInfo struct {
-		hasIndex bool
-		title    string
-		count    int // recursive file count including all descendants
+		count int // recursive file count including all descendants
 	}
 	dirs := map[string]*dirInfo{}
 	fileCount := map[string]int{} // directory path → number of files in that dir
@@ -278,22 +275,6 @@ func (co *contentOps) buildTree(items []ContentItem) []*TreeNode {
 		// Ensure root sentinel exists.
 		if _, ok := dirs["/"]; !ok {
 			dirs["/"] = &dirInfo{}
-		}
-	}
-
-	// Detect _index.md entries to annotate folder titles.
-	for _, item := range items {
-		base := filepath.Base(item.RelPath)
-		dir := filepath.Dir(item.RelPath)
-		if base == "_index.md" {
-			key := dir
-			if key == "." {
-				key = "/"
-			}
-			if d, ok := dirs[key]; ok {
-				d.hasIndex = true
-				d.title = item.Title
-			}
 		}
 	}
 
@@ -329,11 +310,7 @@ func (co *contentOps) buildTree(items []ContentItem) []*TreeNode {
 		if path == "/" {
 			continue
 		}
-		base := filepath.Base(path)
-		name := base
-		if info.hasIndex && info.title != "" {
-			name = info.title
-		}
+		name := filepath.Base(path)
 		node := &TreeNode{
 			Name:     name,
 			Path:     path,
@@ -390,6 +367,9 @@ func (co *contentOps) buildTree(items []ContentItem) []*TreeNode {
 	})
 	sortChildren(topLevel)
 
+	if topLevel == nil {
+		return []*TreeNode{}
+	}
 	return topLevel
 }
 

@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -168,8 +169,10 @@ func (h *apiHandler) getStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	total := 0
 	drafts := 0
+	published := 0
 	langSet := make(map[string]bool)
 	breakdown := make(map[string]int)
+	var allItems []ContentItem
 	for sec, items := range sections {
 		n := len(items)
 		breakdown[sec] = n
@@ -182,10 +185,40 @@ func (h *apiHandler) getStatus(w http.ResponseWriter, r *http.Request) {
 				langSet[item.Language] = true
 			}
 		}
+		allItems = append(allItems, items...)
 	}
+	published = total - drafts
 	langs := make([]string, 0, len(langSet))
 	for l := range langSet {
 		langs = append(langs, l)
+	}
+
+	// Recent content: up to 5 items sorted by date (newest first, items without date last)
+	sort.Slice(allItems, func(i, j int) bool {
+		if allItems[i].Date == "" && allItems[j].Date == "" {
+			return allItems[i].RelPath > allItems[j].RelPath
+		}
+		if allItems[i].Date == "" {
+			return false
+		}
+		if allItems[j].Date == "" {
+			return true
+		}
+		return allItems[i].Date > allItems[j].Date
+	})
+	recentLimit := 5
+	if len(allItems) < recentLimit {
+		recentLimit = len(allItems)
+	}
+	recentContent := make([]ContentItem, recentLimit)
+	copy(recentContent, allItems[:recentLimit])
+
+	// Media count
+	mediaCount := 0
+	if h.media != nil {
+		if mediaResp, err := h.media.listAll(); err == nil {
+			mediaCount = mediaResp.Total
+		}
 	}
 
 	writeJSON(w, http.StatusOK, StatusResponse{
@@ -193,10 +226,13 @@ func (h *apiHandler) getStatus(w http.ResponseWriter, r *http.Request) {
 		BaseURL:          h.baseURL,
 		ServeURL:         h.serveURL,
 		Total:            total,
+		Published:        published,
 		Drafts:           drafts,
 		Sections:         len(sections),
 		Languages:        langs,
+		MediaCount:       mediaCount,
 		SectionBreakdown: breakdown,
+		RecentContent:    recentContent,
 	})
 }
 

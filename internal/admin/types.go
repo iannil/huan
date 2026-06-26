@@ -37,10 +37,13 @@ type StatusResponse struct {
 	BaseURL          string            `json:"baseURL"`
 	ServeURL         string            `json:"serveURL"`
 	Total            int               `json:"total"`
+	Published        int               `json:"published"`
 	Drafts           int               `json:"drafts"`
 	Sections         int               `json:"sections"`
 	Languages        []string          `json:"languages"`
+	MediaCount       int               `json:"mediaCount"`
 	SectionBreakdown map[string]int    `json:"sectionBreakdown"`
+	RecentContent    []ContentItem     `json:"recentContent,omitempty"`
 }
 
 // CreateContentRequest is the API body for creating a new content file.
