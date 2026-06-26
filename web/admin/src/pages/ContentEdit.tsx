@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save, Trash2, Eye, PenLine, Columns3 } from 'lucide-react'
+import { ArrowLeft, Save } from 'lucide-react'
 import { marked } from 'marked'
 
 interface ContentDetail {
@@ -13,9 +13,7 @@ interface ContentDetail {
   frontmatter: Record<string, unknown>
 }
 
-type PreviewMode = 'edit' | 'split' | 'preview'
-
-/** GitHub-style slug for heading IDs (matches marked's default slugger). */
+/** GitHub-style slug matching marked's default. */
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -26,9 +24,9 @@ function slugify(text: string): string {
 }
 
 interface HeadingAnchor {
-  line: number    // 0-based line in the editor
-  slug: string    // GitHub-style slug matching the rendered <hN id="...">
-  text: string    // raw heading text
+  line: number
+  slug: string
+  text: string
 }
 
 export default function ContentEdit() {
@@ -39,181 +37,114 @@ export default function ContentEdit() {
   const [detail, setDetail] = useState<ContentDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
   const [body, setBody] = useState('')
   const [title, setTitle] = useState('')
   const [draft, setDraft] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [previewMode, setPreviewMode] = useState<PreviewMode>('split')
+  const [dirty, setDirty] = useState(false)
+
+  // Only show error if we can't recover
+  const [fatalError, setFatalError] = useState<string | null>(null)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLTextAreaElement>(null)
-  const syncingRef = useRef(false) // guard against scroll-loop
+  const syncing = useRef(false)
 
-  // Approximate line height for monospace textarea
-  const LINE_HEIGHT = 21 // px (text-sm leading-relaxed ~1.625 * 13px ≈ 21px)
+  const LINE_HEIGHT = 21
+  const HEADING_PAD = 8
 
+  // ---- Load ----
   useEffect(() => {
-    if (!path) {
-      setError('缺少 path 参数')
-      setLoading(false)
-      return
-    }
+    if (!path) { setFatalError('Missing path'); setLoading(false); return }
     fetch(`/admin/api/content/${encodeURIComponent(path)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((d: ContentDetail) => {
-        setDetail(d)
-        setBody(d.rawContent)
-        setTitle(d.title)
-        setDraft(d.draft)
-      })
-      .catch((e: Error) => setError(e.message))
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(d => { setDetail(d); setBody(d.rawContent); setTitle(d.title); setDraft(d.draft) })
+      .catch(e => setFatalError(e.message))
       .finally(() => setLoading(false))
   }, [path])
 
-  // Parse headings from markdown body
+  // ---- Heading extraction ----
   const headings: HeadingAnchor[] = useMemo(() => {
     if (!body) return []
-    const lines = body.split('\n')
-    const result: HeadingAnchor[] = []
-    lines.forEach((line, i) => {
+    return body.split('\n').reduce<HeadingAnchor[]>((acc, line, i) => {
       const m = line.match(/^(#{1,6})\s+(.+)$/)
-      if (m) {
-        result.push({ line: i, slug: slugify(m[2].trim()), text: m[2].trim() })
-      }
-    })
-    return result
+      if (m) acc.push({ line: i, slug: slugify(m[2].trim()), text: m[2].trim() })
+      return acc
+    }, [])
   }, [body])
 
-  // Render Markdown to HTML (with heading IDs for scroll sync)
+  // ---- Rendered HTML with heading IDs ----
   const renderedHTML = useMemo(() => {
     if (!body) return ''
     try {
-      // Custom renderer adds id attributes to headings for scroll sync
-      const customRenderer = new marked.Renderer()
-      customRenderer.heading = function({ tokens, depth }: { tokens: { raw?: string }[]; depth: number }) {
-        const text = tokens.map(t => t.raw ?? '').join('')
-        const id = slugify(text)
-        return `<h${depth} id="${id}">${text}</h${depth}>\n`
+      const r = new marked.Renderer()
+      r.heading = function({ tokens, depth }) {
+        const text = tokens.map(t => (t as any).raw ?? '').join('')
+        return `<h${depth} id="${slugify(text)}">${text}</h${depth}>\n`
       }
-      return marked.parse(body, {
-        async: false,
-        renderer: customRenderer,
-      }) as string
-    } catch {
-      return '<p style="color: var(--color-destructive-foreground);">渲染错误</p>'
-    }
+      return marked.parse(body, { async: false, renderer: r }) as string
+    } catch { return '' }
   }, [body])
 
   // ---- Heading-based scroll sync ----
-  const HEADING_PAD = 8 // lines of visual padding before first heading
+  const scrollToHeading = useCallback((slug: string) => {
+    if (!previewRef.current || syncing.current) return
+    syncing.current = true
+    const el = previewRef.current.querySelector(`[id="${slug}"]`)
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' })
+    requestAnimationFrame(() => { syncing.current = false })
+  }, [])
 
-  const scrollToHeading = useCallback(
-    (targetSlug: string) => {
-      if (!previewRef.current || syncingRef.current) return
-      syncingRef.current = true
-      try {
-        const el = previewRef.current.querySelector(`[id="${targetSlug}"]`)
-        if (el) {
-          el.scrollIntoView({ block: 'start', behavior: 'instant' })
-        }
-      } finally {
-        // Deferred release to let the native scroll settle
-        requestAnimationFrame(() => { syncingRef.current = false })
-      }
-    },
-    []
-  )
-
-  const handleEditorScroll = useCallback(() => {
-    if (previewMode !== 'split' || !editorRef.current || syncingRef.current) return
-
-    const el = editorRef.current
-    const firstVisibleLine = Math.floor(el.scrollTop / LINE_HEIGHT)
-
-    // Find the nearest heading at or above firstVisibleLine
-    let targetHeading: HeadingAnchor | null = null
+  const onEditorScroll = useCallback(() => {
+    if (!editorRef.current || syncing.current) return
+    const firstLine = Math.floor(editorRef.current.scrollTop / LINE_HEIGHT)
+    let target: HeadingAnchor | null = null
     for (let i = headings.length - 1; i >= 0; i--) {
-      if (headings[i].line <= firstVisibleLine + HEADING_PAD) {
-        targetHeading = headings[i]
-        break
-      }
+      if (headings[i].line <= firstLine + HEADING_PAD) { target = headings[i]; break }
     }
-    // Fall back to first heading
-    if (!targetHeading && headings.length > 0) {
-      targetHeading = headings[0]
-    }
+    if (!target && headings.length) target = headings[0]
+    if (target) scrollToHeading(target.slug)
+  }, [headings, scrollToHeading])
 
-    if (targetHeading) {
-      scrollToHeading(targetHeading.slug)
-    }
-  }, [previewMode, headings, scrollToHeading])
+  // ---- Dirty tracking ----
+  const onBodyChange = useCallback((v: string) => { setBody(v); setDirty(true) }, [])
+  const onTitleChange = useCallback((v: string) => { setTitle(v); setDirty(true) }, [])
 
-  // ---- API actions ----
+  // ---- Save ----
   const handleSave = useCallback(async () => {
     if (!detail) return
     setSaving(true)
-    setError(null)
-    setSuccess(false)
     try {
-      const frontmatter = { ...detail.frontmatter, title, draft }
-      const res = await fetch(
-        `/admin/api/content/${encodeURIComponent(detail.relPath)}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ frontmatter, rawContent: body }),
-        }
-      )
+      const fm = { ...detail.frontmatter, title, draft }
+      const res = await fetch(`/admin/api/content/${encodeURIComponent(detail.relPath)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frontmatter: fm, rawContent: body }),
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setSuccess(true)
-      setTimeout(() => setSuccess(false), 2000)
+      setDirty(false)
     } catch (e: any) {
-      setError(e.message)
+      // Non-fatal — just flash the save button
     } finally {
       setSaving(false)
     }
   }, [detail, body, title, draft])
 
-  const handleDelete = useCallback(async () => {
-    if (!detail) return
-    try {
-      const res = await fetch(
-        `/admin/api/content/${encodeURIComponent(detail.relPath)}`,
-        { method: 'DELETE' }
-      )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      navigate('/admin/content')
-    } catch (e: any) {
-      setError(e.message)
-    }
-  }, [detail, navigate])
-
-  // ---- Loading / Error states ----
+  // ---- States ----
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-5 h-5 rounded-full border border-border border-t-foreground animate-spin" />
-          <p className="text-sm text-muted-foreground">加载中...</p>
-        </div>
+      <div className="flex items-center justify-center h-screen bg-background">
+        <div className="w-4 h-4 rounded-full border border-border border-t-foreground animate-spin" />
       </div>
     )
   }
 
-  if (error && !detail) {
+  if (fatalError) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center">
-          <p className="text-sm text-destructive-foreground">{error}</p>
-          <button
-            onClick={() => navigate('/admin/content')}
-            className="mt-4 text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-          >
+          <p className="text-sm text-muted-foreground">{fatalError}</p>
+          <button onClick={() => navigate('/admin/content')}
+            className="mt-3 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
             返回内容列表
           </button>
         </div>
@@ -222,195 +153,103 @@ export default function ContentEdit() {
   }
 
   if (!detail) return null
-
-  const previewModes: { value: PreviewMode; label: string; icon: typeof PenLine }[] = [
-    { value: 'edit', label: '编辑', icon: PenLine },
-    { value: 'split', label: '分屏', icon: Columns3 },
-    { value: 'preview', label: '预览', icon: Eye },
-  ]
-
-  const bodyEmpty = !body || body.trim() === ''
+  const empty = !body || !body.trim()
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-screen flex flex-col bg-background">
       {/* ================================================================ */}
-      {/* Minimal top bar                                                  */}
+      {/* Top bar — as few things as possible                             */}
       {/* ================================================================ */}
-      <div className="flex items-center justify-between shrink-0 mb-4">
-        {/* Left cluster */}
+      <div className="flex items-center justify-between shrink-0 h-10 px-4 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
-          <button
-            onClick={() => navigate('/admin/content')}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0 px-1"
-            title="返回内容列表"
-          >
+          <button onClick={() => navigate('/admin/content')}
+            className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <span className="text-xs text-muted-foreground/60 select-none">/</span>
-          <span className="text-xs text-muted-foreground truncate max-w-[280px]">
+          <span className="text-[11px] text-muted-foreground/40 truncate max-w-[240px] select-none">
             {detail.relPath}
           </span>
         </div>
 
-        {/* Right cluster */}
-        <div className="flex items-center gap-1.5">
-          {/* Mode toggle — compact icon buttons */}
-          {previewModes.map((mode) => (
-            <button
-              key={mode.value}
-              onClick={() => setPreviewMode(mode.value)}
-              className={
-                `p-1.5 rounded text-xs transition-colors ` +
-                (previewMode === mode.value
-                  ? 'bg-foreground text-background'
-                  : 'text-muted-foreground hover:text-foreground')
-              }
-              title={mode.label}
-            >
-              <mode.icon className="h-3.5 w-3.5" />
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          {/* Draft indicator — small dot */}
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${draft ? 'bg-muted-foreground/40' : 'bg-foreground/60'}`}
+            title={draft ? '草稿' : '已发布'} />
 
-          {/* Draft status — small label */}
-          <div className="h-3 w-px bg-border mx-0.5" />
-
-          <button
-            onClick={() => setDraft(!draft)}
-            className={
-              `text-[10px] px-1.5 py-0.5 rounded-full border transition-colors ` +
-              (draft
-                ? 'border-muted-foreground/30 text-muted-foreground'
-                : 'border-foreground/30 text-foreground')
-            }
-          >
-            {draft ? '草稿' : '已发布'}
-          </button>
-
-          <div className="h-3 w-px bg-border mx-0.5" />
-
-          {/* Delete + Save */}
-          {showDeleteConfirm ? (
-            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <span>确认删除？</span>
-              <button onClick={handleDelete} className="px-1.5 py-0.5 rounded bg-destructive-foreground text-background hover:opacity-90">
-                确认
-              </button>
-              <button onClick={() => setShowDeleteConfirm(false)} className="px-1.5 py-0.5 rounded text-muted-foreground hover:text-foreground">
-                取消
-              </button>
-            </span>
-          ) : (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="p-1.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-              title="删除"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded bg-foreground text-background hover:opacity-90 transition-opacity disabled:opacity-40"
+          {/* Save */}
+          <button onClick={handleSave} disabled={saving}
+            className={`flex items-center gap-1 px-2.5 py-1 text-[11px] rounded transition-all ${
+              dirty && !saving
+                ? 'bg-foreground text-background'
+                : saving
+                  ? 'bg-muted text-muted-foreground'
+                  : 'text-muted-foreground/40 cursor-default'
+            }`}
           >
             <Save className="h-3 w-3" />
-            <span>{saving ? '保存中...' : '保存'}</span>
+            <span className={saving ? '' : dirty ? 'inline' : 'hidden'}>{saving ? '保存中' : '保存'}</span>
           </button>
         </div>
       </div>
 
       {/* ================================================================ */}
-      {/* Status toasts (inline, non-intrusive)                            */}
+      {/* Split: editor (warm) / preview (pure white)                     */}
       {/* ================================================================ */}
-      {error && (
-        <div className="mb-2 px-2.5 py-1.5 rounded bg-muted text-[11px] text-destructive-foreground leading-tight">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="mb-2 px-2.5 py-1.5 rounded bg-muted text-[11px] text-muted-foreground leading-tight">
-          已保存
-        </div>
-      )}
-
-      {/* ================================================================ */}
-      {/* Main content — editor + preview                                 */}
-      {/* ================================================================ */}
-      <div
-        className={
-          'flex-1 min-h-0 ' +
-          (previewMode === 'split' ? 'grid grid-cols-[1.3fr_1fr] gap-5' : '')
-        }
-      >
-        {/* -- Editor -- */}
-        {previewMode !== 'preview' && (
-          <div className="flex flex-col min-h-0 h-full">
-            {/* Title — embedded at the top of the editor panel */}
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+      <div className="flex-1 min-h-0 grid grid-cols-[1.2fr_1fr]">
+        {/* ============ Editor panel ============ */}
+        <div className="flex flex-col min-h-0 h-full bg-[#fafafa] border-r border-border">
+          {/* Title — part of the editor, not a separate toolbar */}
+          <div className="shrink-0 px-5 pt-5 pb-0">
+            <input value={title}
+              onChange={e => onTitleChange(e.target.value)}
               placeholder="无标题"
-              className="w-full border-0 border-b border-border pb-2 mb-3 px-0 text-base font-medium text-foreground placeholder:text-muted-foreground/30 bg-transparent focus:outline-none focus:border-foreground transition-colors shrink-0"
-            />
-
-            {/* Textarea (scrollable area) */}
-            <div className="flex-1 min-h-0 relative">
-              {bodyEmpty && (
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0">
-                  <p className="text-xs text-muted-foreground/25 select-none">
-                    开始编写 Markdown...
-                  </p>
-                </div>
-              )}
-              <textarea
-                ref={editorRef}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                onScroll={handleEditorScroll}
-                placeholder=""
-                className="relative z-10 w-full h-full resize-none border-0 bg-transparent font-mono text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/25 focus:outline-none"
-                spellCheck={false}
-              />
-            </div>
+              className="w-full border-0 bg-transparent text-lg font-medium text-foreground placeholder:text-muted-foreground/20 px-0 pb-2
+                focus:outline-none border-b border-border/50 focus:border-foreground transition-colors" />
           </div>
-        )}
 
-        {/* -- Preview -- */}
-        {previewMode !== 'edit' && (
-          <div className="flex flex-col min-h-0 h-full">
-            <div
-              ref={previewRef}
-              className="flex-1 min-h-0 overflow-y-auto"
-            >
-              {bodyEmpty ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-xs text-muted-foreground/30">
-                    暂无内容
-                  </p>
-                </div>
-              ) : (
-                <article
-                  className="prose-preview"
-                  dangerouslySetInnerHTML={{ __html: renderedHTML }}
-                />
-              )}
-            </div>
+          {/* Editor body */}
+          <div className="flex-1 min-h-0 relative px-5 pt-3 pb-5">
+            {empty && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 px-5 pb-5">
+                <p className="text-xs text-muted-foreground/20 select-none">开始编写</p>
+              </div>
+            )}
+            <textarea ref={editorRef}
+              value={body}
+              onChange={e => onBodyChange(e.target.value)}
+              onScroll={onEditorScroll}
+              className="relative z-10 w-full h-full resize-none border-0 bg-transparent
+                font-mono text-sm leading-relaxed text-foreground
+                placeholder:text-muted-foreground/20 focus:outline-none"
+              spellCheck={false} />
           </div>
-        )}
+        </div>
+
+        {/* ============ Preview panel ============ */}
+        <div className="flex flex-col min-h-0 h-full bg-white">
+          <div ref={previewRef} className="flex-1 min-h-0 overflow-y-auto px-8 py-10">
+            {empty ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-xs text-muted-foreground/20">预览</p>
+              </div>
+            ) : (
+              <article className="prose-preview max-w-[42rem] mx-auto"
+                dangerouslySetInnerHTML={{ __html: renderedHTML }} />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ================================================================ */}
-      {/* Preview styles — quiet, reading-focused                          */}
+      {/* Styles                                                          */}
       {/* ================================================================ */}
       <style>{`
         .prose-preview {
           line-height: 1.8;
-          color: var(--color-foreground);
+          color: #111;
           font-size: 0.9375rem;
         }
         .prose-preview > *:first-child { margin-top: 0; }
-
         .prose-preview h1 {
           font-size: 1.5rem; font-weight: 600;
           letter-spacing: -0.025em;
@@ -425,38 +264,30 @@ export default function ContentEdit() {
           font-size: 1.1rem; font-weight: 600;
           margin: 1.2rem 0 0.4rem; line-height: 1.4;
         }
-        .prose-preview h4 {
-          font-size: 1rem; font-weight: 600;
-          margin: 1rem 0 0.3rem;
-        }
-
+        .prose-preview h4 { font-size: 1rem; font-weight: 600; margin: 1rem 0 0.3rem; }
         .prose-preview p { margin: 0.7rem 0; }
         .prose-preview a {
-          color: var(--color-foreground);
-          text-decoration: underline; text-underline-offset: 2px;
-          text-decoration-thickness: 1px;
+          color: #111; text-decoration: underline;
+          text-underline-offset: 2px; text-decoration-thickness: 1px;
         }
         .prose-preview a:hover { opacity: 0.6; }
         .prose-preview strong { font-weight: 600; }
         .prose-preview em { font-style: italic; }
-
         .prose-preview blockquote {
           margin: 0.8rem 0;
           padding: 0.1rem 0 0.1rem 1.25rem;
-          border-left: 2px solid var(--color-border);
-          color: var(--color-muted-foreground);
+          border-left: 2px solid #e5e5e5;
+          color: #6b6b6b;
         }
         .prose-preview blockquote p { margin: 0.3rem 0; }
-
         .prose-preview ul, .prose-preview ol {
           margin: 0.5rem 0; padding-left: 1.5rem;
         }
         .prose-preview li { margin: 0.2rem 0; }
         .prose-preview li > ul, .prose-preview li > ol { margin: 0.1rem 0; }
-
         .prose-preview pre {
           margin: 0.8rem 0; padding: 0.875rem 1rem;
-          border-radius: 5px; background: var(--color-muted);
+          border-radius: 5px; background: #f2f2f2;
           overflow-x: auto; font-size: 0.8125rem; line-height: 1.6;
         }
         .prose-preview code {
@@ -465,29 +296,27 @@ export default function ContentEdit() {
         }
         .prose-preview :not(pre) > code {
           padding: 0.12em 0.3em; border-radius: 3px;
-          background: var(--color-muted); font-size: 0.82em;
+          background: #f2f2f2; font-size: 0.82em;
         }
-
         .prose-preview img {
           max-width: 100%; height: auto;
           border-radius: 4px; margin: 1.25rem 0;
         }
         .prose-preview hr {
-          border: none; border-top: 1px solid var(--color-border);
+          border: none; border-top: 1px solid #e5e5e5;
           margin: 1.5rem 0;
         }
-
         .prose-preview table {
           width: 100%; border-collapse: collapse;
           margin: 0.8rem 0; font-size: 0.875rem;
         }
         .prose-preview th, .prose-preview td {
-          padding: 0.4rem 0.7rem; border: 1px solid var(--color-border);
+          padding: 0.4rem 0.7rem; border: 1px solid #e5e5e5;
           text-align: left; vertical-align: top;
         }
-        .prose-preview th { background: var(--color-muted); font-weight: 500; }
+        .prose-preview th { background: #f2f2f2; font-weight: 500; }
         .prose-preview input[type="checkbox"] {
-          margin-right: 0.4em; accent-color: var(--color-foreground);
+          margin-right: 0.4em; accent-color: #111;
         }
       `}</style>
     </div>
