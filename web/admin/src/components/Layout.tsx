@@ -48,75 +48,69 @@ export default function Layout() {
     }, 2000)
   }
 
-  const sidebarActiveClass =
-    'text-sidebar-foreground font-semibold border-l-2 border-sidebar-foreground'
-  const sidebarInactiveClass =
-    'text-muted-foreground hover:text-sidebar-foreground border-l-2 border-transparent hover:border-sidebar-border ml-0'
+  const navActiveClass =
+    'text-foreground font-semibold after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground'
+  const navInactiveClass =
+    'text-muted-foreground hover:text-foreground'
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Sidebar */}
-      <aside className="w-56 shrink-0 border-r border-border bg-sidebar flex flex-col">
-        {/* Logo — larger, more confident */}
-        <div className="px-5 pt-6 pb-5">
-          <h1 className="text-base font-semibold text-sidebar-foreground tracking-tight">
+    <div className="min-h-screen bg-background">
+      {/* Top Navigation */}
+      <header className="border-b border-border bg-sidebar sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+          {/* Left: Logo */}
+          <h1 className="text-base font-semibold text-sidebar-foreground tracking-tight mr-8">
             huan
           </h1>
-        </div>
 
-        {/* Navigation — left-bar active indicator, no bg hover */}
-        <nav className="flex-1 px-3 space-y-0.5">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors ml-0 ` +
-                (isActive ? sidebarActiveClass : sidebarInactiveClass)
-              }
+          {/* Center: Nav items */}
+          <nav className="flex items-center gap-1">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  `relative flex items-center gap-2 px-3 py-1.5 text-sm transition-colors ` +
+                  (isActive ? navActiveClass : navInactiveClass)
+                }
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={triggerBuild}
+              disabled={building}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-sidebar-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <item.icon className="h-4 w-4 shrink-0" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
+              <Hammer className="h-4 w-4 shrink-0" />
+              <span>{building ? '构建中...' : buildMsg || '构建'}</span>
+            </button>
 
-        {/* Divider */}
-        <div className="mx-5 my-3 h-px bg-sidebar-border" />
+            {serveURL && (
+              <a
+                href={serveURL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-sidebar-foreground transition-colors"
+              >
+                <ExternalLink className="h-4 w-4 shrink-0" />
+                <span>预览</span>
+              </a>
+            )}
 
-        {/* Actions */}
-        <div className="px-3 pb-2 space-y-0.5">
-          <button
-            onClick={triggerBuild}
-            disabled={building}
-            className="flex w-full items-center gap-2.5 px-3 py-1.5 text-sm border-l-2 border-transparent text-muted-foreground hover:text-sidebar-foreground hover:border-sidebar-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ml-0"
-          >
-            <Hammer className="h-4 w-4 shrink-0" />
-            <span>{building ? '构建中...' : buildMsg || '构建'}</span>
-          </button>
-
-          {serveURL && (
-            <a
-              href={serveURL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-3 py-1.5 text-sm border-l-2 border-transparent text-muted-foreground hover:text-sidebar-foreground hover:border-sidebar-border transition-colors ml-0"
-            >
-              <ExternalLink className="h-4 w-4 shrink-0" />
-              <span>预览</span>
-            </a>
-          )}
+            <span className="text-xs text-muted-foreground ml-2">v0.3.0</span>
+          </div>
         </div>
+      </header>
 
-        {/* Version footer */}
-        <div className="px-5 py-3 border-t border-sidebar-border">
-          <span className="text-xs text-muted-foreground">v0.3.0</span>
-        </div>
-      </aside>
-
-      {/* Main content area — wider for more breathing room */}
-      <main className="flex-1 min-w-0 bg-background">
+      {/* Main content area */}
+      <main className="min-h-0 bg-background">
         <div className="max-w-6xl mx-auto px-8 py-8">
           <Outlet />
         </div>

@@ -13,9 +13,10 @@ export default function App() {
         <Route path="/admin/" element={<Dashboard />} />
         <Route path="/admin/content" element={<ContentList />} />
         <Route path="/admin/content/new" element={<ContentNew />} />
-        <Route path="/admin/content/edit" element={<ContentEdit />} />
         <Route path="/admin/media" element={<MediaPage />} />
       </Route>
+      {/* Full-screen editor outside layout — no sidebar, no chrome */}
+      <Route path="/admin/content/edit" element={<ContentEdit />} />
     </Routes>
   )
 }
