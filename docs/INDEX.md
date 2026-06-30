@@ -1,7 +1,7 @@
 # huan 文档导航
 
 > **LLM 入口**：从本文件开始阅读 huan 项目。任何新会话先读 `CLAUDE.md` 与本文件即可掌握全貌。
-> **当前版本**：v0.3.0（见 [版本时间线](#版本时间线)）
+> **当前版本**：v0.5.0（见 [版本时间线](#版本时间线)）
 
 ## 一句话定位
 
@@ -163,6 +163,8 @@ huan/
 
 | 版本 | 日期 | commit | 关键变更 |
 |---|---|---|---|
+| **v0.5.0** | 2026-06-30 | `00a92dc`~`2f490ed` | **v1.0 hard gates 全交付**：ADR 0010+0011 / admin 安全 L1+L2+L4 / no-op funcs 三档 / BuildSite 6 文件重构 / admin+output+i18n 测试 70+ case（详见 [release report](reports/completed/2026-06-30-v0.5.0-v1-0-gates.md)） |
+| **v0.4.x** | 2026-06-14~27 | — | i18n 翻译系统 + Stage 4 Admin Panel v0.4.0~v0.4.2 增量演进 |
 | **v0.3.0** | 2026-06-14~26 | `6364086f`~`f877b2a` | i18n 多语言系统（Translator 插件+MultiSite+双语上线）+ Stage 4 Admin Panel（Go API+React SPA CRUD）+ Settings+Dashboard+v0.2.3 encryptGroups cleanup |
 | **v0.2.3** | 2026-06-14 | — | 移除 `huan.yaml` 的 `encryptGroups` dead config + 全文档同步（反转 ADR 0005 §1.2），详见 [ADR 0006](adr/0006-remove-encryptgroups-dead-config.md) |
 | **v0.2.2** | 2026-06-13 | `393ba19` | CI 自动建 GitHub Release（`.github/workflows/release.yml`），详见 [ADR 0005](adr/0005-remove-encrypt-and-v02-feature-batch.md) |

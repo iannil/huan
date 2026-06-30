@@ -1,6 +1,6 @@
 # 当前实际进展
 
-> 最后更新：2026-06-30（v1.0 release criteria + 6 hard gate 收敛，[ADR 0010](../adr/0010-v1-0-scope-and-positioning-split.md)） · 分支：master · 当前版本：**v0.3.0**
+> 最后更新：2026-06-30（v0.5.0 发版，6 hard gate 全交付，等 gate 6 90 天稳定性） · 分支：master · 当前版本：**v0.5.0**
 > 本文档替代 `docs/technical-plan.md` 第 8.4 节"剩余差异"——后者作为冻结的设计参考，**实际最新状态以此文档为准**。
 
 ## v1.0 Release Tracking（2026-06-30 新增）
@@ -9,16 +9,18 @@
 
 **6 Hard Gate**（详见 [ADR 0010](../adr/0010-v1-0-scope-and-positioning-split.md) §2）：
 
-| # | 标准 | 状态 | 目标版本 |
+| # | 标准 | 状态 | 交付版本 |
 |---|------|------|---------|
-| 1 | 文档定位一致（撤回"替代所有 CMS"过度宣称） | ✅ 完成（2026-06-30） | v0.4.0 |
-| 2 | 无静默 no-op 模板函数（三档策略） | ⚪ 待实施（task #4） | v0.4.0 |
-| 3 | I/O 包（admin/output/i18n）有测试 | ⚪ 待实施（task #3 + #5） | v0.4.0 |
-| 4 | Admin 安全边界（[ADR 0011](../adr/0011-admin-security-boundary.md)，L1+L2+L4） | ⚪ 待实施（task #2） | v0.4.0 |
-| 5 | BuildSite 拆 ≤80 行 stage（纯抽取 6 文件） | ⚪ 待实施（task #6） | v0.4.0 |
-| 6 | zhurongshuo 生产稳定 90 天 + 自己满意 | ⏳ 等待期 2026-06-13 → **2026-09-11** | v1.0.0 |
+| 1 | 文档定位一致（撤回"替代所有 CMS"过度宣称） | ✅ 完成（`00a92dc`） | v0.5.0 |
+| 2 | 无静默 no-op 模板函数（三档策略） | ✅ 完成（`a5cc31b`） | v0.5.0 |
+| 3 | I/O 包（admin/output/i18n）有测试 | ✅ 完成（`b11bb23` `94b5b75`） | v0.5.0 |
+| 4 | Admin 安全边界（[ADR 0011](../adr/0011-admin-security-boundary.md)，L1+L2+L4） | ✅ 完成（`5fb2d56`） | v0.5.0 |
+| 5 | BuildSite 拆 ≤80 行 stage（纯抽取 6 文件） | ✅ 完成（`2f490ed`） | v0.5.0 |
+| 6 | zhurongshuo 生产稳定 90 天 + 自己满意 | ⏳ 等待期 2026-06-13 → **2026-09-11**（已 17 天） | v1.0.0 |
 
-**版本节奏**：v0.4.0 交付 gate 1-5（task #7）→ 等 90 天（task #8）→ v1.0.0（task #9，2026-09-11 后）。
+**版本节奏**：v0.5.0 交付 gate 1-5（2026-06-30）→ 等 73 天 → **v1.0.0（2026-09-11 后）**。
+
+详细 release notes 详见 [`docs/reports/completed/2026-06-30-v0.5.0-v1-0-gates.md`](../reports/completed/2026-06-30-v0.5.0-v1-0-gates.md)。
 
 ---
 
