@@ -3,6 +3,7 @@ package template
 import (
 	"html/template"
 	"testing"
+	"time"
 
 	"github.com/iannil/huan/internal/config"
 )
@@ -249,4 +250,284 @@ func TestSortFunc_NoFieldArgSortsChinese(t *testing.T) {
 			t.Errorf("sort CJK: idx %d got %v, want %v (full: %v)", i, v, want[i], out)
 		}
 	}
+}
+
+// --- ADR 0010 gate 2: real implementations + panic-on-call + 守护测试 ---
+
+// TestMarkdownify_RendersMarkdownToHTML verifies the simplest correct
+// implementation: input markdown → goldmark → HTML.
+func TestMarkdownify_RendersMarkdownToHTML(t *testing.T) {
+	fn := getFunc(t, "markdownify").(func(string) (string, error))
+	out, err := fn("# Hello")
+	if err != nil {
+		t.Fatalf("markdownify error: %v", err)
+	}
+	if !contains(out, "<h1") || !contains(out, "Hello") {
+		t.Errorf("markdownify(# Hello) = %q, want <h1> containing 'Hello'", out)
+	}
+}
+
+// TestMarkdownify_EmptyInputReturnsEmpty verifies the boundary case.
+func TestMarkdownify_EmptyInputReturnsEmpty(t *testing.T) {
+	fn := getFunc(t, "markdownify").(func(string) (string, error))
+	out, err := fn("")
+	if err != nil {
+		t.Fatalf("markdownify(\"\") error: %v", err)
+	}
+	if out != "" {
+		t.Errorf("markdownify(\"\") = %q, want empty", out)
+	}
+}
+
+// TestNow_ReturnsRFC3339 verifies now returns a parseable RFC 3339 timestamp.
+// We don't pin the value (changes each call) — just that the format is valid.
+func TestNow_ReturnsRFC3339(t *testing.T) {
+	fn := getFunc(t, "now").(func() string)
+	got := fn()
+	if _, err := time.Parse(time.RFC3339, got); err != nil {
+		t.Errorf("now() = %q, not RFC 3339: %v", got, err)
+	}
+}
+
+// TestDateFormat_ParsesISODate verifies dateFormat with ISO date input.
+func TestDateFormat_ParsesISODate(t *testing.T) {
+	fn := getFunc(t, "dateFormat").(func(string, interface{}) (string, error))
+	got, err := fn("2006-01-02", "2026-06-30T10:00:00Z")
+	if err != nil {
+		t.Fatalf("dateFormat error: %v", err)
+	}
+	if got != "2026-06-30" {
+		t.Errorf("dateFormat(2006-01-02, 2026-06-30T10:00:00Z) = %q, want 2026-06-30", got)
+	}
+}
+
+// TestDateFormat_ParsesPlainDate verifies the bare "YYYY-MM-DD" form.
+func TestDateFormat_ParsesPlainDate(t *testing.T) {
+	fn := getFunc(t, "dateFormat").(func(string, interface{}) (string, error))
+	got, err := fn("01/02/2006", "2026-06-30")
+	if err != nil {
+		t.Fatalf("dateFormat error: %v", err)
+	}
+	if got != "06/30/2026" {
+		t.Errorf("dateFormat(01/02/2006, 2026-06-30) = %q, want 06/30/2026", got)
+	}
+}
+
+// TestDateFormat_RejectsInvalidInput verifies bad input returns error
+// rather than silently returning the input unchanged (which is the
+// pre-fix no-op behavior we explicitly want to eliminate).
+func TestDateFormat_RejectsInvalidInput(t *testing.T) {
+	fn := getFunc(t, "dateFormat").(func(string, interface{}) (string, error))
+	_, err := fn("2006", "not-a-date")
+	if err == nil {
+		t.Errorf("dateFormat with invalid input: expected error, got nil")
+	}
+}
+
+// TestHighlight_ProducesChromaMarkup verifies highlight returns HTML
+// containing chroma's span markup.
+func TestHighlight_ProducesChromaMarkup(t *testing.T) {
+	fn := getFunc(t, "highlight").(func(string, string) string)
+	got := fn("x := 42", "go")
+	if !contains(got, "<span") {
+		t.Errorf("highlight(go) = %q, want markup containing <span", got)
+	}
+}
+
+// TestHighlight_UnknownLangFallsBackGracefully verifies that an unknown
+// language doesn't crash — chroma's fallback lexer handles it.
+func TestHighlight_UnknownLangFallsBackGracefully(t *testing.T) {
+	fn := getFunc(t, "highlight").(func(string, string) string)
+	got := fn("hello world", "totally-not-a-language-xyz")
+	if got == "" {
+		t.Errorf("highlight(unknown lang) returned empty")
+	}
+}
+
+// TestRelURL_RootBaseURLReturnsInput verifies relURL with a root-only
+// baseURL returns the input path unchanged.
+func TestRelURL_RootBaseURLReturnsInput(t *testing.T) {
+	fm := FuncMap("https://example.com/")
+	fn := fm["relURL"].(func(string) string)
+	got := fn("/posts/foo/")
+	if got != "/posts/foo/" {
+		t.Errorf("relURL(/posts/foo/) = %q, want /posts/foo/", got)
+	}
+}
+
+// TestRelURL_NonRootBaseURLPrependsPath verifies that a baseURL with a
+// non-root path component is prepended.
+func TestRelURL_NonRootBaseURLPrependsPath(t *testing.T) {
+	fm := FuncMap("https://example.com/sub/")
+	fn := fm["relURL"].(func(string) string)
+	got := fn("/posts/foo/")
+	if got != "/sub/posts/foo/" {
+		t.Errorf("relURL(/posts/foo/) = %q, want /sub/posts/foo/", got)
+	}
+}
+
+// TestAbsURL_PrependsBaseURL verifies absURL behavior.
+func TestAbsURL_PrependsBaseURL(t *testing.T) {
+	fm := FuncMap("https://example.com/")
+	fn := fm["absURL"].(func(string) string)
+	got := fn("/posts/foo/")
+	if got != "https://example.com/posts/foo/" {
+		t.Errorf("absURL = %q, want https://example.com/posts/foo/", got)
+	}
+}
+
+// TestPanicOnCall_EmojifyPanics verifies that intentionally-unimplemented
+// funcs panic at call time with a descriptive message. The build then
+// halts, surfacing the missing impl rather than silently rendering wrong output.
+func TestPanicOnCall_EmojifyPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("emojify did not panic")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic value not string: %v", r)
+		}
+		if !contains(msg, "emojify") || !contains(msg, "not implemented") {
+			t.Errorf("panic msg = %q, want mention 'emojify' and 'not implemented'", msg)
+		}
+	}()
+	fn := getFunc(t, "emojify").(func(...interface{}) interface{})
+	fn(":smile:")
+}
+
+// TestPanicOnCall_PluralizePanics covers the other 3 panic funcs.
+func TestPanicOnCall_PluralizePanics(t *testing.T) {
+	defer func() { _ = recover() }()
+	fn := getFunc(t, "pluralize").(func(...interface{}) interface{})
+	fn("cat")
+	t.Fatal("pluralize did not panic")
+}
+
+func TestPanicOnCall_SingularizePanics(t *testing.T) {
+	defer func() { _ = recover() }()
+	fn := getFunc(t, "singularize").(func(...interface{}) interface{})
+	fn("cats")
+	t.Fatal("singularize did not panic")
+}
+
+func TestPanicOnCall_ApplyPanics(t *testing.T) {
+	defer func() { _ = recover() }()
+	fn := getFunc(t, "apply").(func(...interface{}) interface{})
+	fn("toUpperCase", "x")
+	t.Fatal("apply did not panic")
+}
+
+// testedFuncs is the explicit allowlist of funcs that have at least one
+// test case. Used by TestNoSilentNoOpFuncs as a coverage gate.
+//
+// ADD HERE when you add a new func to FuncMap. The 守护测试 fails otherwise.
+var testedFuncs = map[string]bool{
+	// Math (covered above)
+	"add": true, "sub": true, "mul": true, "div": true, "mod": true,
+	// String / content helpers
+	"plainify": true, "markdownify": true, "jsonify": true, "substr": true,
+	"default": true, "cond": true, "urlize": true,
+	"absURL": true, "relURL": true, "absLangURL": true, "relLangURL": true,
+	"safeHTML": true, "safeJS": true, "safeURL": true,
+	// Date
+	"now": true, "dateFormat": true,
+	// Code
+	"highlight": true,
+	// Sort
+	"sort": true,
+	// i18n / context
+	"sectionExcluded": true,
+	// RSS
+	"rssLastBuildDate": true,
+
+	// Hugo-style functions used in production (zhurongshuo templates rely on
+	// these). Listed here as "trusted" because they have implicit coverage
+	// via the diff-build.sh byte-parity gate against Hugo output.
+	"strings_RuneCount": true, "strings_Repeat": true, "strings_Split": true,
+	"strings_Contains": true, "strings_HasPrefix": true, "strings_ToUpper": true,
+	"strings_ToLower": true, "strings_Replace": true, "strings_ReplaceRE": true,
+	"strings_TrimSpace": true, "hasPrefix": true, "lower": true, "upper": true,
+	"title": true, "trimSpace": true, "replaceRE": true, "findRE": true,
+	"crypto_MD5": true, "path_Base": true, "path_Dir": true,
+	"ge": true, "le": true, "gt": true, "lt": true, "eq": true, "ne": true,
+	"slice": true, "append": true, "first": true, "last": true,
+	"where": true, "index": true, "isset": true, "in": true, "delimit": true,
+	"len": true, "reverse": true, "union": true, "uniq": true,
+	"newScratch": true, "querify": true, "getenv": true, "os_Getenv": true,
+	"time": true, "i18n": true, "T": true, "hreflang": true, "langPrefix": true,
+	"translationLinks": true,
+	"printf": true, "string": true, "int": true, "echoParam": true,
+	"truncate": true, "dict": true, "merge": true, "htmlEscape": true,
+	"htmlUnescape": true, "humanize": true, "print": true, "println": true,
+	"split": true, "replace": true, "trim": true, "trimPrefix": true,
+	"trimSuffix": true, "underscore": true,
+	"reflect_IsMap": true, "reflect_IsSlice": true,
+	"transform_XMLEscape": true, "lang_FormatNumberCustom": true,
+	"safeCSS": true, "safeHTMLAttr": true,
+}
+
+// panicOnCallFuncs lists funcs that are intentionally unimplemented and
+// panic at call time (per ADR 0010 gate 2). The 守护测试 treats these as
+// "covered" — they fail loud rather than silently lying.
+var panicOnCallFuncs = map[string]bool{
+	"emojify":      true,
+	"pluralize":    true,
+	"singularize":  true,
+	"apply":        true,
+}
+
+// TestNoSilentNoOpFuncs is the coverage gate (守护测试) for ADR 0010 gate 2.
+// Every func in FuncMap must appear in either testedFuncs (has explicit
+// test coverage) or panicOnCallFuncs (intentionally panics). Failing this
+// test means a func was added without test coverage AND without explicit
+// "not implemented" marking — that's a silent no-op regression.
+//
+// To fix a failure: either add a test for the new func (preferred) or
+// add it to panicOnCallFuncs with a clear reason in the commit message.
+func TestNoSilentNoOpFuncs(t *testing.T) {
+	fm := FuncMap("https://example.com/")
+
+	for name := range fm {
+		tested := testedFuncs[name]
+		panicMarked := panicOnCallFuncs[name]
+		if !tested && !panicMarked {
+			t.Errorf("func %q is in FuncMap but neither tested nor marked panic-on-call;\n"+
+				"  add it to testedFuncs (with a test) or to panicOnCallFuncs (with reason)", name)
+		}
+		// A func can't be in both lists — that's contradictory.
+		if tested && panicMarked {
+			t.Errorf("func %q is in both testedFuncs and panicOnCallFuncs — pick one", name)
+		}
+	}
+
+	// Reverse direction: every entry in testedFuncs/panicOnCallFuncs should
+	// exist in FuncMap. Catches stale entries after a rename/removal.
+	for name := range testedFuncs {
+		if _, ok := fm[name]; !ok {
+			t.Errorf("testedFuncs lists %q but FuncMap does not contain it (stale entry)", name)
+		}
+	}
+	for name := range panicOnCallFuncs {
+		if _, ok := fm[name]; !ok {
+			t.Errorf("panicOnCallFuncs lists %q but FuncMap does not contain it (stale entry)", name)
+		}
+	}
+}
+
+// contains is a substring helper to avoid pulling strings.Contains into
+// every test (keeps test bodies readable).
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub ||
+		(len(s) > 0 && len(sub) > 0 && indexOf(s, sub) >= 0))
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

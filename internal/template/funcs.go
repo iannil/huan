@@ -1,10 +1,12 @@
 package template
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +15,13 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/alecthomas/chroma/v2"
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/yuin/goldmark"
+	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
 )
 
 // FuncMap returns all custom template functions needed to render the site.
@@ -27,7 +36,7 @@ func FuncMap(baseURL string) template.FuncMap {
 
 		// Content helpers
 		"plainify":    plainify,
-		"markdownify": func(s string) (string, error) { return s, nil }, // placeholder, will be replaced
+		"markdownify": markdownifyFunc,
 		"jsonify":     jsonifyFunc,
 		"printf":      fmt.Sprintf,
 		"substr":      substrFunc,
@@ -103,8 +112,8 @@ func FuncMap(baseURL string) template.FuncMap {
 		"newScratch": func() *Scratch { return NewScratch() },
 
 		// Date
-		"now":        func() string { return "" }, // placeholder
-		"dateFormat": func(fmt, s string) string { return s },
+		"now":        nowFunc,
+		"dateFormat": dateFormatFunc,
 
 		// Regex
 		"replaceRE": replaceREFunc,
@@ -117,15 +126,15 @@ func FuncMap(baseURL string) template.FuncMap {
 		"truncate":     truncateFunc,
 		"dict":         dictFunc,
 		"merge":        mergeFunc,
-		"absLangURL":   func(s string) string { return baseURL + strings.TrimPrefix(s, "/") },
-		"relLangURL":   func(s string) string { return s },
-		"relURL":       func(s string) string { return s },
-		"emojify":      func(s string) string { return s },
+		"absLangURL":   absURLFunc(baseURL), // single-lang: same as absURL. Multi-lang would need ctx plumbing for per-page language prefix; deferred to v1.x.
+		"relLangURL":   relURLFunc(baseURL), // single-lang: same as relURL. Multi-lang deferred to v1.x (see ADR 0007).
+		"relURL":       relURLFunc(baseURL),
+		"emojify":      panicNotImplemented("emojify"),
 		"htmlEscape":   htmlEscapeFunc,
 		"htmlUnescape": htmlUnescapeFunc,
-		"highlight":    func(s, lang string) string { return s },
-		"pluralize":    func(s string) string { return s + "s" },
-		"singularize":  func(s string) string { return s },
+		"highlight":    highlightFunc,
+		"pluralize":    panicNotImplemented("pluralize"),
+		"singularize":  panicNotImplemented("singularize"),
 		"humanize":     humanizeFunc,
 		"print":        fmt.Sprint,
 		"println":      fmt.Sprintln,
@@ -142,7 +151,7 @@ func FuncMap(baseURL string) template.FuncMap {
 		"transform_XMLEscape":     func(v interface{}) string { return xmlEscapeFunc(toString(v)) },
 		"lang_FormatNumberCustom": langFormatNumberCustom,
 		"uniq":                    uniqFunc,
-		"apply":                   func(fn interface{}, args ...interface{}) interface{} { return nil },
+		"apply":                   panicNotImplemented("apply"),
 		"querify":                 querifyFunc,
 		"getenv":                  func(s string) string { return os.Getenv(s) },
 		"os_Getenv":               func(s string) string { return os.Getenv(s) },
@@ -1137,5 +1146,151 @@ func compare(a, b interface{}) int {
 		return 1
 	default:
 		return 0
+	}
+}
+
+// --- ADR 0010 gate 2: real implementations + panic-on-call for unimplemented ---
+
+// markdownifyFunc renders a Markdown string to HTML using goldmark. This is
+// the simplest correct implementation — no chroma highlighting, no extensions.
+// Hugo's markdownify also uses the configured goldmark; this is good enough
+// for templates that need to render Markdown at runtime (e.g., from a data
+// field or frontmatter).
+func markdownifyFunc(s string) (string, error) {
+	md := goldmark.New(goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()))
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(s), &buf); err != nil {
+		return "", fmt.Errorf("markdownify: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// nowFunc returns the current time in RFC 3339 format (e.g.,
+// "2026-06-30T10:00:00Z"). Matches Hugo's `now` which returns a time.Time;
+// templates typically chain `| time.Format` so a string is acceptable.
+func nowFunc() string {
+	return time.Now().Format(time.RFC3339)
+}
+
+// dateFormatFunc formats a date/time value. Accepts string (parsed via
+// common formats) or time.Time. Returns the formatted string per Hugo's
+// time.Format reference layout (Go's reference-layout style, e.g.
+// "2006-01-02").
+func dateFormatFunc(layout string, input interface{}) (string, error) {
+	t, ok := toTime(input)
+	if !ok {
+		return "", fmt.Errorf("dateFormat: cannot parse %v as time", input)
+	}
+	return t.Format(layout), nil
+}
+
+// toTime converts string/time.Time/Unix-int to time.Time. Used by dateFormat.
+// Returns (zero, false) for unparseable input.
+func toTime(v interface{}) (time.Time, bool) {
+	switch x := v.(type) {
+	case time.Time:
+		return x, true
+	case *time.Time:
+		if x == nil {
+			return time.Time{}, false
+		}
+		return *x, true
+	case string:
+		for _, f := range []string{
+			time.RFC3339Nano,
+			time.RFC3339,
+			"2006-01-02T15:04:05Z07:00",
+			"2006-01-02T15:04:05Z",
+			"2006-01-02 15:04:05",
+			"2006-01-02",
+		} {
+			if t, err := time.Parse(f, x); err == nil {
+				return t, true
+			}
+		}
+		return time.Time{}, false
+	case int:
+		return time.Unix(int64(x), 0), true
+	case int64:
+		return time.Unix(x, 0), true
+	}
+	return time.Time{}, false
+}
+
+// highlightFunc renders source code as HTML with syntax highlighting via
+// chroma (using the same library Hugo and huan's goldmark integration use).
+// Output uses class-based highlighting (consumers provide their own CSS).
+// On any error (unknown lexer, tokenizer fail), the original source is
+// returned wrapped in <pre><code> so the page renders rather than crashing.
+func highlightFunc(s, lang string) string {
+	lexer := lexers.Get(lang)
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	formatter := chromahtml.New(chromahtml.WithClasses(true))
+	tokens, err := chroma.Tokenise(lexer, nil, s)
+	if err != nil {
+		return "<pre><code>" + s + "</code></pre>"
+	}
+	var buf bytes.Buffer
+	if err := formatter.Format(&buf, styles.Fallback, chroma.Literator(tokens...)); err != nil {
+		return "<pre><code>" + s + "</code></pre>"
+	}
+	return buf.String()
+}
+
+// relURLFunc builds a root-relative URL, accounting for a non-root baseURL
+// path. For baseURL "https://example.com/" relURL("/foo/") = "/foo/". For
+// baseURL "https://example.com/sub/" relURL("/foo/") = "/sub/foo/". Matches
+// Hugo's relURL behavior.
+func relURLFunc(baseURL string) func(string) string {
+	prefix := urlPathPrefix(baseURL)
+	return func(s string) string {
+		if s == "" {
+			return prefix + "/"
+		}
+		if !strings.HasPrefix(s, "/") {
+			s = "/" + s
+		}
+		return prefix + s
+	}
+}
+
+// absURLFunc returns an absolute URL by prepending baseURL to s.
+func absURLFunc(baseURL string) func(string) string {
+	return func(s string) string {
+		return baseURL + strings.TrimPrefix(s, "/")
+	}
+}
+
+// urlPathPrefix extracts the path component of baseURL (without scheme/host),
+// used to compute relURL when baseURL has a non-root path. Returns "" for
+// root-only baseURLs. Trailing slash trimmed.
+//
+//	e.g. urlPathPrefix("https://example.com/")     → ""
+//	     urlPathPrefix("https://example.com/sub/") → "/sub"
+//	     urlPathPrefix("/relative-base/")          → "/relative-base"
+func urlPathPrefix(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(u.Path, "/")
+}
+
+// panicNotImplemented returns a function that panics with a descriptive
+// message when called. Used for template functions that huan intentionally
+// does NOT implement (per ADR 0010 gate 2) — they fail loud at call time
+// rather than silently returning identity/no-op.
+//
+// The panic propagates through Go template execution as a runtime error,
+// halting the build. Templates using these funcs must migrate to alternatives
+// (e.g., implement the logic inline, or open an issue requesting implementation).
+func panicNotImplemented(name string) interface{} {
+	return func(args ...interface{}) interface{} {
+		panic(fmt.Sprintf(
+			"huan: template function %q is not implemented; "+
+				"if you need it, open an issue at https://github.com/iannil/huan/issues "+
+				"(called with %d args)", name, len(args)))
 	}
 }
