@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) | **English**
 
-> A Go-based all-in-one content engine — replaces traditional CMS systems with file-based content management, a built-in admin panel, and a static site generation pipeline.
+> A Go-based local-first single-user content engine — file-based content management with a built-in admin panel and a static site generation pipeline. Path toward all-CMS replacement is a v1.x+ roadmap ([ADR 0010](docs/adr/0010-v1-0-scope-and-positioning-split.md)).
 
 `huan` turns Markdown + a single YAML config + Go templates into a static website whose output is **byte-for-byte verifiable against Hugo** (99.7% identical on the reference site, 0 differences on the SEO and AI dimensions). It ships as a single binary with zero runtime dependencies, uses the same goldmark engine as Hugo, treats CJK content as a first-class citizen, and bundles deploy, release, and LLM-powered translation into the same CLI.
 
@@ -27,7 +27,7 @@
 
 ## What is huan?
 
-`huan` is an all-in-one content engine written in Go. It was born to fully replace Hugo for building [zhurongshuo.com](https://zhurongshuo.com) — with the hard requirement that every HTML, RSS, sitemap, and search-index byte be reproducible and verifiable against Hugo's output. With that parity goal essentially met (99.7% byte-identical, 0 differences on SEO and AI dimensions), huan has evolved into a **full CMS replacement** — a file-based content engine with a built-in admin panel that manages your content right where it lives.
+`huan` is a **local-first single-user content engine** written in Go. It was born to fully replace Hugo for building [zhurongshuo.com](https://zhurongshuo.com) — with the hard requirement that every HTML, RSS, sitemap, and search-index byte be reproducible and verifiable against Hugo's output. With that parity goal essentially met (99.7% byte-identical, 0 differences on SEO and AI dimensions), huan now ships with a **built-in admin panel** that manages your content right where it lives. The path toward a full CMS replacement (image pipeline, multi-user, asset pipeline) is a [v1.x+ roadmap](docs/adr/0010-v1-0-scope-and-positioning-split.md), not a v1.0 commitment.
 
 Key characteristics:
 

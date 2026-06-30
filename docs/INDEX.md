@@ -1,11 +1,11 @@
 # huan 文档导航
 
 > **LLM 入口**：从本文件开始阅读 huan 项目。任何新会话先读 `CLAUDE.md` 与本文件即可掌握全貌。
-> **当前版本**：v0.2.2（见 [版本时间线](#版本时间线)）
+> **当前版本**：v0.3.0（见 [版本时间线](#版本时间线)）
 
 ## 一句话定位
 
-**huan** 是用 Go 编写的一体化内容引擎（All-in-One Content Engine）。阶段一的 Hugo 替代目标（三维度等价）已基本达成，当前定位转向替代所有 CMS——基于文件管理内容，内置管理后台（huan serve 的 /admin 路由）。
+**huan** 是用 Go 编写的 **local-first single-user content engine with built-in admin**（本地优先、单用户、内置 admin 的内容引擎）——基于文件管理内容，通过 `huan serve` 的 `/admin` 路由提供管理后台。Hugo 三维度等价（肉眼 / SEO / AI）已基本达成（99.7% 字节一致）。"Path toward all-CMS replacement"（替代所有 CMS 的路径）是 v1.x+ roadmap——详见 [ADR 0010](adr/0010-v1-0-scope-and-positioning-split.md)。
 
 关联内容项目：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`），当前处于 Hugo→huan 迁移 Phase 1。
 
@@ -24,6 +24,11 @@
 | [`adr/0004-release-command.md`](adr/0004-release-command.md) | **ADR 0004：本地打包发布命令 `huan release`** | Accepted |
 | [`adr/0005-remove-encrypt-and-v02-feature-batch.md`](adr/0005-remove-encrypt-and-v02-feature-batch.md) | **ADR 0005：v0.2 系列决策**（remove encrypt + toc/export/sync + CI release） | Accepted |
 | [`adr/0006-remove-encryptgroups-dead-config.md`](adr/0006-remove-encryptgroups-dead-config.md) | **ADR 0006：v0.2.3 移除 `encryptGroups` dead config**（反转 ADR 0005 §1.2） | Accepted |
+| [`adr/0007-i18n-build-system.md`](adr/0007-i18n-build-system.md) | **ADR 0007：i18n 多语言构建系统**（MultiSite + hreflang + sitemap） | Accepted |
+| [`adr/0008-translator-capability-qwen3-plugin.md`](adr/0008-translator-capability-qwen3-plugin.md) | **ADR 0008：Translator capability + Qwen3 插件**（本地 MoE 翻译） | Accepted |
+| [`adr/0009-self-contained-downstream-deploys.md`](adr/0009-self-contained-downstream-deploys.md) | **ADR 0009：Self-contained downstream deploys**（"只依赖 huan" + Docker image + .env） | Accepted |
+| [`adr/0010-v1-0-scope-and-positioning-split.md`](adr/0010-v1-0-scope-and-positioning-split.md) | **ADR 0010：v1.0 scope + 定位拆段**（local-first single-user 为 v0.x；6 hard gate） | Accepted |
+| [`adr/0011-admin-security-boundary.md`](adr/0011-admin-security-boundary.md) | **ADR 0011：Admin 安全边界**（L1 fail-fast + L2 token + L4 audit log） | Accepted |
 | [`standards/equivalence.md`](standards/equivalence.md) | **三维度等价标准** — 肉眼 / SEO / AI 三维度无差异 | 永久 |
 | [`standards/documentation.md`](standards/documentation.md) | 文档规范 — 目录用途、命名、归档时机 | 永久 |
 | [`templates/progress-template.md`](templates/progress-template.md) | 进行中工作模板 | 引用 |

@@ -6,7 +6,11 @@
 
 ## 1. 项目定位
 
-huan 是一个用 Go 编写的一体化内容引擎（All-in-One Content Engine）。阶段一的 Hugo 替代目标（三维度等价）已基本达成（99.7% 字节一致，SEO/AI 维度 0 差异），当前定位转向替代所有 CMS——基于文件管理内容，内置管理后台（huan serve 的 /admin 路由），保留 SSG 的全部能力以及通过统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）增量扩展 deploy / 翻译 / 多语言等能力。
+> **2026-06-30 修订（[ADR 0010](adr/0010-v1-0-scope-and-positioning-split.md)）**：定位拆段。v0.x 实际范围 = **local-first single-user content engine with built-in admin**；"path toward all-CMS replacement"（图片管线 / 多用户 / 资源管道）是 v1.x+ roadmap，非 v1.0 范围。
+
+huan 是一个用 Go 编写的 **local-first single-user content engine**（本地优先、单用户内容引擎）。阶段一的 Hugo 替代目标（三维度等价）已基本达成（99.7% 字节一致，SEO/AI 维度 0 差异）。当前 v0.x 范围：基于文件管理内容，通过 `huan serve` 的 `/admin` 路由提供内置管理后台，保留 SSG 的全部能力，并通过统一插件系统（[ADR 0003](adr/0003-unified-plugin-system.md)）增量扩展 deploy / 翻译 / 多语言等能力。
+
+**v1.0 release criteria = 6 hard gate**（详见 [ADR 0010](adr/0010-v1-0-scope-and-positioning-split.md)）：① 文档定位一致 ② 无静默 no-op 模板函数 ③ I/O 包（admin/output/i18n）有测试 ④ Admin 安全边界（[ADR 0011](adr/0011-admin-security-boundary.md)，L1+L2+L4） ⑤ BuildSite 拆 ≤80 行 stage ⑥ zhurongshuo 生产稳定 90 天（至 2026-09-11）+ 自己满意。
 
 ## 2. 架构决策
 

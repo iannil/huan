@@ -2,7 +2,7 @@
 
 **中文** | [English](./README.md)
 
-> 一个用 Go 编写的一体化内容引擎——基于文件管理内容，内置管理后台，替代所有 CMS。
+> 一个用 Go 编写的 local-first single-user 内容引擎——基于文件管理内容，内置管理后台。通往"替代所有 CMS"的路径是 v1.x+ roadmap（详见 [ADR 0010](docs/adr/0010-v1-0-scope-and-positioning-split.md)）。
 
 `huan` 将 Markdown + 单个 YAML 配置 + Go 模板编译为静态网站，其输出**可与 Hugo 逐字节对比验证**（在参照站点上 99.7% 字节一致，SEO 与 AI 两个维度 0 差异）。它是一个零运行时依赖的单一二进制文件，使用与 Hugo 同源的 goldmark 引擎，将 CJK 内容视为一等公民，并把部署、发布、LLM 翻译都集成在同一个 CLI 中。
 
@@ -27,7 +27,7 @@
 
 ## huan 是什么？
 
-`huan` 是一个用 Go 编写的一体化内容引擎。它最初的目标是完全替代 Hugo 来构建 [zhurongshuo.com](https://zhurongshuo.com)——每一个 HTML、RSS、sitemap、搜索索引的字节都必须可复现、可与 Hugo 输出对比验证。在该等价目标基本达成后（99.7% 字节一致，SEO/AI 维度 0 差异），huan 已进化为**全功能 CMS 替代品**——基于文件管理内容，内置管理后台，保留 SSG 全部能力。
+`huan` 是一个用 Go 编写的 **local-first single-user 内容引擎**。它最初的目标是完全替代 Hugo 来构建 [zhurongshuo.com](https://zhurongshuo.com)——每一个 HTML、RSS、sitemap、搜索索引的字节都必须可复现、可与 Hugo 输出对比验证。在该等价目标基本达成后（99.7% 字节一致，SEO/AI 维度 0 差异），huan 现在附带了**内置管理后台**——基于文件管理内容，保留 SSG 全部能力。通往"全功能 CMS 替代品"（图片管线、多用户、资源管道）的路径是 [v1.x+ roadmap](docs/adr/0010-v1-0-scope-and-positioning-split.md)，不是 v1.0 承诺。
 
 核心特征：
 
