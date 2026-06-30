@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Upload, Trash2, FolderOpen } from 'lucide-react'
+import { apiFetch } from '../lib/api'
 
 interface MediaItem {
   name: string
@@ -24,7 +25,7 @@ export default function MediaPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const fetchMedia = () => {
-    fetch('/admin/api/media')
+    apiFetch('/admin/api/media')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setData(d)
@@ -46,7 +47,7 @@ export default function MediaPage() {
     const form = new FormData()
     form.append('file', file)
     try {
-      await fetch('/admin/api/media', { method: 'POST', body: form })
+      await apiFetch('/admin/api/media', { method: 'POST', body: form })
       fileRef.current!.value = ''
       fetchMedia()
     } catch (e: any) {
@@ -58,7 +59,7 @@ export default function MediaPage() {
 
   const handleDelete = async (path: string) => {
     try {
-      const res = await fetch(`/admin/api/media/${encodeURIComponent(path)}`, {
+      const res = await apiFetch(`/admin/api/media/${encodeURIComponent(path)}`, {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error('delete failed')

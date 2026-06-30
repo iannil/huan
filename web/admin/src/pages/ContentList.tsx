@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
 import {
   FileText,
   Plus,
@@ -231,7 +232,7 @@ export default function ContentList() {
 
   // --- fetch ---
   useEffect(() => {
-    fetch('/admin/api/content')
+    apiFetch('/admin/api/content')
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -397,14 +398,14 @@ export default function ContentList() {
     try {
       await Promise.all(
         paths.map((path) =>
-          fetch(`/admin/api/content/${encodeURIComponent(path)}`, {
+          apiFetch(`/admin/api/content/${encodeURIComponent(path)}`, {
             method: 'DELETE',
           }).then((r) => {
             if (!r.ok) throw new Error(`delete ${path} failed`)
           })
         )
       )
-      const res = await fetch('/admin/api/content')
+      const res = await apiFetch('/admin/api/content')
       const d: ContentListResponse = await res.json()
       setData(d)
       setShowDeleteConfirm(false)
@@ -445,7 +446,7 @@ export default function ContentList() {
           if (!putRes.ok) throw new Error(`update ${path} failed`)
         })
       )
-      const res = await fetch('/admin/api/content')
+      const res = await apiFetch('/admin/api/content')
       const d: ContentListResponse = await res.json()
       setData(d)
     } catch (e: any) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
 import {
   FileText,
   Plus,
@@ -38,7 +39,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   const fetchStatus = () => {
-    fetch('/admin/api/status')
+    apiFetch('/admin/api/status')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setStatus(d))
       .finally(() => setLoading(false))

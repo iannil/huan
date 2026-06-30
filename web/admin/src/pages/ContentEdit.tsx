@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, FileText, Globe } from 'lucide-react'
 import { marked } from 'marked'
+import { apiFetch } from '../lib/api'
 
 interface ContentDetail {
   title: string
@@ -170,7 +171,7 @@ export default function ContentEdit() {
   // ---- Load ----
   useEffect(() => {
     if (!path) { setFatalError('Missing path'); setLoading(false); return }
-    fetch(`/admin/api/content/${encodeURIComponent(path)}`)
+    apiFetch(`/admin/api/content/${encodeURIComponent(path)}`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(d => { setDetail(d); setBody(d.rawContent); setTitle(d.title); setDraft(d.draft) })
       .catch(e => setFatalError(e.message))
@@ -180,7 +181,7 @@ export default function ContentEdit() {
   // ---- Sibling languages fetch ----
   useEffect(() => {
     if (!path) return
-    fetch(`/admin/api/content/${encodeURIComponent(path)}/languages`)
+    apiFetch(`/admin/api/content/${encodeURIComponent(path)}/languages`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then((d: SiblingResponse) => { setSiblings(d.siblings ?? []); setCurrentLang(d.current) })
       .catch(() => { /* non-fatal */ })
@@ -263,7 +264,7 @@ export default function ContentEdit() {
     setSaving(true)
     try {
       const fm = { ...detail.frontmatter, title, draft }
-      const res = await fetch(`/admin/api/content/${encodeURIComponent(detail.relPath)}`, {
+      const res = await apiFetch(`/admin/api/content/${encodeURIComponent(detail.relPath)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ frontmatter: fm, rawContent: body }),

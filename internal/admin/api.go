@@ -2,10 +2,27 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// apiHandlerConfig holds the constructor inputs for apiHandler. Split into
+// its own struct so NewHandler can build it inline without 8-arg function
+// signatures drifting as new dependencies are added.
+type apiHandlerConfig struct {
+	contentDir string
+	staticDir  string
+	sourceDir  string
+	rebuild    func()
+	siteTitle  string
+	baseURL    string
+	serveURL   string
+	audit      *AuditLogger
+}
 
 // apiHandler holds the contentOps and registers API routes.
 type apiHandler struct {
@@ -17,18 +34,20 @@ type apiHandler struct {
 	baseURL   string
 	serveURL  string
 	staticDir string
+	audit     *AuditLogger
 }
 
-func newAPIHandler(contentDir, staticDir, sourceDir string, rebuild func(), siteTitle, baseURL, serveURL string) *apiHandler {
+func newAPIHandler(cfg apiHandlerConfig) *apiHandler {
 	return &apiHandler{
-		ops:       newContentOps(contentDir),
-		media:     newMediaOps(staticDir),
-		sourceDir: sourceDir,
-		rebuild:   rebuild,
-		siteTitle: siteTitle,
-		baseURL:   baseURL,
-		serveURL:  serveURL,
-		staticDir: staticDir,
+		ops:       newContentOps(cfg.contentDir),
+		media:     newMediaOps(cfg.staticDir),
+		sourceDir: cfg.sourceDir,
+		rebuild:   cfg.rebuild,
+		siteTitle: cfg.siteTitle,
+		baseURL:   cfg.baseURL,
+		serveURL:  cfg.serveURL,
+		staticDir: cfg.staticDir,
+		audit:     cfg.audit,
 	}
 }
 
@@ -128,6 +147,12 @@ func (h *apiHandler) createContent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
 		return
 	}
+	// L4 audit: create has no "before" SHA (file didn't exist).
+	h.auditLog(AuditRecord{
+		Action:   ActionContentCreate,
+		Path:     detail.RelPath,
+		AfterSHA: safeSHA(filepath.Join(h.ops.contentDir, detail.RelPath)),
+	})
 	writeJSON(w, http.StatusCreated, detail)
 }
 
@@ -138,19 +163,34 @@ func (h *apiHandler) updateContent(w http.ResponseWriter, r *http.Request, relPa
 		return
 	}
 
+	fullPath := filepath.Join(h.ops.contentDir, relPath)
+	beforeSHA := safeSHA(fullPath)
 	detail, err := h.ops.update(relPath, req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
 		return
 	}
+	h.auditLog(AuditRecord{
+		Action:    ActionContentUpdate,
+		Path:      relPath,
+		BeforeSHA: beforeSHA,
+		AfterSHA:  safeSHA(fullPath),
+	})
 	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *apiHandler) deleteContent(w http.ResponseWriter, r *http.Request, relPath string) {
+	fullPath := filepath.Join(h.ops.contentDir, relPath)
+	beforeSHA := safeSHA(fullPath)
 	if err := h.ops.remove(relPath); err != nil {
 		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
 		return
 	}
+	h.auditLog(AuditRecord{
+		Action:    ActionContentDelete,
+		Path:      relPath,
+		BeforeSHA: beforeSHA,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -260,10 +300,18 @@ func (h *apiHandler) updateSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
 		return
 	}
+	yamlPath := filepath.Join(h.sourceDir, "huan.yaml")
+	beforeSHA := safeSHA(yamlPath)
 	if err := updateSettings(h.sourceDir, &s); err != nil {
 		writeJSON(w, http.StatusInternalServerError, APIError{Error: err.Error()})
 		return
 	}
+	h.auditLog(AuditRecord{
+		Action:    ActionSettingsUpdate,
+		Path:      "huan.yaml",
+		BeforeSHA: beforeSHA,
+		AfterSHA:  safeSHA(yamlPath),
+	})
 	// Trigger rebuild after saving settings
 	if h.rebuild != nil {
 		go h.rebuild()
@@ -289,13 +337,46 @@ func (h *apiHandler) updateSettingsYaml(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
 		return
 	}
+	yamlPath := filepath.Join(h.sourceDir, "huan.yaml")
+	beforeSHA := safeSHA(yamlPath)
 	if err := updateSettingsYaml(h.sourceDir, body.Content); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIError{Error: err.Error()})
 		return
 	}
+	h.auditLog(AuditRecord{
+		Action:    ActionSettingsYAML,
+		Path:      "huan.yaml",
+		BeforeSHA: beforeSHA,
+		AfterSHA:  safeSHA(yamlPath),
+	})
 	// Trigger rebuild after saving YAML
 	if h.rebuild != nil {
 		go h.rebuild()
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// auditLog is a nil-safe wrapper: if audit logger is unset (e.g., in tests
+// with no memoryDir), the call is a no-op. Errors are logged via the
+// server's logf but never propagate to the HTTP response — a failed audit
+// log entry must not block the write operation.
+func (h *apiHandler) auditLog(rec AuditRecord) {
+	if h.audit == nil {
+		return
+	}
+	if err := h.audit.Log(rec); err != nil {
+		// Best-effort: print to stderr; the write op already succeeded.
+		fmt.Fprintf(os.Stderr, "huan: admin audit log failed: %v\n", err)
+	}
+}
+
+// safeSHA returns the hex SHA256 of filePath, or "" if the file cannot be
+// read (including "not exists" — which is the expected case for create
+// before-SHA and delete after-SHA).
+func safeSHA(filePath string) string {
+	sha, err := ComputeSHA256(filePath)
+	if err != nil {
+		return ""
+	}
+	return sha
 }

@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { apiFetch } from '../lib/api'
 import {
   LayoutDashboard,
   FileText,
@@ -23,7 +24,7 @@ export default function Layout() {
   const [siteTitle, setSiteTitle] = useState('')
 
   useEffect(() => {
-    fetch('/admin/api/status')
+    apiFetch('/admin/api/status')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.serveURL) setServeURL(d.serveURL)
@@ -36,7 +37,7 @@ export default function Layout() {
     setBuilding(true)
     setBuildMsg('')
     try {
-      const res = await fetch('/admin/api/build', { method: 'POST' })
+      const res = await apiFetch('/admin/api/build', { method: 'POST' })
       const data = await res.json()
       if (res.ok) {
         setBuildMsg('已触发')

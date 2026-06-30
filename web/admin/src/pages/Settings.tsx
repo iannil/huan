@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { FileCode2, Check, Loader2 } from 'lucide-react'
+import { apiFetch } from '../lib/api'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
@@ -63,7 +64,7 @@ export default function Settings() {
 
   const fetchSettings = useCallback(() => {
     setLoading(true)
-    fetch('/admin/api/settings')
+    apiFetch('/admin/api/settings')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d) {
@@ -139,7 +140,7 @@ export default function Settings() {
     setSaveState('saving')
     setErrorMsg('')
     try {
-      const res = await fetch('/admin/api/settings', {
+      const res = await apiFetch('/admin/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),

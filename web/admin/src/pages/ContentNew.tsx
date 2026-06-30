@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus } from 'lucide-react'
+import { apiFetch } from '../lib/api'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -46,7 +47,7 @@ export default function ContentNew() {
       // Append language suffix for multi-language filename convention
       const langFilename = language ? `${filename}.${language}` : filename
 
-      const res = await fetch('/admin/api/content', {
+      const res = await apiFetch('/admin/api/content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title.trim(), section, filename: langFilename, draft }),
