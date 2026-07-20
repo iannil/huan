@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/iannil/huan/internal/build"
@@ -33,8 +34,8 @@ type BuilderOptions struct {
 // Builder manages the full build and incremental update pipeline.
 type Builder struct {
 	opts         BuilderOptions
-	busy         bool
-	pending      bool
+	busy         atomic.Bool
+	pending      atomic.Bool
 	renderPageFn build.RenderPageFunc // captured from AfterBuild for JIT use
 }
 
@@ -44,10 +45,15 @@ func NewBuilder(opts BuilderOptions) *Builder {
 }
 
 // FullBuild runs the complete 8-stage build pipeline.
+// Uses the serialized build queue to prevent concurrent builds.
 func (b *Builder) FullBuild(ctx context.Context) error {
-	b.busy = true
-	defer func() { b.busy = false }()
+	return b.QueueBuild(ctx, func() error {
+		return b.executeFullBuild(ctx)
+	})
+}
 
+// executeFullBuild is the inner build logic, called by QueueBuild.
+func (b *Builder) executeFullBuild(ctx context.Context) error {
 	_ = b.opts.Bus.Publish(ctx, eventbus.Event{
 		Type:      eventbus.EventBuildStarted,
 		Timestamp: time.Now(),
@@ -79,9 +85,9 @@ func (b *Builder) FullBuild(ctx context.Context) error {
 			Payload:   err.Error(),
 		})
 		if b.opts.Metrics != nil {
-		b.opts.Metrics.RecordBuildFailure()
-	}
-	return fmt.Errorf("full build: %w", err)
+			b.opts.Metrics.RecordBuildFailure()
+		}
+		return fmt.Errorf("full build: %w", err)
 	}
 
 	// Store the RenderPageFunc for JIT rendering.
@@ -100,6 +106,37 @@ func (b *Builder) FullBuild(ctx context.Context) error {
 		Timestamp: time.Now(),
 		Payload:   result,
 	})
+	return nil
+}
+
+// QueueBuild ensures only one build runs at a time. If a build is in progress,
+// it marks pending and returns (the running build will trigger a trailing rebuild).
+// This coalesces multiple concurrent change events into a single rebuild.
+func (b *Builder) QueueBuild(ctx context.Context, buildFn func() error) error {
+	// Try to acquire the build lock
+	if !b.busy.CompareAndSwap(false, true) {
+		// Build in progress, mark pending and return
+		b.pending.Store(true)
+		b.opts.Logf("builder: build in progress, queuing pending rebuild")
+		return nil
+	}
+
+	// Execute the build, then check for pending requests
+	for {
+		err := buildFn()
+		if err != nil {
+			b.busy.Store(false)
+			return err
+		}
+
+		// Check if another rebuild was queued while we were building
+		if !b.pending.CompareAndSwap(true, false) {
+			break // no pending rebuild, exit loop
+		}
+		b.opts.Logf("builder: pending rebuild detected, running again")
+	}
+
+	b.busy.Store(false)
 	return nil
 }
 
@@ -124,14 +161,16 @@ func (b *Builder) HandleContentChanged(ctx context.Context, event eventbus.Event
 		}
 	}
 
-	// Phase 1: Incremental build only works for modified files.
-	// New/deleted files fall back to full rebuild.
-	if len(changedFiles) > 0 && b.opts.DAG.NodeCount() > 0 {
-		return b.IncrementalBuild(ctx, changedFiles)
+	// If no DAG yet, do a full build
+	if b.opts.DAG.NodeCount() == 0 {
+		b.opts.Logf("builder: no DAG, doing full build")
+		return b.FullBuild(ctx)
 	}
 
-	b.opts.Logf("builder: content changed, starting full rebuild...")
-	return b.FullBuild(ctx)
+	// Use the serialized build queue
+	return b.QueueBuild(ctx, func() error {
+		return b.IncrementalBuild(ctx, changedFiles)
+	})
 }
 
 // IncrementalBuild rebuilds only the pages affected by the given file changes.
@@ -149,8 +188,8 @@ func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) e
 	// Phase 1 limitation: Single-page rendering (build.RenderPage) is not
 	// implemented yet. For now, fall back to full build when incremental
 	// is triggered. This will be properly implemented in Phase 2.
-	b.opts.Logf("builder: incremental build not yet implemented, falling back to full build")
-	return b.FullBuild(ctx)
+	b.opts.Logf("builder: incremental build using full build path")
+	return b.executeFullBuild(ctx)
 }
 
 // TriggerRebuild is an external trigger (from Admin API) to rebuild.
