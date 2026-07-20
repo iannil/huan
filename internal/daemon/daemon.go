@@ -18,14 +18,15 @@ import (
 
 // Options configures the daemon.
 type Options struct {
-	SourceDir   string
-	ConfigPath  string // daemon.yaml path, optional
-	Port        string
-	Bind        string
-	TLSCert     string
-	TLSKey      string
-	Systemd     bool
-	BuildDrafts bool
+	SourceDir    string
+	ConfigPath   string // daemon.yaml path, optional
+	Port         string
+	Bind         string
+	TLSCert      string
+	TLSKey       string
+	Systemd      bool
+	BuildDrafts  bool
+	DisableWatch bool // disable file watching (default false)
 }
 
 // Daemon holds the long-running server state.
@@ -138,7 +139,14 @@ func Run(opts Options) error {
 	notifier := NewSystemdNotifier(opts.Systemd)
 	notifier.Ready()
 
-	// 13. Start HTTP server
+	// 13. Start file watcher (if not disabled — ctx must be created before HTTP server)
+	if !opts.DisableWatch {
+		// startWatcher uses dev.Watcher from huan dev, but for now
+		// watcher integration is deferred — daemon rebuilds via EventBus.
+		// fsnotify integration will be added in a follow-up.
+	}
+
+	// 14. Start HTTP server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -148,7 +156,7 @@ func Run(opts Options) error {
 		}
 	}()
 
-	// 14. Wait for shutdown signal
+	// 15. Wait for shutdown signal
 	sigCh := WaitForShutdown()
 	<-sigCh
 
