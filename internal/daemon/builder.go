@@ -135,3 +135,10 @@ func (b *Builder) TriggerRebuild() {
 		Payload:   map[string]interface{}{"trigger": "admin"},
 	})
 }
+
+// RenderPageJIT renders a single page on demand for JIT fallback.
+// Phase 1: returns a "not yet implemented" error.
+// Phase 2: implement actual single-page rendering via build.RenderPage().
+func (b *Builder) RenderPageJIT(ctx context.Context, pagePath string) (string, error) {
+	return "", fmt.Errorf("JIT rendering not yet implemented — use full build")
+}

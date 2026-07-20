@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/iannil/huan/internal/daemon/cache"
 	"github.com/iannil/huan/internal/daemon/eventbus"
@@ -96,7 +97,29 @@ func (s *Serving) jitFallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Phase 2 — real JIT rendering via build.RenderPage()
+	// JIT render via Builder
+	if s.opts.Builder != nil {
+		html, err := s.opts.Builder.RenderPageJIT(r.Context(), path)
+		if err != nil {
+			s.opts.Logf("serving: JIT render failed for %s: %v", path, err)
+			http.NotFound(w, r)
+			return
+		}
+
+		// Cache the result
+		s.opts.JITCache.Set(path, &cache.JITEntry{
+			Path:       path,
+			HTML:       []byte(html),
+			RenderedAt: time.Now(),
+			TTL:        5 * time.Minute,
+		})
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("X-Huan-Cache", "jit-hit")
+		_, _ = w.Write([]byte(html))
+		return
+	}
+
 	http.NotFound(w, r)
 }
 
