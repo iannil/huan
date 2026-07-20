@@ -37,6 +37,8 @@ type Daemon struct {
 	serving  *Serving
 	dag      *dag.DependencyGraph
 	jitCache *cache.JITCache
+	health   *HealthChecker
+	metrics  *MetricsCollector
 	tmpDir   string
 	httpSrv  *http.Server
 }
@@ -60,7 +62,11 @@ func Run(opts Options) error {
 	// 3. Initialize cache
 	d.jitCache = cache.NewJITCache(1000, 5*time.Minute)
 
-	// 4. Create temp dir for rendered output
+	// 4. Initialize Health + Metrics
+	d.health = NewHealthChecker()
+	d.metrics = NewMetricsCollector()
+
+	// 5. Create temp dir for rendered output
 	tmpDir, err := os.MkdirTemp("", "huan-daemon-*")
 	if err != nil {
 		return fmt.Errorf("daemon: mkdtemp: %w", err)
@@ -68,15 +74,10 @@ func Run(opts Options) error {
 	d.tmpDir = tmpDir
 	defer os.RemoveAll(tmpDir)
 
-	// 5. Initialize DAG (loaded from disk if exists)
+	// 6. Initialize DAG (loaded from disk if exists)
 	d.dag = dag.NewDependencyGraph()
-	dagPath := filepath.Join(tmpDir, ".dag.json")
-	if data, err := os.ReadFile(dagPath); err == nil {
-		_ = d.dag.Deserialize(data)
-		log.Printf("daemon: loaded DAG from %s (%d nodes)", dagPath, d.dag.NodeCount())
-	}
 
-	// 6. Initialize Builder
+	// 7. Initialize Builder
 	d.builder = NewBuilder(BuilderOptions{
 		SourceDir:   opts.SourceDir,
 		OutputDir:   tmpDir,
@@ -87,7 +88,7 @@ func Run(opts Options) error {
 		Logf:        log.Printf,
 	})
 
-	// 7. Initialize Serving
+	// 8. Initialize Serving
 	adminHandler := admin.NewHandler(admin.HandlerOptions{
 		Cfg:       cfg,
 		SourceDir: opts.SourceDir,
@@ -108,10 +109,12 @@ func Run(opts Options) error {
 		JITCache:     d.jitCache,
 		Builder:      d.builder,
 		Bus:          d.bus,
+		Health:       d.health,
+		Metrics:      d.metrics,
 		Logf:         log.Printf,
 	})
 
-	// 8. Subscribe event handlers
+	// 9. Subscribe event handlers
 	d.bus.Subscribe(eventbus.EventContentChanged, d.builder.HandleContentChanged)
 	d.bus.Subscribe(eventbus.EventCacheUpdated, d.serving.HandleCacheUpdated)
 	d.bus.Subscribe(eventbus.EventBuildStarted, func(ctx context.Context, event eventbus.Event) error {
@@ -119,7 +122,7 @@ func Run(opts Options) error {
 		return nil
 	})
 
-	// 9. Initial full build
+	// 10. Initial full build
 	log.Println("daemon: initial full build...")
 	start := time.Now()
 	if err := d.builder.FullBuild(context.Background()); err != nil {
@@ -127,11 +130,14 @@ func Run(opts Options) error {
 	}
 	log.Printf("daemon: initial build complete in %v", time.Since(start))
 
-	// 10. Notify systemd that we're ready
+	// 11. Mark as ready after initial build
+	d.health.SetReady(true)
+
+	// 12. Notify systemd that we're ready
 	notifier := NewSystemdNotifier(opts.Systemd)
 	notifier.Ready()
 
-	// 11. Start HTTP server
+	// 13. Start HTTP server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -141,7 +147,7 @@ func Run(opts Options) error {
 		}
 	}()
 
-	// 12. Wait for shutdown signal
+	// 14. Wait for shutdown signal
 	sigCh := WaitForShutdown()
 	<-sigCh
 

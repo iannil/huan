@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// version is injected at build time or from internal/version.
+var daemonVersion = "0.6.0"
+
 // HealthChecker provides health check endpoint.
 type HealthChecker struct {
 	startTime time.Time
@@ -39,7 +42,7 @@ func (h *HealthChecker) Handler() http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
 			"uptime":  time.Since(h.startTime).String(),
-			"version": "0.6.0",
+			"version": daemonVersion,
 		})
 	}
 }

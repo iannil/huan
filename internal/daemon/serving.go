@@ -14,16 +14,18 @@ import (
 
 // ServingOptions configures the Serving layer.
 type ServingOptions struct {
-	OutputDir    string
-	Bind         string
-	Port         string
-	TLSCert      string
-	TLSKey       string
-	AdminHandler http.Handler
-	JITCache     *cache.JITCache
-	Builder      *Builder
-	Bus          eventbus.EventBus
-	Logf         func(format string, args ...any)
+	OutputDir      string
+	Bind           string
+	Port           string
+	TLSCert        string
+	TLSKey         string
+	AdminHandler   http.Handler
+	JITCache       *cache.JITCache
+	Builder        *Builder
+	Bus            eventbus.EventBus
+	Logf           func(format string, args ...any)
+	Health         *HealthChecker
+	Metrics        *MetricsCollector
 }
 
 // Serving manages the HTTP server, static file serving, JIT rendering, and admin API.
@@ -42,11 +44,20 @@ func (s *Serving) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 
 	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","uptime":"0s"}`))
-	})
+	if s.opts.Health != nil {
+		mux.Handle("/health", s.opts.Health.Handler())
+	} else {
+		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok","uptime":"0s"}`))
+		})
+	}
+
+	// Metrics
+	if s.opts.Metrics != nil {
+		mux.Handle("/metrics", s.opts.Metrics.Handler())
+	}
 
 	// Admin
 	if s.opts.AdminHandler != nil {
