@@ -46,6 +46,12 @@ type Options struct {
 	// Used by daemon to initialize JIT cache with build context.
 	// Experimental: API may change in future versions.
 	AfterBuild func(*Result, RenderPageFunc) error
+
+	// AfterBuildSite is called after BuildSite completes successfully with
+	// the built site. Used by daemon's DAG builder to construct the
+	// dependency graph for incremental updates.
+	// Experimental: API may change in future versions.
+	AfterBuildSite func(*content.Site) error
 }
 
 // RenderPageFunc is the callback signature for single-page rendering.
@@ -119,6 +125,13 @@ func BuildSite(opts Options) (*Result, error) {
 		}
 		if err := opts.AfterBuild(p.result, renderPageFn); err != nil {
 			return p.result, fmt.Errorf("AfterBuild callback: %w", err)
+		}
+	}
+
+	// Invoke AfterBuildSite callback if provided (for daemon DAG builder).
+	if opts.AfterBuildSite != nil {
+		if err := opts.AfterBuildSite(p.site); err != nil {
+			return p.result, fmt.Errorf("AfterBuildSite callback: %w", err)
 		}
 	}
 
