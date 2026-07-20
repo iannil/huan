@@ -97,3 +97,50 @@ func TestEventBus_MultipleHandlers(t *testing.T) {
 		t.Errorf("expected both handlers to fire: %d, %d", count1.Load(), count2.Load())
 	}
 }
+
+func TestEventType_PluginLifecycleEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType EventType
+		want      string
+	}{
+		{"EventPluginLoaded", EventPluginLoaded, "plugin_loaded"},
+		{"EventPluginUnloaded", EventPluginUnloaded, "plugin_unloaded"},
+		{"EventPluginReloaded", EventPluginReloaded, "plugin_reloaded"},
+		{"EventPluginError", EventPluginError, "plugin_error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.eventType.String(); got != tt.want {
+				t.Errorf("%s.String() = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEventBus_PluginLifecycleEventsCanBePublished(t *testing.T) {
+	pluginEvents := []EventType{EventPluginLoaded, EventPluginUnloaded, EventPluginReloaded, EventPluginError}
+
+	for _, et := range pluginEvents {
+		t.Run(et.String(), func(t *testing.T) {
+			bus := NewChannelBus()
+			defer bus.Close()
+
+			var received atomic.Int32
+			bus.Subscribe(et, func(ctx context.Context, event Event) error {
+				received.Add(1)
+				return nil
+			})
+
+			err := bus.Publish(context.Background(), Event{Type: et, Timestamp: time.Now()})
+			if err != nil {
+				t.Fatalf("Publish failed: %v", err)
+			}
+
+			time.Sleep(50 * time.Millisecond)
+			if got := received.Load(); got != 1 {
+				t.Errorf("expected 1 handler call, got %d", got)
+			}
+		})
+	}
+}

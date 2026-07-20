@@ -16,6 +16,10 @@ const (
 	EventBuildFailed                      // 构建失败
 	EventServerStart                      // 服务启动
 	EventServerShutdown                   // 服务关闭中
+	EventPluginLoaded   EventType = iota + 10 // 插件加载完成
+	EventPluginUnloaded                       // 插件卸载完成
+	EventPluginReloaded                       // 插件热重载完成
+	EventPluginError                          // 插件异常
 )
 
 // String returns the human-readable name of this event type.
@@ -35,6 +39,14 @@ func (et EventType) String() string {
 		return "server_start"
 	case EventServerShutdown:
 		return "server_shutdown"
+	case EventPluginLoaded:
+		return "plugin_loaded"
+	case EventPluginUnloaded:
+		return "plugin_unloaded"
+	case EventPluginReloaded:
+		return "plugin_reloaded"
+	case EventPluginError:
+		return "plugin_error"
 	default:
 		return "unknown"
 	}
