@@ -75,6 +75,23 @@ func (r *Registry) All() []Plugin {
 	return out
 }
 
+// Unregister removes a plugin by name. Returns false if the name wasn't
+// registered. After Unregister, the plugin is no longer returned by Get,
+// All, Names, or Find[T].
+func (r *Registry) Unregister(name string) bool {
+	if _, exists := r.plugins[name]; !exists {
+		return false
+	}
+	delete(r.plugins, name)
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+	return true
+}
+
 // Names returns all registered plugin names in registration order.
 func (r *Registry) Names() []string {
 	out := make([]string, len(r.order))

@@ -148,3 +148,43 @@ func TestSortedNames_Lexicographic(t *testing.T) {
 		}
 	}
 }
+
+func TestUnregister_Success(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(&stubPlugin{name: "alpha"}); err != nil {
+		t.Fatalf("Register alpha: %v", err)
+	}
+	got := r.Unregister("alpha")
+	if !got {
+		t.Error("Unregister(alpha): want true, got false")
+	}
+	if _, ok := r.Get("alpha"); ok {
+		t.Error("Get(alpha) after Unregister returned ok=true")
+	}
+}
+
+func TestUnregister_NotFound(t *testing.T) {
+	r := NewRegistry()
+	got := r.Unregister("nonexistent")
+	if got {
+		t.Error("Unregister(nonexistent): want false, got true")
+	}
+}
+
+func TestUnregister_MaintainsOrder(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(&stubPlugin{name: "alpha"})
+	_ = r.Register(&stubPlugin{name: "bravo"})
+	_ = r.Register(&stubPlugin{name: "charlie"})
+	r.Unregister("bravo")
+	want := []string{"alpha", "charlie"}
+	got := r.Names()
+	if len(got) != len(want) {
+		t.Fatalf("Names() len = %d, want %d", len(got), len(want))
+	}
+	for i, name := range want {
+		if got[i] != name {
+			t.Errorf("Names()[%d] = %q, want %q", i, got[i], name)
+		}
+	}
+}
