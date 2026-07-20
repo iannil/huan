@@ -21,6 +21,7 @@ type BuilderOptions struct {
 	Bus         eventbus.EventBus
 	DAG         *dag.DependencyGraph
 	JITCache    *cache.JITCache
+	Metrics     *MetricsCollector
 	BuildDrafts bool
 	Logf        func(format string, args ...any)
 
@@ -56,6 +57,7 @@ func (b *Builder) FullBuild(ctx context.Context) error {
 	_ = os.MkdirAll(b.opts.OutputDir, 0755)
 
 	var renderPageFn build.RenderPageFunc
+	start := time.Now()
 	result, err := build.BuildSite(build.Options{
 		SourceDir:     b.opts.SourceDir,
 		OutputDir:     b.opts.OutputDir,
@@ -76,11 +78,19 @@ func (b *Builder) FullBuild(ctx context.Context) error {
 			Timestamp: time.Now(),
 			Payload:   err.Error(),
 		})
-		return fmt.Errorf("full build: %w", err)
+		if b.opts.Metrics != nil {
+		b.opts.Metrics.RecordBuildFailure()
+	}
+	return fmt.Errorf("full build: %w", err)
 	}
 
 	// Store the RenderPageFunc for JIT rendering.
 	b.renderPageFn = renderPageFn
+
+	// Record metrics
+	if b.opts.Metrics != nil {
+		b.opts.Metrics.RecordBuild(time.Since(start))
+	}
 
 	b.opts.Logf("builder: full build complete: %d pages, %d files, %d bytes",
 		result.PagesRendered, result.FilesWritten, result.BytesWritten)

@@ -84,6 +84,7 @@ func Run(opts Options) error {
 		Bus:         d.bus,
 		DAG:         d.dag,
 		JITCache:    d.jitCache,
+		Metrics:     d.metrics,
 		BuildDrafts: opts.BuildDrafts,
 		Logf:        log.Printf,
 	})
