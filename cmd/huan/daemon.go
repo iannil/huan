@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"time"
 
+	"github.com/iannil/huan/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -15,10 +15,25 @@ REST API, admin panel, and infrastructure features (TLS, health checks, metrics)
 
 A long-running process that serves the site as a backend service.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		port, _ := cmd.Flags().GetString("port")
+		bind, _ := cmd.Flags().GetString("bind")
+		configPath, _ := cmd.Flags().GetString("config")
+		tlsCert, _ := cmd.Flags().GetString("tls-cert")
+		tlsKey, _ := cmd.Flags().GetString("tls-key")
+		systemd, _ := cmd.Flags().GetBool("systemd")
+		buildDrafts, _ := cmd.Flags().GetBool("buildDrafts")
+
 		fmt.Println("huan daemon: starting (v0.6.0) ...")
-		// TODO: Phase 2 — wire up daemon.Run()
-		_ = time.Now()
-		return nil
+		return daemon.Run(daemon.Options{
+			SourceDir:   sourceDir,
+			ConfigPath:  configPath,
+			Port:        port,
+			Bind:        bind,
+			TLSCert:     tlsCert,
+			TLSKey:      tlsKey,
+			Systemd:     systemd,
+			BuildDrafts: buildDrafts,
+		})
 	},
 }
 
