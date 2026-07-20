@@ -141,15 +141,43 @@ func BuildSite(opts Options) (*Result, error) {
 // RenderPage renders a single page using the provided build options.
 // This is the entry point for daemon's JIT rendering and incremental updates.
 //
-// Phase 1 limitation: RenderPage requires a fully initialized pipeline context
-// (templates, i18n, page lookup). For incremental builds, the caller should
-// use the AfterBuild callback from BuildSite to obtain a RenderPageFunc.
-// Standalone mode (building a full pipeline for a single page) is a Phase 2
-// enhancement and is not yet implemented.
+// It creates a new pipeline, runs stages 1-5 (config, content, markdown, templates,
+// contexts), finds the requested page by RelPath, and renders it.
 //
 // Experimental: API may change in future versions.
 func RenderPage(opts Options, pg *content.Page) (string, error) {
-	return "", fmt.Errorf("RenderPage: use AfterBuild callback to capture RenderPageFunc; standalone mode not yet implemented")
+	p := newPipeline(opts)
+
+	// Stage 1-4: minimal pipeline setup
+	if err := p.loadConfig(); err != nil {
+		return "", fmt.Errorf("RenderPage loadConfig: %w", err)
+	}
+	if err := p.loadContent(); err != nil {
+		return "", fmt.Errorf("RenderPage loadContent: %w", err)
+	}
+	if err := p.renderMarkdownAndTree(); err != nil {
+		return "", fmt.Errorf("RenderPage renderMarkdownAndTree: %w", err)
+	}
+	if err := p.setupTemplatesAndWriter(); err != nil {
+		return "", fmt.Errorf("RenderPage setupTemplatesAndWriter: %w", err)
+	}
+
+	// Stage 5: build contexts
+	p.buildContexts()
+
+	// Find the requested page in the site
+	target := p.findPage(pg.RelPath)
+	if target == nil {
+		return "", fmt.Errorf("RenderPage: page not found: %s", pg.RelPath)
+	}
+
+	// Render single page
+	html, err := p.renderSinglePage(target)
+	if err != nil {
+		return "", fmt.Errorf("RenderPage: %w", err)
+	}
+
+	return html, nil
 }
 
 // RenderPageToBytes renders a single page and returns the HTML as a byte slice.

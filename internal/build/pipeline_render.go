@@ -164,3 +164,16 @@ func (p *pipeline) renderSinglePage(pg *content.Page) (string, error) {
 
 	return html, nil
 }
+
+// findPage returns the page matching the given RelPath from the pipeline's site.
+// Returns nil if no matching page is found. Used by RenderPage to locate the
+// target page in the freshly-built pipeline (caller's page object may not have
+// the same pointer identity as the pages in the new pipeline).
+func (p *pipeline) findPage(relPath string) *content.Page {
+	for _, pg := range p.site.Pages {
+		if pg.RelPath == relPath {
+			return pg
+		}
+	}
+	return nil
+}
