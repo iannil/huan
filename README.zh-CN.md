@@ -2,9 +2,9 @@
 
 **中文** | [English](./README.md)
 
-> 一个用 Go 编写的 local-first single-user 内容引擎——基于文件管理内容，内置管理后台。通往"替代所有 CMS"的路径是 v1.x+ roadmap（详见 [ADR 0010](docs/adr/0010-v1-0-scope-and-positioning-split.md)）。
+> 一个用 Go 编写的 local-first single-user 内容引擎——基于文件管理内容，内置管理后台，配备生产级常驻服务。通往"替代所有 CMS"的路径是 v1.x+ roadmap（详见 [ADR 0010](docs/adr/0010-v1-0-scope-and-positioning-split.md)）。
 
-`huan` 将 Markdown + 单个 YAML 配置 + Go 模板编译为静态网站，其输出**可与 Hugo 逐字节对比验证**（在参照站点上 99.7% 字节一致，SEO 与 AI 两个维度 0 差异）。它是一个零运行时依赖的单一二进制文件，使用与 Hugo 同源的 goldmark 引擎，将 CJK 内容视为一等公民，并把部署、发布、LLM 翻译都集成在同一个 CLI 中。
+`huan` 将 Markdown + 单个 YAML 配置 + Go 模板编译为静态网站，其输出**可与 Hugo 逐字节对比验证**（在参照站点上 99.7% 字节一致，SEO 与 AI 两个维度 0 差异）。它是一个零运行时依赖的单一二进制文件，使用与 Hugo 同源的 goldmark 引擎，将 CJK 内容视为一等公民，并把部署、发布、LLM 翻译、**生产级 daemon 服务器**都集成在同一个 CLI 中。
 
 ---
 
@@ -40,6 +40,7 @@
 - **开箱即用的双语能力**：一套 i18n 构建系统将 `.zh-cn`/`.en` 边车文件渲染为完整的本地化站点，并内置一个翻译插件用本地 LLM 补齐缺口
 - **统一插件系统**（[ADR 0003](docs/adr/0003-unified-plugin-system.md)）：基于能力（capability）的扩展——`Deployer`（Cloudflare）和 `Translator`（Qwen3）内置并共享同一个注册表
 - **自包含的发布与部署**：`huan release` 跨平台打包，`huan deploy` 通过直连 API 发布到 Cloudflare，并支持 tag 推送触发 GitHub Actions 自动发版
+- **`huan daemon` 生产级常驻服务**：长期运行的后端服务——全量预渲染 + 增量更新 + JIT 按需回退 + REST API + 管理后台，支持 TLS、systemd notify、健康检查、Prometheus 指标、优雅关闭
 - **等同 `hugo serve` 的开发体验**：HTTP 服务器 + fsnotify 文件监听 + LiveReload WebSocket，亚秒级浏览器刷新
 - **可对 Hugo 验证**：一条 diff 流水线将 huan 输出与 Hugo 逐字节对比，并在三个维度（肉眼 / SEO / AI）上拦截回归
 
@@ -67,7 +68,9 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 | 命令 | 用途 |
 |---|---|
 | `huan build` | 构建站点到 `publishDir` |
-| `huan serve` | 启动带文件监听 + LiveReload + `/admin` 管理后台的开发服务器 |
+| `huan dev` | 启动带文件监听 + LiveReload + `/admin` 管理后台的开发服务器 |
+| `huan daemon` | 启动生产级常驻服务（混合渲染、API、管理后台、健康检查、TLS） |
+| `huan serve` | 已废弃——请使用 `huan dev` |
 | `huan new <kind>/<path>` | 从 `archetypes/<kind>.md` 脚手架内容（多 archetype） |
 | `huan sync gallery` | 为新图片脚手架 `content/gallery/<name>.md` |
 | `huan toc` | 为 books / practices / products 生成 TOC markdown |
@@ -104,7 +107,36 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 - **canonifyURLs**：将根相对 URL 后处理为绝对 URL
 - **i18n**：YAML 消息包 + 完整双语构建系统（[ADR 0007](docs/adr/0007-i18n-build-system.md)）
 
-### 开发服务器内部
+### Daemon 服务器 (`huan daemon`)
+
+`huan daemon` 是生产级长驻服务。启动时执行全量构建，然后持续服务站点：
+
+- **静态文件服务器** — 直接服务预渲染的 HTML，零延迟
+- **增量更新** — 内容变更（通过文件监听或 Admin API）触发基于 DAG 的增量构建，仅重建受影响页面
+- **JIT 按需回退** — 未渲染的页面按需实时渲染并缓存（LRU + TTL）
+- **Admin API** — 完整的 `/admin/` 内容管理
+- **健康检查** — `/health` 端点，初始构建期间返回 503 not-ready
+- **Prometheus 指标** — `/metrics` 端点，含构建耗时、请求计数、缓存命中/未命中
+- **TLS** — 可选的 TLS 证书/密钥实现 HTTPS
+- **systemd notify** — 支持 `sd_notify` 协议
+- **优雅关闭** — 30 秒超时等待进行中的请求
+- **定时全量重建** — 可配置间隔的完整站点重建
+
+`huan daemon` 参数：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--port` | `8080` | 监听端口 |
+| `--bind` | `0.0.0.0` | 绑定地址 |
+| `--config` | `""` | daemon 配置文件路径（daemon.yaml） |
+| `--tls-cert` | `""` | TLS 证书路径 |
+| `--tls-key` | `""` | TLS 私钥路径 |
+| `--systemd` | `false` | 启用 systemd notify 集成 |
+| `-D` / `--buildDrafts` | `false` | 包含草稿内容 |
+
+### 开发服务器 (`huan dev`)
+
+`huan dev` 替代了原来的 `huan serve`（已废弃），提供相同的开发体验：
 
 - 带自定义 404 的 HTTP 静态文件服务器
 - **`/admin` 管理后台**：在线内容管理 UI（读写 Markdown 文件、编辑设置、管理媒体）
@@ -198,12 +230,15 @@ my-site/
 ./huan build
 
 # 启动开发服务器（默认 http://localhost:1313）
-./huan serve
+./huan dev
 
-# 常见 serve 变体
-./huan serve --port 8080 --bind 0.0.0.0 -D
-./huan serve --disableLiveReload    # 无 WS，仅静态文件
-./huan serve --disableWatch         # 文件变化时不重建
+# 启动生产级 daemon 服务器（默认 http://0.0.0.0:8080）
+./huan daemon
+
+# 常见 dev 变体
+./huan dev --port 8080 --bind 0.0.0.0 -D
+./huan dev --disableLiveReload    # 无 WS，仅静态文件
+./huan dev --disableWatch         # 文件变化时不重建
 ```
 
 ### 对 Hugo 验证（回归门禁）
@@ -258,7 +293,7 @@ huan 把双语站点变成构建期问题（[ADR 0007](docs/adr/0007-i18n-build-
 
 ## 项目状态
 
-**当前版本：v0.4.2。**
+**当前版本：v0.6.0。**
 
 **阶段一（Hugo 等价）：已完成。** 在参照站点（[zhurongshuo.com](https://zhurongshuo.com)）上，三维度等价门禁通过：
 
@@ -292,16 +327,20 @@ huan/
 │   ├── template/          # html/template 加载 + funcmap
 │   ├── taxonomy/          # tags / categories
 │   ├── pagination/
-│   ├── output/            # writer + canonify + minify + AI 输出
-│   ├── i18n/              # 消息包 + collator + audit + langdetect
+│   ├── daemon/             # 生产级 daemon 服务器（Builder, Serving, Health, Metrics, Lifecycle）
+│   │   ├── cache/          #   JITCache（LRU + TTL）、RenderCache
+│   │   ├── dag/            #   依赖图（增量更新）
+│   │   └── eventbus/       #   事件总线（Builder/Serving 解耦）
+│   ├── deploy/            # Deployer 能力 + cloudflare provider
+│   ├── dev/               # 开发服务器（HTTP + LiveReload + 监听 — 替代旧 serve/）
 │   ├── translate/         # Translator 能力 + qwen3 provider
 │   ├── plugin/            # 统一插件注册表
-│   ├── deploy/            # Deployer 能力 + cloudflare provider
 │   ├── release/           # 交叉编译 + 打包
 │   ├── equiv/             # Hugo 等价检查
 │   ├── observability/     # 结构化日志 / 追踪
 │   ├── version/           # 构建版本信息
-│   └── serve/             # HTTP 服务器 + 监听 + LiveReload + 管理后台挂载
+│   ├── output/            # writer + canonify + minify + AI 输出
+│   ├── i18n/              # 消息包 + collator + audit + langdetect
 ├── web/
 │   └── admin/             # React SPA（管理后台 UI — Vite + Shadcn UI + Tailwind）
 ├── scripts/               # diff-build.sh + diff-summary.sh + diff-patterns.*
@@ -327,16 +366,28 @@ huan/
 
 ## 路线图
 
-**Stage 4 — 管理后台 ✅（v0.3.0–v0.4.x 已交付）**
+**Stage 5 — Daemon 服务器 ✅（v0.6.0 已交付）**
+
+`huan daemon` 生产级常驻服务：
 
 | 组件 | 状态 |
 |---|---|
-| ContentList（搜索/排序/筛选/分页/批量操作） | ✅ |
-| ContentEdit（Markdown 实时预览、多语言切换） | ✅ |
-| ContentNew（自动 `{title}.{lang}.md` 命名） | ✅ |
-| Settings 页面（表单 + YAML 双轨编辑） | ✅ |
-| Dashboard（6 张统计卡片 + 最近内容） | ✅ |
-| 多语言管理（彩色徽章、筛选、边车发现） | ✅ |
+| Builder + Serving 架构 | ✅ |
+| EventBus（Builder/Serving 解耦） | ✅ |
+| 启动时全量构建 | ✅ |
+| 静态文件服务器（预渲染 HTML） | ✅ |
+| 基于 DAG 的增量更新 | ✅ |
+| JIT 按需回退 + LRU+TTL 缓存 | ✅ |
+| 文件变更监听（fsnotify） | ✅ |
+| 构建队列（串行化 + 合并尾部重建） | ✅ |
+| Admin API | ✅ |
+| 健康检查（503 not-ready → 200 ready） | ✅ |
+| Prometheus 指标 | ✅ |
+| TLS 支持 | ✅ |
+| systemd notify | ✅ |
+| 优雅关闭（30 秒超时） | ✅ |
+| 定时全量重建（可配置间隔） | ✅ |
+| 测试覆盖率：47.1%（daemon）/ 82.1%（template）/ 86%（cache）/ 83%（DAG） | ✅ |
 
 **后续方向：**
 

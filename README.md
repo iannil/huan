@@ -2,9 +2,9 @@
 
 [中文](./README.zh-CN.md) | **English**
 
-> A Go-based local-first single-user content engine — file-based content management with a built-in admin panel and a static site generation pipeline. Path toward all-CMS replacement is a v1.x+ roadmap ([ADR 0010](docs/adr/0010-v1-0-scope-and-positioning-split.md)).
+> A Go-based local-first single-user content engine — file-based content management with a built-in admin panel, a static site generation pipeline, and a production-grade long-running daemon server. Path toward all-CMS replacement is a v1.x+ roadmap ([ADR 0010](docs/adr/0010-v1-0-scope-and-positioning-split.md)).
 
-`huan` turns Markdown + a single YAML config + Go templates into a static website whose output is **byte-for-byte verifiable against Hugo** (99.7% identical on the reference site, 0 differences on the SEO and AI dimensions). It ships as a single binary with zero runtime dependencies, uses the same goldmark engine as Hugo, treats CJK content as a first-class citizen, and bundles deploy, release, and LLM-powered translation into the same CLI.
+`huan` turns Markdown + a single YAML config + Go templates into a static website whose output is **byte-for-byte verifiable against Hugo** (99.7% identical on the reference site, 0 differences on the SEO and AI dimensions). It ships as a single binary with zero runtime dependencies, uses the same goldmark engine as Hugo, treats CJK content as a first-class citizen, and bundles deploy, release, LLM-powered translation, and a **production-grade daemon server** into the same CLI.
 
 ---
 
@@ -40,7 +40,8 @@ Key characteristics:
 - **Bilingual out of the box**: an i18n build system that renders `.zh-cn`/`.en` sidecars into a fully localized site, plus a built-in translator plugin that fills the gaps with a local LLM
 - **Unified plugin system** ([ADR 0003](docs/adr/0003-unified-plugin-system.md)): capability-based extensions — `Deployer` (Cloudflare) and `Translator` (Qwen3) ship built-in and share one registry
 - **Self-contained release & deploy**: `huan release` for cross-platform packaging, `huan deploy` for direct-API Cloudflare publishing, plus GitHub Actions auto-release on tag push
-- **`hugo serve`-equivalent dev experience**: HTTP server + fsnotify watcher + LiveReload WebSocket, sub-second browser refresh
+- **`huan daemon` for production serving**: a long-running daemon that serves the site as a backend service — full pre-render + incremental updates + JIT fallback + REST API + admin panel, with TLS, systemd notify, health checks, Prometheus metrics, and graceful shutdown
+- **`huan serve`-equivalent dev experience**: HTTP server + fsnotify watcher + LiveReload WebSocket, sub-second browser refresh
 - **Verifiable against Hugo**: a diff pipeline byte-compares huan's output against Hugo and gates regressions on three dimensions (visual / SEO / AI)
 
 `huan` is **not** a drop-in Hugo replacement. Templates are migrated once; afterwards huan owns the build pipeline.
@@ -67,7 +68,9 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 | Command | Purpose |
 |---|---|
 | `huan build` | Build the site into `publishDir` |
-| `huan serve` | Start dev server with file watching + LiveReload + admin panel at `/admin` |
+| `huan dev` | Start dev server with file watching + LiveReload + admin panel at `/admin` |
+| `huan daemon` | Start production content server with mixed rendering, API, admin panel, health checks, TLS |
+| `huan serve` | Deprecated — use `huan dev` instead |
 | `huan new <kind>/<path>` | Scaffold content from `archetypes/<kind>.md` (multi-archetype) |
 | `huan sync gallery` | Scaffold `content/gallery/<name>.md` for new images |
 | `huan toc` | Generate TOC markdown for books / practices / products |
@@ -80,7 +83,11 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 | `huan release` | Cross-compile + archive + checksums to `release/<version>/` |
 | `huan version` / `env` / `config` / `list` | Introspection |
 
-`huan serve` flags:
+### Dev server (`huan dev`)
+
+`huan dev` replaces the original `huan serve` (now deprecated) and provides the same development experience with HTTP static file server, file watching, LiveReload, and admin panel.
+
+`huan dev` flags:
 
 | Flag | Default | Description |
 |---|---|---|
@@ -104,7 +111,36 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 - **canonifyURLs**: root-relative URLs post-processed into absolute URLs
 - **i18n**: YAML message bundles + a full bilingual build system ([ADR 0007](docs/adr/0007-i18n-build-system.md))
 
-### Dev server internals
+### Daemon server (`huan daemon`)
+
+`huan daemon` is the production-grade long-running server. It starts with a full build, then serves the site with:
+
+- **Static file server** — serves pre-rendered HTML from the initial build with zero latency
+- **Incremental rebuild** — content changes (via file watcher or Admin API) trigger a DAG-based incremental build that only rebuilds affected pages
+- **JIT fallback** — pages not yet rendered are rendered on-demand and cached (LRU + TTL)
+- **Admin API** — full content management at `/admin/`
+- **Health check** — `/health` endpoint with 503 not-ready signal during initial build
+- **Prometheus metrics** — `/metrics` endpoint with build duration, request count, cache hit/miss
+- **TLS** — optional TLS cert/key for HTTPS
+- **systemd notify** — `sd_notify` protocol for service management
+- **Graceful shutdown** — 30s timeout for in-flight requests
+- **Periodic full rebuild** — configurable interval for complete site regeneration
+
+`huan daemon` flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port` | `8080` | Listen port |
+| `--bind` | `0.0.0.0` | Bind address |
+| `--config` | `""` | Daemon config file path (daemon.yaml) |
+| `--tls-cert` | `""` | TLS certificate path |
+| `--tls-key` | `""` | TLS private key path |
+| `--systemd` | `false` | Enable systemd notify integration |
+| `-D` / `--buildDrafts` | `false` | Include draft content |
+
+### Dev server (`huan dev`)
+
+`huan dev` replaces the original `huan serve` (now deprecated) and provides the same development experience:
 
 - HTTP static file server with custom 404
 - **Admin panel at `/admin`**: live content management UI (read/write markdown files, edit settings, manage media)
@@ -198,12 +234,15 @@ my-site/
 ./huan build
 
 # Start dev server (default: http://localhost:1313)
-./huan serve
+./huan dev
 
-# Common serve variations
-./huan serve --port 8080 --bind 0.0.0.0 -D
-./huan serve --disableLiveReload    # no WS, just static files
-./huan serve --disableWatch         # no rebuild on file change
+# Start production daemon server (default: http://0.0.0.0:8080)
+./huan daemon
+
+# Common dev variations
+./huan dev --port 8080 --bind 0.0.0.0 -D
+./huan dev --disableLiveReload    # no WS, just static files
+./huan dev --disableWatch         # no rebuild on file change
 ```
 
 ### Verify against Hugo (regression gate)
@@ -258,7 +297,7 @@ The `Translator` capability is part of the unified plugin system, so additional 
 
 ## Project Status
 
-**Current version: v0.4.2.**
+**Current version: v0.6.0.**
 
 **Stage 1 (Hugo parity): complete.** On the reference site ([zhurongshuo.com](https://zhurongshuo.com)), the three-dimension equivalence gate passes:
 
@@ -292,16 +331,20 @@ huan/
 │   ├── template/          # html/template loader + funcmap
 │   ├── taxonomy/          # tags / categories
 │   ├── pagination/
-│   ├── output/            # writer + canonify + minify + AI outputs
-│   ├── i18n/              # message bundles + collator + audit + langdetect
+│   ├── daemon/             # Production daemon server (Builder, Serving, Health, Metrics, Lifecycle)
+│   │   ├── cache/          #   JITCache (LRU + TTL), RenderCache
+│   │   ├── dag/            #   Dependency Graph (incremental rebuild)
+│   │   └── eventbus/       #   EventBus (Builder/Serving decoupling)
+│   ├── deploy/            # Deployer capability + cloudflare provider
+│   ├── dev/               # Dev server (HTTP + LiveReload + watcher — replaces old serve/)
 │   ├── translate/         # Translator capability + qwen3 provider
 │   ├── plugin/            # unified plugin registry
-│   ├── deploy/            # Deployer capability + cloudflare provider
 │   ├── release/           # cross-compile + packaging
 │   ├── equiv/             # Hugo equivalence checks
 │   ├── observability/     # structured logging / tracing
 │   ├── version/           # build version info
-│   └── serve/             # HTTP server + watcher + LiveReload + admin panel mount
+│   ├── output/            # writer + canonify + minify + AI outputs
+│   ├── i18n/              # message bundles + collator + audit + langdetect
 ├── web/
 │   └── admin/             # React SPA (admin UI — Vite + Shadcn UI + Tailwind)
 ├── scripts/               # diff-build.sh + diff-summary.sh + diff-patterns.*
@@ -327,16 +370,28 @@ huan/
 
 ## Roadmap
 
-**Stage 4 — Admin Panel ✅ (shipped in v0.3.0–v0.4.x)**
+**Stage 5 — Daemon Server ✅ (shipped in v0.6.0)**
+
+`huan daemon` is a production-grade long-running content server:
 
 | Component | Status |
 |---|---|
-| ContentList (search/sort/filter/pagination/batch) | ✅ |
-| ContentEdit (Markdown preview, multilingual switch) | ✅ |
-| ContentNew (auto `{title}.{lang}.md` naming) | ✅ |
-| Settings Page (form + YAML dual mode) | ✅ |
-| Dashboard (6-card stats + recent content) | ✅ |
-| Multilingual management (badges, filtering, sidecar discovery) | ✅ |
+| Builder + Serving architecture | ✅ |
+| EventBus (Builder/Serving decoupling) | ✅ |
+| Full build on startup | ✅ |
+| Static file server (pre-rendered HTML) | ✅ |
+| DAG-based incremental rebuild | ✅ |
+| JIT fallback rendering + LRU+TTL cache | ✅ |
+| File watcher (fsnotify) | ✅ |
+| Build queue (serialize + coalesce pending) | ✅ |
+| Admin API | ✅ |
+| Health check (503 not-ready → 200 ready) | ✅ |
+| Prometheus metrics | ✅ |
+| TLS support | ✅ |
+| systemd notify | ✅ |
+| Graceful shutdown (30s timeout) | ✅ |
+| Periodic full rebuild (configurable interval) | ✅ |
+| Test coverage: 47.1% (daemon) / 82.1% (template) / 86% (cache) / 83% (DAG) | ✅ |
 
 **Next up:**
 
