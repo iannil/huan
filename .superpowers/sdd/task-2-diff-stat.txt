@@ -1,0 +1,4 @@
+ internal/daemon/dag/graph.go      | 161 ++++++++++++++++++++++++++++++++++++++
+ internal/daemon/dag/graph_test.go | 108 +++++++++++++++++++++++++
+ internal/daemon/dag/rules.go      |  43 ++++++++++
+ 3 files changed, 312 insertions(+)

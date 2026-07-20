@@ -1,4 +1,4 @@
-package serve
+package dev
 
 import _ "embed"
 

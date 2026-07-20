@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
@@ -13,14 +12,17 @@ import (
 
 var sourceDir string
 
-func main() {
-	rootCmd := &cobra.Command{
-		Use:   "huan",
-		Short: "A static site generator",
-		Long:  "huan is a static site generator written in Go, designed to replace Hugo for zhurongshuo.com.",
-	}
+var rootCmd = &cobra.Command{
+	Use:   "huan",
+	Short: "A static site generator",
+	Long:  "huan is a static site generator written in Go, designed to replace Hugo for zhurongshuo.com.",
+}
 
+func init() {
 	rootCmd.PersistentFlags().StringVarP(&sourceDir, "source", "s", ".", "source directory containing huan.yaml and content/")
+}
+
+func main() {
 
 	buildCmd := &cobra.Command{
 		Use:   "build",
@@ -34,19 +36,17 @@ func main() {
 	buildCmd.Flags().StringP("baseURL", "b", "", "hostname to the root (overrides baseURL)")
 	buildCmd.Flags().Bool("minify", false, "minify output (overrides config)")
 
+	// serveCmd is the deprecated alias for devCmd.
+	// Kept for backward compatibility; removed in the next major version.
 	serveCmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start the development server",
-		RunE:  runServe,
+		Use:        "serve",
+		Short:      "DEPRECATED: use 'huan dev' instead",
+		Hidden:     true,
+		Deprecated: "use 'huan dev' instead",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDev(cmd, args)
+		},
 	}
-
-	serveCmd.Flags().String("port", "1313", "port to serve on")
-	serveCmd.Flags().String("bind", "127.0.0.1", "interface to bind")
-	serveCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
-	serveCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
-	serveCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
-	serveCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
-	serveCmd.Flags().String("adminDev", "", "admin UI Vite dev server URL (e.g. http://localhost:5173) for hot reload")
 
 	rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), newPluginCmd(), newReleaseCmd(), newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd(), newSyncCmd(), newTocCmd(), newExportCmd(), newTranslateCmd())
 

@@ -1,0 +1,274 @@
+diff --git a/internal/daemon/eventbus/bus.go b/internal/daemon/eventbus/bus.go
+new file mode 100644
+index 0000000..d86b1a3
+--- /dev/null
++++ b/internal/daemon/eventbus/bus.go
+@@ -0,0 +1,102 @@
++package eventbus
++
++import (
++	"context"
++	"fmt"
++	"log"
++	"sync"
++	"time"
++)
++
++// handlerTimeout is the default max duration for a single handler to run.
++const handlerTimeout = 30 * time.Second
++
++// EventBus defines the interface for publishing and subscribing to events.
++type EventBus interface {
++	// Publish dispatches an event to all subscribed handlers asynchronously.
++	Publish(ctx context.Context, event Event) error
++	// Subscribe registers a handler for the given event type. Returns a handler
++	// ID that can be used to unsubscribe.
++	Subscribe(eventType EventType, handler Handler) string
++	// Unsubscribe removes a handler registered with the given ID.
++	Unsubscribe(eventType EventType, handlerID string)
++	// Close shuts down the bus and releases resources.
++	Close() error
++}
++
++// handlerEntry wraps a Handler with its ID for unsubscribe support.
++type handlerEntry struct {
++	id      string
++	handler Handler
++}
++
++// ChannelBus is the default EventBus implementation using Go channels.
++// Each event type fans out to its subscribers in separate goroutines.
++type ChannelBus struct {
++	mu       sync.RWMutex
++	handlers map[EventType][]handlerEntry
++	closed   bool
++	seq      uint64
++	logf     func(format string, args ...any)
++}
++
++// NewChannelBus creates a new ChannelBus.
++func NewChannelBus() *ChannelBus {
++	return &ChannelBus{
++		handlers: make(map[EventType][]handlerEntry),
++		logf:     log.Printf,
++	}
++}
++
++// Publish dispatches event to all subscribers of its type.
++func (b *ChannelBus) Publish(ctx context.Context, event Event) error {
++	b.mu.RLock()
++	defer b.mu.RUnlock()
++	if b.closed {
++		return fmt.Errorf("eventbus: closed")
++	}
++	entries := b.handlers[event.Type]
++	for _, entry := range entries {
++		h := entry.handler // capture for closure
++		go func() {
++			hctx, cancel := context.WithTimeout(ctx, handlerTimeout)
++			defer cancel()
++			if err := h(hctx, event); err != nil {
++				b.logf("eventbus: handler %s error: %v", entry.id, err)
++			}
++		}()
++	}
++	return nil
++}
++
++// Subscribe registers a handler for eventType. Returns a unique handler ID.
++func (b *ChannelBus) Subscribe(eventType EventType, handler Handler) string {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++	b.seq++
++	id := fmt.Sprintf("h%d", b.seq)
++	b.handlers[eventType] = append(b.handlers[eventType], handlerEntry{id: id, handler: handler})
++	return id
++}
++
++// Unsubscribe removes a handler by ID.
++func (b *ChannelBus) Unsubscribe(eventType EventType, handlerID string) {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++	entries := b.handlers[eventType]
++	for i, e := range entries {
++		if e.id == handlerID {
++			b.handlers[eventType] = append(entries[:i], entries[i+1:]...)
++			return
++		}
++	}
++}
++
++// Close marks the bus as closed. Future Publish calls return an error.
++func (b *ChannelBus) Close() error {
++	b.mu.Lock()
++	defer b.mu.Unlock()
++	b.closed = true
++	b.handlers = nil
++	return nil
++}
+\ No newline at end of file
+diff --git a/internal/daemon/eventbus/bus_test.go b/internal/daemon/eventbus/bus_test.go
+new file mode 100644
+index 0000000..40b61ba
+--- /dev/null
++++ b/internal/daemon/eventbus/bus_test.go
+@@ -0,0 +1,99 @@
++package eventbus
++
++import (
++	"context"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++func TestEventBus_PublishSubscribe(t *testing.T) {
++	bus := NewChannelBus()
++	defer bus.Close()
++
++	var received atomic.Int32
++	bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
++		received.Add(1)
++		return nil
++	})
++
++	err := bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
++	if err != nil {
++		t.Fatalf("Publish failed: %v", err)
++	}
++
++	// Give async handler time to run
++	time.Sleep(50 * time.Millisecond)
++	if got := received.Load(); got != 1 {
++		t.Errorf("expected 1 handler call, got %d", got)
++	}
++}
++
++func TestEventBus_Unsubscribe(t *testing.T) {
++	bus := NewChannelBus()
++	defer bus.Close()
++
++	var received atomic.Int32
++	id := bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
++		received.Add(1)
++		return nil
++	})
++	bus.Unsubscribe(EventContentChanged, id)
++
++	_ = bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
++	time.Sleep(50 * time.Millisecond)
++	if got := received.Load(); got != 0 {
++		t.Errorf("expected 0 handler calls after unsubscribe, got %d", got)
++	}
++}
++
++func TestEventBus_CloseBlockPublish(t *testing.T) {
++	bus := NewChannelBus()
++	bus.Close()
++	err := bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
++	if err == nil {
++		t.Error("expected error publishing on closed bus")
++	}
++}
++
++func TestEventBus_HandlerTimeout(t *testing.T) {
++	bus := NewChannelBus()
++	defer bus.Close()
++
++	done := make(chan struct{})
++	bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
++		// Simulate a handler that never completes — timeout should fire
++		<-ctx.Done()
++		close(done)
++		return ctx.Err()
++	})
++
++	_ = bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
++	select {
++	case <-done:
++		// handler timed out as expected
++	case <-time.After(handlerTimeout + 2*time.Second):
++		t.Fatal("handler did not timeout within expected window")
++	}
++}
++
++func TestEventBus_MultipleHandlers(t *testing.T) {
++	bus := NewChannelBus()
++	defer bus.Close()
++
++	var count1, count2 atomic.Int32
++	bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
++		count1.Add(1)
++		return nil
++	})
++	bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
++		count2.Add(1)
++		return nil
++	})
++
++	_ = bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
++	time.Sleep(50 * time.Millisecond)
++	if count1.Load() != 1 || count2.Load() != 1 {
++		t.Errorf("expected both handlers to fire: %d, %d", count1.Load(), count2.Load())
++	}
++}
+\ No newline at end of file
+diff --git a/internal/daemon/eventbus/types.go b/internal/daemon/eventbus/types.go
+new file mode 100644
+index 0000000..26e98db
+--- /dev/null
++++ b/internal/daemon/eventbus/types.go
+@@ -0,0 +1,52 @@
++package eventbus
++
++import (
++	"context"
++	"time"
++)
++
++// EventType identifies the kind of event.
++type EventType int
++
++const (
++	EventContentChanged  EventType = iota // 内容变更（文件被修改/创建/删除）
++	EventCacheUpdated                     // 缓存已更新（Serving 可刷新）
++	EventBuildStarted                     // 构建开始
++	EventBuildCompleted                   // 构建完成
++	EventBuildFailed                      // 构建失败
++	EventServerStart                      // 服务启动
++	EventServerShutdown                   // 服务关闭中
++)
++
++// String returns the human-readable name of this event type.
++func (et EventType) String() string {
++	switch et {
++	case EventContentChanged:
++		return "content_changed"
++	case EventCacheUpdated:
++		return "cache_updated"
++	case EventBuildStarted:
++		return "build_started"
++	case EventBuildCompleted:
++		return "build_completed"
++	case EventBuildFailed:
++		return "build_failed"
++	case EventServerStart:
++		return "server_start"
++	case EventServerShutdown:
++		return "server_shutdown"
++	default:
++		return "unknown"
++	}
++}
++
++// Event carries the event type, timestamp, and payload.
++type Event struct {
++	Type      EventType
++	Timestamp time.Time
++	Payload   any
++}
++
++// Handler processes an event. Returning an error logs the failure but does
++// not interrupt other handlers for the same event type.
++type Handler func(ctx context.Context, event Event) error
+\ No newline at end of file
