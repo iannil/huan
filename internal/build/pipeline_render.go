@@ -4,6 +4,7 @@ package build
 // and Markdown mirrors for AI consumers.
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -128,4 +129,38 @@ func (p *pipeline) maybeWriteSectionRSS(pg *content.Page, ctx *tmpl.Context) {
 	if err := p.writer.Write(rssPath, rssHTML); err != nil {
 		p.logf("  WARN: write RSS %s: %v\n", pg.URL, err)
 	}
+}
+
+// renderSinglePage renders one page using the already-initialized pipeline state.
+// The pipeline must have completed stages 1-4 (templates, i18n, lookup, renderer).
+// Returns empty string if the page should not be rendered (draft/future/expired/never).
+// This is used by the AfterBuild callback for JIT rendering in daemon mode.
+func (p *pipeline) renderSinglePage(pg *content.Page) (string, error) {
+	if !p.shouldRender(pg) {
+		return "", nil
+	}
+
+	tmplName := ResolveTemplateName(p.tmpls, pg)
+	if tmplName == "" {
+		return "", nil
+	}
+
+	ctx := p.lookup[pg]
+	if ctx == nil {
+		return "", fmt.Errorf("renderSinglePage: no context for %s", pg.URL)
+	}
+
+	// For section/list rendering, expose pages via .Data.Pages.
+	if pg.Kind == "section" || pg.Kind == "home" {
+		ctx.Data = &tmpl.DataAccessor{
+			Pages: ctx.RegularPages,
+		}
+	}
+
+	html, err := p.renderer.Render(tmplName, ctx)
+	if err != nil {
+		return "", fmt.Errorf("render %s with %s: %w", pg.RelPath, tmplName, err)
+	}
+
+	return html, nil
 }

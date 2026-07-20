@@ -23,13 +23,18 @@ type BuilderOptions struct {
 	JITCache    *cache.JITCache
 	BuildDrafts bool
 	Logf        func(format string, args ...any)
+
+	// OnAfterBuild is called after a successful full build completes.
+	// This is separate from the build's AfterBuild which captures the RenderPageFunc.
+	OnAfterBuild func(*build.Result) error
 }
 
 // Builder manages the full build and incremental update pipeline.
 type Builder struct {
-	opts    BuilderOptions
-	busy    bool
-	pending bool
+	opts         BuilderOptions
+	busy         bool
+	pending      bool
+	renderPageFn build.RenderPageFunc // captured from AfterBuild for JIT use
 }
 
 // NewBuilder creates a new Builder.
@@ -50,11 +55,19 @@ func (b *Builder) FullBuild(ctx context.Context) error {
 	// Ensure output directory exists
 	_ = os.MkdirAll(b.opts.OutputDir, 0755)
 
+	var renderPageFn build.RenderPageFunc
 	result, err := build.BuildSite(build.Options{
 		SourceDir:     b.opts.SourceDir,
 		OutputDir:     b.opts.OutputDir,
 		IncludeDrafts: b.opts.BuildDrafts,
 		Logf:          b.opts.Logf,
+		AfterBuild: func(r *build.Result, fn build.RenderPageFunc) error {
+			renderPageFn = fn // capture for later JIT use
+			if b.opts.OnAfterBuild != nil {
+				return b.opts.OnAfterBuild(r)
+			}
+			return nil
+		},
 		AfterBuildSite: b.buildAndPersistDAG,
 	})
 	if err != nil {
@@ -65,6 +78,9 @@ func (b *Builder) FullBuild(ctx context.Context) error {
 		})
 		return fmt.Errorf("full build: %w", err)
 	}
+
+	// Store the RenderPageFunc for JIT rendering.
+	b.renderPageFn = renderPageFn
 
 	b.opts.Logf("builder: full build complete: %d pages, %d files, %d bytes",
 		result.PagesRendered, result.FilesWritten, result.BytesWritten)
@@ -137,8 +153,19 @@ func (b *Builder) TriggerRebuild() {
 }
 
 // RenderPageJIT renders a single page on demand for JIT fallback.
-// Phase 1: returns a "not yet implemented" error.
-// Phase 2: implement actual single-page rendering via build.RenderPage().
+// Uses the RenderPageFunc captured from AfterBuild during the last full build.
+// If no full build has completed yet, returns an error.
+//
+// Phase 1 limitation: The page lookup from DAG is not yet fully implemented.
+// This method requires additional work to properly load page content from
+// the source file path stored in the DAG.
 func (b *Builder) RenderPageJIT(ctx context.Context, pagePath string) (string, error) {
-	return "", fmt.Errorf("JIT rendering not yet implemented — use full build")
+	if b.renderPageFn == nil {
+		return "", fmt.Errorf("JIT rendering: no RenderPageFunc available (full build not yet completed)")
+	}
+	// Phase 1 limitation: Page lookup from DAG requires loading content files
+	// and finding the corresponding *content.Page. The current DAG stores
+	// source paths but does not maintain loaded Page objects.
+	// This is a Phase 2 enhancement.
+	return "", fmt.Errorf("JIT rendering: page lookup from DAG not yet implemented — use full build for now")
 }

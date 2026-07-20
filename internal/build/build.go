@@ -121,7 +121,7 @@ func BuildSite(opts Options) (*Result, error) {
 	// Invoke AfterBuild callback if provided (for daemon JIT cache setup).
 	if opts.AfterBuild != nil {
 		renderPageFn := func(pg *content.Page) (string, error) {
-			return "", fmt.Errorf("RenderPage not yet implemented — use BuildSite for full build")
+			return p.renderSinglePage(pg)
 		}
 		if err := opts.AfterBuild(p.result, renderPageFn); err != nil {
 			return p.result, fmt.Errorf("AfterBuild callback: %w", err)
@@ -144,10 +144,12 @@ func BuildSite(opts Options) (*Result, error) {
 // Phase 1 limitation: RenderPage requires a fully initialized pipeline context
 // (templates, i18n, page lookup). For incremental builds, the caller should
 // use the AfterBuild callback from BuildSite to obtain a RenderPageFunc.
+// Standalone mode (building a full pipeline for a single page) is a Phase 2
+// enhancement and is not yet implemented.
 //
 // Experimental: API may change in future versions.
 func RenderPage(opts Options, pg *content.Page) (string, error) {
-	return "", fmt.Errorf("RenderPage not yet implemented — use BuildSite for full build")
+	return "", fmt.Errorf("RenderPage: use AfterBuild callback to capture RenderPageFunc; standalone mode not yet implemented")
 }
 
 // RenderPageToBytes renders a single page and returns the HTML as a byte slice.
