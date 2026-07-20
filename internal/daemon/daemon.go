@@ -18,15 +18,16 @@ import (
 
 // Options configures the daemon.
 type Options struct {
-	SourceDir    string
-	ConfigPath   string // daemon.yaml path, optional
-	Port         string
-	Bind         string
-	TLSCert      string
-	TLSKey       string
-	Systemd      bool
-	BuildDrafts  bool
-	DisableWatch bool // disable file watching (default false)
+	SourceDir      string
+	ConfigPath     string // daemon.yaml path, optional
+	Port           string
+	Bind           string
+	TLSCert        string
+	TLSKey         string
+	Systemd        bool
+	BuildDrafts    bool
+	DisableWatch   bool          // disable file watching (default false)
+	BuildInterval  time.Duration // periodic full rebuild interval (0 = disabled)
 }
 
 // Daemon holds the long-running server state.
@@ -132,10 +133,15 @@ func Run(opts Options) error {
 	}
 	log.Printf("daemon: initial build complete in %v", time.Since(start))
 
-	// 11. Mark as ready after initial build
+	// 11. Schedule periodic full rebuild (if configured)
+	if opts.BuildInterval > 0 {
+		go d.periodicRebuild(opts.BuildInterval)
+	}
+
+	// 12. Mark as ready after initial build
 	d.health.SetReady(true)
 
-	// 12. Notify systemd that we're ready
+	// 13. Notify systemd that we're ready
 	notifier := NewSystemdNotifier(opts.Systemd)
 	notifier.Ready()
 
@@ -194,4 +200,20 @@ func Run(opts Options) error {
 	_ = d.bus.Close()
 	log.Println("daemon: stopped")
 	return nil
+}
+
+// periodicRebuild runs a full rebuild on the given interval.
+func (d *Daemon) periodicRebuild(interval time.Duration) {
+	log.Printf("daemon: periodic rebuild every %v", interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			log.Printf("daemon: periodic rebuild triggered")
+			if err := d.builder.FullBuild(context.Background()); err != nil {
+				log.Printf("daemon: periodic rebuild failed: %v", err)
+			}
+		}
+	}
 }
