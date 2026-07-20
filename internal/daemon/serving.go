@@ -17,6 +17,8 @@ type ServingOptions struct {
 	OutputDir    string
 	Bind         string
 	Port         string
+	TLSCert      string
+	TLSKey       string
 	AdminHandler http.Handler
 	JITCache     *cache.JITCache
 	Builder      *Builder
@@ -68,6 +70,10 @@ func (s *Serving) Start(ctx context.Context) error {
 	}
 
 	s.opts.Logf("serving: listening on %s", s.httpSrv.Addr)
+
+	if s.opts.TLSCert != "" && s.opts.TLSKey != "" {
+		return s.httpSrv.ListenAndServeTLS(s.opts.TLSCert, s.opts.TLSKey)
+	}
 	return s.httpSrv.ListenAndServe()
 }
 

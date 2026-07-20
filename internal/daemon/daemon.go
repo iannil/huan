@@ -6,9 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/iannil/huan/internal/admin"
@@ -104,6 +102,8 @@ func Run(opts Options) error {
 		OutputDir:    tmpDir,
 		Bind:         opts.Bind,
 		Port:         opts.Port,
+		TLSCert:      opts.TLSCert,
+		TLSKey:       opts.TLSKey,
 		AdminHandler: adminHandler,
 		JITCache:     d.jitCache,
 		Builder:      d.builder,
@@ -127,7 +127,11 @@ func Run(opts Options) error {
 	}
 	log.Printf("daemon: initial build complete in %v", time.Since(start))
 
-	// 10. Start HTTP server
+	// 10. Notify systemd that we're ready
+	notifier := NewSystemdNotifier(opts.Systemd)
+	notifier.Ready()
+
+	// 11. Start HTTP server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -137,16 +141,18 @@ func Run(opts Options) error {
 		}
 	}()
 
-	// 11. Wait for shutdown signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// 12. Wait for shutdown signal
+	sigCh := WaitForShutdown()
 	<-sigCh
 
+	notifier.Stopping()
 	log.Println("daemon: shutting down...")
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	d.serving.Shutdown(shutdownCtx)
-	d.bus.Close()
+	_ = d.serving.Shutdown(shutdownCtx)
+	_ = d.bus.Close()
+	log.Println("daemon: stopped")
 	return nil
 }
