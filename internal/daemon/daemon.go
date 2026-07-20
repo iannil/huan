@@ -139,11 +139,35 @@ func Run(opts Options) error {
 	notifier := NewSystemdNotifier(opts.Systemd)
 	notifier.Ready()
 
-	// 13. Start file watcher (if not disabled — ctx must be created before HTTP server)
+	// 13. Start file watcher (if not disabled)
+	// Build a dedicated watcher context so the watcher can use it before the
+	// HTTP server ctx is created. The watcher context will be cancelled when
+	// Run() returns via defer.
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	defer watchCancel()
+
 	if !opts.DisableWatch {
-		// startWatcher uses dev.Watcher from huan dev, but for now
-		// watcher integration is deferred — daemon rebuilds via EventBus.
-		// fsnotify integration will be added in a follow-up.
+		watcher, err := NewWatcher(WatcherOptions{
+			SourceDir: opts.SourceDir,
+			OnChange: func(changedFiles []string) {
+				_ = d.bus.Publish(context.Background(), eventbus.Event{
+					Type:      eventbus.EventContentChanged,
+					Timestamp: time.Now(),
+					Payload:   map[string]interface{}{"changed_files": changedFiles},
+				})
+			},
+			Logf: log.Printf,
+		})
+		if err != nil {
+			log.Printf("daemon: watcher unavailable: %v", err)
+		} else {
+			go func() {
+				if err := watcher.Run(watchCtx); err != nil && err != context.Canceled {
+					log.Printf("daemon: watcher error: %v", err)
+				}
+			}()
+			log.Println("daemon: file watcher started")
+		}
 	}
 
 	// 14. Start HTTP server
