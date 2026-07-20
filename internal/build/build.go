@@ -40,7 +40,17 @@ type Options struct {
 	// Used by template context to filter hreflang output to only languages
 	// that actually exist for each page (prevents hreflang=en → 404).
 	AvailableTranslations map[string]map[string]bool
+
+	// AfterBuild is called after BuildSite completes successfully.
+	// It receives the Result and a callback for single-page rendering.
+	// Used by daemon to initialize JIT cache with build context.
+	// Experimental: API may change in future versions.
+	AfterBuild func(*Result, RenderPageFunc) error
 }
+
+// RenderPageFunc is the callback signature for single-page rendering.
+// Experimental: API may change in future versions.
+type RenderPageFunc func(pg *content.Page) (string, error)
 
 // Result reports what happened during the build.
 type Result struct {
@@ -101,7 +111,42 @@ func BuildSite(opts Options) (*Result, error) {
 	p.copyStaticAndFinalize()
 
 	p.result.Duration = time.Since(start)
+
+	// Invoke AfterBuild callback if provided (for daemon JIT cache setup).
+	if opts.AfterBuild != nil {
+		renderPageFn := func(pg *content.Page) (string, error) {
+			return "", fmt.Errorf("RenderPage not yet implemented — use BuildSite for full build")
+		}
+		if err := opts.AfterBuild(p.result, renderPageFn); err != nil {
+			return p.result, fmt.Errorf("AfterBuild callback: %w", err)
+		}
+	}
+
 	return p.result, nil
+}
+
+// RenderPage renders a single page using the provided build options.
+// This is the entry point for daemon's JIT rendering and incremental updates.
+//
+// Phase 1 limitation: RenderPage requires a fully initialized pipeline context
+// (templates, i18n, page lookup). For incremental builds, the caller should
+// use the AfterBuild callback from BuildSite to obtain a RenderPageFunc.
+//
+// Experimental: API may change in future versions.
+func RenderPage(opts Options, pg *content.Page) (string, error) {
+	return "", fmt.Errorf("RenderPage not yet implemented — use BuildSite for full build")
+}
+
+// RenderPageToBytes renders a single page and returns the HTML as a byte slice.
+// Convenience wrapper around RenderPage.
+//
+// Experimental: API may change in future versions.
+func RenderPageToBytes(opts Options, pg *content.Page) ([]byte, error) {
+	html, err := RenderPage(opts, pg)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(html), nil
 }
 
 // InjectLiveReload inserts the livereload <script> before </head>.
