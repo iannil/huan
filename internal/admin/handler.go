@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/plugin"
 )
 
 //go:embed dist/*
@@ -28,6 +29,7 @@ type HandlerOptions struct {
 	BindAddr   string // informational; used for nothing currently but kept for future allow-listing
 	Token      string // required; gates all /admin/api/* requests (L2)
 	MemoryDir  string // optional; if empty, audit log is disabled
+	PluginManager *plugin.LifecycleManager
 }
 
 // NewHandler creates an http.Handler for the admin panel (SPA + API).
@@ -52,6 +54,7 @@ func NewHandler(opts HandlerOptions) http.Handler {
 		baseURL:    opts.Cfg.BaseURL,
 		serveURL:   opts.ServeURL,
 		audit:      NewAuditLogger(opts.MemoryDir),
+			pluginManager: opts.PluginManager,
 	})
 	apiWithAuth := TokenMiddleware(api, opts.Token)
 	mux.Handle("/admin/api/", apiWithAuth)

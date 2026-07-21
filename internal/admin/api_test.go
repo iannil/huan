@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/plugin"
 )
 
 // newTestAPIHandler builds an apiHandler with temp dirs for content/,
@@ -363,5 +366,207 @@ func TestAPI_TokenMiddlewareEndToEnd(t *testing.T) {
 	wrapped.ServeHTTP(rec2, req)
 	if rec2.Code != http.StatusOK {
 		t.Errorf("with-token status = %d, want 200", rec2.Code)
+	}
+}
+
+// --- Plugin API tests ---
+
+// mockPlugin implements plugin.Plugin for testing.
+type mockPlugin struct {
+	name string
+}
+
+func (m *mockPlugin) Name() string { return m.name }
+
+// newTestAPIHandlerWithPlugins creates an apiHandler with a mock plugin manager.
+func newTestAPIHandlerWithPlugins(t *testing.T, plugins []plugin.Plugin) (*apiHandler, string) {
+	t.Helper()
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "content", "posts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "static"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "memory", "daily"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a mock LifecycleManager with plugins
+	registry := plugin.NewRegistry()
+	for _, p := range plugins {
+		if err := registry.Register(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bus := eventbus.NewChannelBus()
+	loader := plugin.NewLoader("") // empty dir, we won't scan
+	mgr := plugin.NewLifecycleManager(registry, loader, bus)
+
+	return newAPIHandler(apiHandlerConfig{
+		contentDir:    filepath.Join(src, "content"),
+		staticDir:     filepath.Join(src, "static"),
+		sourceDir:     src,
+		rebuild:       nil,
+		siteTitle:     "Test",
+		baseURL:       "http://localhost/",
+		serveURL:      "http://localhost:1313/",
+		audit:         NewAuditLogger(filepath.Join(src, "memory", "daily")),
+		pluginManager: mgr,
+	}), src
+}
+
+func TestAPI_ListPlugins_ReturnsPlugins(t *testing.T) {
+	plugins := []plugin.Plugin{
+		&mockPlugin{name: "test-plugin-1"},
+		&mockPlugin{name: "test-plugin-2"},
+	}
+	h, _ := newTestAPIHandlerWithPlugins(t, plugins)
+
+	rec := doJSON(t, h, http.MethodGet, "/admin/api/plugins", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	pluginsArr, ok := resp["plugins"].([]interface{})
+	if !ok {
+		t.Fatalf("expected plugins array, got %T", resp["plugins"])
+	}
+	if len(pluginsArr) != 2 {
+		t.Errorf("expected 2 plugins, got %d", len(pluginsArr))
+	}
+	if total, ok := resp["total"].(float64); !ok || int(total) != 2 {
+		t.Errorf("expected total=2, got %v", resp["total"])
+	}
+}
+
+func TestAPI_ListPlugins_NilManager_ReturnsUnavailable(t *testing.T) {
+	h, _ := newTestAPIHandler(t) // no pluginManager
+
+	rec := doJSON(t, h, http.MethodGet, "/admin/api/plugins", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	var resp PluginManageResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Status != "plugin manager unavailable" {
+		t.Errorf("expected unavailable status, got %q", resp.Status)
+	}
+}
+
+func TestAPI_LoadPlugin_NilManager_Returns503(t *testing.T) {
+	h, _ := newTestAPIHandler(t)
+
+	rec := doJSON(t, h, http.MethodPost, "/admin/api/plugins/load", PluginManageRequest{
+		Path: "/tmp/test.so",
+	})
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestAPI_LoadPlugin_MissingPath_Returns400(t *testing.T) {
+	h, _ := newTestAPIHandlerWithPlugins(t, nil)
+
+	rec := doJSON(t, h, http.MethodPost, "/admin/api/plugins/load", PluginManageRequest{
+		Name: "test",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestAPI_UnloadPlugin_MissingName_Returns400(t *testing.T) {
+	h, _ := newTestAPIHandlerWithPlugins(t, nil)
+
+	rec := doJSON(t, h, http.MethodPost, "/admin/api/plugins/unload", PluginManageRequest{
+		Path: "/tmp/test.so",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestAPI_UnloadPlugin_Nonexistent_Returns404(t *testing.T) {
+	h, _ := newTestAPIHandlerWithPlugins(t, nil)
+
+	rec := doJSON(t, h, http.MethodPost, "/admin/api/plugins/unload", PluginManageRequest{
+		Name: "nonexistent",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestAPI_ReloadPlugin_MissingFields_Returns400(t *testing.T) {
+	h, _ := newTestAPIHandlerWithPlugins(t, nil)
+
+	// Missing path
+	rec := doJSON(t, h, http.MethodPost, "/admin/api/plugins/reload", PluginManageRequest{
+		Name: "test",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (missing path)", rec.Code)
+	}
+
+	// Missing name
+	rec2 := doJSON(t, h, http.MethodPost, "/admin/api/plugins/reload", PluginManageRequest{
+		Path: "/tmp/test.so",
+	})
+	if rec2.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (missing name)", rec2.Code)
+	}
+}
+
+func TestAPI_ReloadPlugin_Nonexistent_Returns404(t *testing.T) {
+	h, _ := newTestAPIHandlerWithPlugins(t, nil)
+
+	rec := doJSON(t, h, http.MethodPost, "/admin/api/plugins/reload", PluginManageRequest{
+		Name: "nonexistent",
+		Path: "/tmp/test.so",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestAPI_PluginRoutes_RequireToken(t *testing.T) {
+	h, _ := newTestAPIHandlerWithPlugins(t, nil)
+	wrapped := TokenMiddleware(h, "test-token")
+
+	cases := []struct{ method, path string }{
+		{http.MethodGet, "/admin/api/plugins"},
+		{http.MethodPost, "/admin/api/plugins/load"},
+		{http.MethodPost, "/admin/api/plugins/unload"},
+		{http.MethodPost, "/admin/api/plugins/reload"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			// No token -> 401
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rec := httptest.NewRecorder()
+			wrapped.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("no-token %s %s: got %d, want 401", tc.method, tc.path, rec.Code)
+			}
+
+			// With token -> not 401
+			var body interface{}
+			if tc.method == http.MethodPost {
+				body = PluginManageRequest{}
+			}
+			rec2 := doJSON(t, wrapped, tc.method, tc.path, body)
+			if rec2.Code == http.StatusUnauthorized {
+				t.Errorf("with-token %s %s: got 401, want any non-401", tc.method, tc.path)
+			}
+		})
 	}
 }

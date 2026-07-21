@@ -1,5 +1,7 @@
 package admin
 
+import "github.com/iannil/huan/internal/plugin"
+
 // ContentItem is the API response for a single content file.
 type ContentItem struct {
 	Title       string   `json:"title"`
@@ -81,6 +83,18 @@ type LanguageInfo struct {
 type SiblingResponse struct {
 	Current   string         `json:"current"`
 	Siblings  []LanguageInfo `json:"siblings"`
+}
+
+// PluginManageRequest is the API body for plugin load/unload/reload operations.
+type PluginManageRequest struct {
+	Name string `json:"name"` // plugin name (for unload/reload)
+	Path string `json:"path"` // .so file path (for load/reload)
+}
+
+// PluginManageResponse wraps the plugin management API response.
+type PluginManageResponse struct {
+	Status string             `json:"status"`
+	Plugin *plugin.PluginInfo `json:"plugin,omitempty"`
 }
 
 // APIError represents a JSON error response.

@@ -31,13 +31,16 @@ func NewAuditLogger(memoryDir string) *AuditLogger {
 type AuditAction string
 
 const (
-	ActionContentCreate AuditAction = "content.create"
-	ActionContentUpdate AuditAction = "content.update"
-	ActionContentDelete AuditAction = "content.delete"
+	ActionContentCreate  AuditAction = "content.create"
+	ActionContentUpdate  AuditAction = "content.update"
+	ActionContentDelete  AuditAction = "content.delete"
 	ActionSettingsUpdate AuditAction = "settings.update"
 	ActionSettingsYAML   AuditAction = "settings.yaml.update"
 	ActionMediaUpload    AuditAction = "media.upload"
 	ActionMediaDelete    AuditAction = "media.delete"
+	ActionPluginLoad     AuditAction = "plugin.load"
+	ActionPluginUnload   AuditAction = "plugin.unload"
+	ActionPluginReload   AuditAction = "plugin.reload"
 )
 
 // AuditRecord captures one admin write-operation.

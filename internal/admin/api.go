@@ -8,46 +8,51 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/iannil/huan/internal/plugin"
 )
 
 // apiHandlerConfig holds the constructor inputs for apiHandler. Split into
 // its own struct so NewHandler can build it inline without 8-arg function
 // signatures drifting as new dependencies are added.
 type apiHandlerConfig struct {
-	contentDir string
-	staticDir  string
-	sourceDir  string
-	rebuild    func()
-	siteTitle  string
-	baseURL    string
-	serveURL   string
-	audit      *AuditLogger
+	contentDir     string
+	staticDir      string
+	sourceDir      string
+	rebuild        func()
+	siteTitle      string
+	baseURL        string
+	serveURL       string
+	audit          *AuditLogger
+	pluginManager  *plugin.LifecycleManager
 }
 
 // apiHandler holds the contentOps and registers API routes.
 type apiHandler struct {
-	ops       *contentOps
-	media     *mediaOps
-	rebuild   func()
-	sourceDir string
-	siteTitle string
-	baseURL   string
-	serveURL  string
-	staticDir string
-	audit     *AuditLogger
+	ops           *contentOps
+	media         *mediaOps
+	rebuild       func()
+	sourceDir     string
+	siteTitle     string
+	baseURL       string
+	serveURL      string
+	staticDir     string
+	audit         *AuditLogger
+	pluginManager *plugin.LifecycleManager
 }
 
 func newAPIHandler(cfg apiHandlerConfig) *apiHandler {
 	return &apiHandler{
-		ops:       newContentOps(cfg.contentDir),
-		media:     newMediaOps(cfg.staticDir),
-		sourceDir: cfg.sourceDir,
-		rebuild:   cfg.rebuild,
-		siteTitle: cfg.siteTitle,
-		baseURL:   cfg.baseURL,
-		serveURL:  cfg.serveURL,
-		staticDir: cfg.staticDir,
-		audit:     cfg.audit,
+		ops:           newContentOps(cfg.contentDir),
+		media:         newMediaOps(cfg.staticDir),
+		sourceDir:     cfg.sourceDir,
+		rebuild:       cfg.rebuild,
+		siteTitle:     cfg.siteTitle,
+		baseURL:       cfg.baseURL,
+		serveURL:      cfg.serveURL,
+		staticDir:     cfg.staticDir,
+		audit:         cfg.audit,
+		pluginManager: cfg.pluginManager,
 	}
 }
 
@@ -90,6 +95,14 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getSettingsYaml(w, r)
 	case path == "settings/yaml" && r.Method == http.MethodPut:
 		h.updateSettingsYaml(w, r)
+	case path == "plugins" && r.Method == http.MethodGet:
+		h.listPlugins(w, r)
+	case path == "plugins/load" && r.Method == http.MethodPost:
+		h.loadPlugin(w, r)
+	case path == "plugins/unload" && r.Method == http.MethodPost:
+		h.unloadPlugin(w, r)
+	case path == "plugins/reload" && r.Method == http.MethodPost:
+		h.reloadPlugin(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, APIError{Error: "not found"})
 	}
@@ -354,6 +367,115 @@ func (h *apiHandler) updateSettingsYaml(w http.ResponseWriter, r *http.Request) 
 		go h.rebuild()
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// listPlugins returns all registered plugins.
+func (h *apiHandler) listPlugins(w http.ResponseWriter, r *http.Request) {
+	if h.pluginManager == nil {
+		writeJSON(w, http.StatusOK, PluginManageResponse{Status: "plugin manager unavailable"})
+		return
+	}
+	plugins := h.pluginManager.List()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"plugins": plugins,
+		"total":   len(plugins),
+	})
+}
+
+// loadPlugin loads a .so plugin from the given path.
+func (h *apiHandler) loadPlugin(w http.ResponseWriter, r *http.Request) {
+	if h.pluginManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, APIError{Error: "plugin manager unavailable"})
+		return
+	}
+	var req PluginManageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	if req.Path == "" {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "path is required"})
+		return
+	}
+	p, err := h.pluginManager.Load(req.Path)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if err == plugin.ErrPluginNameConflict {
+			status = http.StatusConflict
+		} else if err == plugin.ErrMissingInitSymbol {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, APIError{Error: err.Error()})
+		return
+	}
+	h.auditLog(AuditRecord{
+		Action: ActionPluginLoad,
+		Path:   req.Path,
+	})
+	writeJSON(w, http.StatusOK, PluginManageResponse{
+		Status: "loaded",
+		Plugin: &plugin.PluginInfo{Name: p.Name(), Source: "loaded", Status: "active"},
+	})
+}
+
+// unloadPlugin unloads a plugin by name.
+func (h *apiHandler) unloadPlugin(w http.ResponseWriter, r *http.Request) {
+	if h.pluginManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, APIError{Error: "plugin manager unavailable"})
+		return
+	}
+	var req PluginManageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "name is required"})
+		return
+	}
+	if err := h.pluginManager.Unload(req.Name); err != nil {
+		status := http.StatusInternalServerError
+		if err == plugin.ErrPluginNotFound {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, APIError{Error: err.Error()})
+		return
+	}
+	h.auditLog(AuditRecord{
+		Action: ActionPluginUnload,
+		Path:   req.Name,
+	})
+	writeJSON(w, http.StatusOK, PluginManageResponse{Status: "unloaded"})
+}
+
+// reloadPlugin reloads a plugin with a new .so file.
+func (h *apiHandler) reloadPlugin(w http.ResponseWriter, r *http.Request) {
+	if h.pluginManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, APIError{Error: "plugin manager unavailable"})
+		return
+	}
+	var req PluginManageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	if req.Name == "" || req.Path == "" {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "name and path are required"})
+		return
+	}
+	if err := h.pluginManager.Reload(req.Name, req.Path); err != nil {
+		status := http.StatusInternalServerError
+		if err == plugin.ErrPluginNotFound {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, APIError{Error: err.Error()})
+		return
+	}
+	h.auditLog(AuditRecord{
+		Action: ActionPluginReload,
+		Path:   req.Name,
+	})
+	writeJSON(w, http.StatusOK, PluginManageResponse{Status: "reloaded"})
 }
 
 // auditLog is a nil-safe wrapper: if audit logger is unset (e.g., in tests
