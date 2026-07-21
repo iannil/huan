@@ -1,96 +1,83 @@
-# Task 3 Report: Loader — .so Plugin Loading
+# Task 3 Report: Create qwen3_translate independent plugin repository
 
-**Status:** ✅ COMPLETED
+**Date:** 2026-07-21
 
-**Commit:** `5d0082f` — feat(plugin): add Loader for .so plugin loading
+## Status: COMPLETED
 
-## Implementation Summary
+## Steps Performed
 
-### Files Created
+### 1. Plugin Repository Setup
+- Created directory `/Users/rong.zhu/Code/zhurong/huan-plugin-qwen3`
+- Created `go.mod` as self-contained module (no `replace` directive pointing to huan, following the pattern established in Task 2)
 
-1. **`internal/plugin/loader.go`** — Core loader implementation
-   - `PluginInitFunc` type: `func(cfg map[string]any) (Plugin, error)`
-   - `Loader` struct with `pluginDir` field
-   - `NewLoader(pluginDir string) *Loader`
-   - `LoadPlugin(path string) (Plugin, error)` — Opens .so, looks up `InitPlugin` symbol, calls it
-   - `ScanAndLoad() ([]Plugin, error)` — Scans directory for .so files, loads each, skips failures with warning
-   - Error definitions: `ErrMissingInitSymbol`, `ErrPluginNameConflict`
+### 2. Self-Contained Repository Approach
+Following the pattern from Task 2 (cloudflare plugin), the plugin repo is fully self-contained with copies of required interface/type packages:
 
-2. **`internal/plugin/loader_test.go`** — Test suite
-   - `TestLoader_LoadPlugin_MissingSymbol` — Invalid .so file error handling
-   - `TestLoader_LoadPlugin_FileNotExist` — Nonexistent file error
-   - `TestLoader_ScanAndLoad_DirNotExist` — Nonexistent directory returns empty
-   - `TestLoader_ScanAndLoad_EmptyDir` — Empty directory returns empty
-   - `TestLoader_ScanAndLoad_SkipsNonSOFiles` — Skips non-.so files and directories
-   - **Note:** Real .so integration tests skipped due to Go plugin version constraints
+- **`translate/types.go`** — copied from `internal/translate/types.go` (Translator interface, Request, Response, QualityResult)
+- **`plugin/plugin.go`** — copied from `internal/plugin/plugin.go` (Plugin interface, Registry)
+- **`observability/logging.go`** — copied from `internal/observability/logging.go` (Logger)
+- **`i18n/langdetect/langdetect.go`** — copied from `internal/i18n/langdetect/langdetect.go` (CJK detection helpers used by quality.go)
 
-3. **`internal/plugin/testdata/simple_plugin/main.go`** — Test fixture plugin
-   - Implements `simplePlugin` struct with `Name()` method
-   - Exports `InitPlugin(cfg map[string]any) (plugin.Plugin, error)`
-   - Accepts optional "name" config override
+### 3. Qwen3 Source Files
+All 8 `.go` files (excluding `_test.go`) copied from `internal/translate/qwen3/`:
+- `plugin.go`, `options.go`, `client.go`, `parse.go`, `prompt.go`, `quality.go`, `chunker.go`, `context.go`
 
-4. **`internal/plugin/testdata/simple_plugin/Makefile`** — Build script
-   - `go build -buildmode=plugin -o simple_plugin.so .`
+Changes made:
+- Package renamed from `qwen3` to `main`
+- Import paths updated from `github.com/iannil/huan/internal/...` to `github.com/iannil/huan-plugin-qwen3/...`
 
-## Test Results
+### 4. Entry Point
+Created `plugin_main.go` with `InitPlugin` export:
 
-```
-=== RUN   TestLoader_LoadPlugin_MissingSymbol
---- PASS: TestLoader_LoadPlugin_MissingSymbol (0.00s)
-=== RUN   TestLoader_LoadPlugin_FileNotExist
---- PASS: TestLoader_LoadPlugin_FileNotExist (0.00s)
-=== RUN   TestLoader_ScanAndLoad_DirNotExist
---- PASS: TestLoader_ScanAndLoad_DirNotExist (0.00s)
-=== RUN   TestLoader_ScanAndLoad_EmptyDir
---- PASS: TestLoader_ScanAndLoad_EmptyDir (0.00s)
-=== RUN   TestLoader_ScanAndLoad_SkipsNonSOFiles
---- PASS: TestLoader_ScanAndLoad_SkipsNonSOFiles (0.00s)
-PASS
-ok  	github.com/iannil/huan/internal/plugin	0.529s
+```go
+func InitPlugin(cfg map[string]any) (plugin.Plugin, error) {
+    parsedCfg, err := ParseConfig(cfg)
+    if err != nil {
+        return nil, err
+    }
+    projectRoot := ""
+    if v, ok := cfg["_project_root"].(string); ok {
+        projectRoot = v
+    }
+    return New(parsedCfg, projectRoot)
+}
 ```
 
-All 5 loader tests pass. Combined with existing Registry tests, total package tests: 18 PASS.
+The `_project_root` key allows the loader to pass the project root directory so the plugin can resolve relative paths (system_prompt_file, glossary_file).
 
-## Key Design Decisions
+### 5. Build Verification
+```bash
+cd /Users/rong.zhu/Code/zhurong/huan-plugin-qwen3
+go build -buildmode=plugin -o qwen3.so .
+```
+**BUILD SUCCESS** — `qwen3.so` created (13 MB)
 
-1. **Error Handling Strategy**
-   - `LoadPlugin` returns detailed errors with path context
-   - `ScanAndLoad` silently skips failures (logs to stderr), continues with valid plugins
-   - Nonexistent plugin directory is not an error — returns empty list
+### 6. Deletion from Huan Main Repo
+- Removed `internal/translate/qwen3/` directory (all 8 `.go` source files + 5 `_test.go` files)
 
-2. **Plugin Contract**
-   - Every .so plugin must export `InitPlugin` symbol with signature: `func(map[string]any) (Plugin, error)`
-   - Config map passed empty for now — future enhancement will integrate with huan.yaml
-   - Plugin receives config at init time, not via setter methods
+### 7. Build Verification of Huan Main Repo
+```bash
+cd /Users/rong.zhu/Code/zhurong/huan
+go build ./...
+```
+**BUILD SUCCESS**
 
-3. **File Filtering**
-   - `ScanAndLoad` only processes files with `.so` extension
-   - Subdirectories and non-.so files are ignored
-   - No recursive scanning — single directory only
-
-## Concerns / Notes
-
-1. **Go Plugin Version Constraints**
-   - Go plugins must be built with exact same Go version and module state as host
-   - Real .so integration tests skipped from automated suite
-   - Manual testing: `make -C internal/plugin/testdata/simple_plugin && go test -run TestLoader_.*RealSO`
-   - This is a known Go plugin system limitation, not a bug in our implementation
-
-2. **Future Enhancements**
-   - Config injection from huan.yaml (currently passes empty map)
-   - Plugin name conflict detection during `ScanAndLoad`
-   - Plugin lifecycle hooks (Start/Stop) on capability interfaces
-
-## Verification
+### 8. Test Verification
+```bash
+go test ./internal/translate/...
+```
+**PASS** — 3 tests in `internal/translate` (types_test.go)
 
 ```bash
-# Run all plugin package tests
-go test ./internal/plugin/ -v
-
-# Build test fixture manually
-cd internal/plugin/testdata/simple_plugin
-make clean all
-ls -l simple_plugin.so
+go test ./...
 ```
+**ALL PASS** — 26 packages, 0 failures
 
-All tests pass. Implementation complete and committed.
+## Commit
+`69171dc` — `refactor(translate): extract qwen3 plugin to external repository`
+
+## Concerns
+- The plugin repo now maintains copies of `translate/types.go`, `plugin/plugin.go`, `observability/logging.go`, and `i18n/langdetect/langdetect.go`. These need to be kept in sync if interfaces change.
+- The `_project_root` key convention must be respected by the plugin loader — the loader should inject this key into the config map before calling `InitPlugin`.
+- Tests from the original `internal/translate/qwen3/` were deleted with the source code. They would need to be recreated in the plugin repo to maintain coverage on the plugin side.
+- The `cmd/huan/translate_cmd.go` still references `qwen3_translate` by name string and `translate.Translator` interface — these remain valid since the interface lives in huan's own `internal/translate` package.

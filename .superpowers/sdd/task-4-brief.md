@@ -1,128 +1,41 @@
-### Task 4: GRPCStub — gRPC 预留骨架
+### Task 4: Loader 增强 — 支持传递配置和额外参数
 
 **Files:**
-- Create: `internal/plugin/grpc_stub.go`
-- Create: `internal/plugin/grpc_stub_test.go`
+- Modify: `internal/plugin/loader.go` — LoadPlugin 接受 config map 参数
+- Modify: `internal/plugin/lifecycle.go` — 同步更新调用
+- Modify: `internal/plugin/loader_test.go` — 同步测试
 
-- [ ] **Step 1: 编写测试**
+**背景：** 当前 Loader 的 LoadPlugin 只传空 map 给 InitPlugin。现在需要传递 huan.yaml 中的 `plugins.cloudflare.*` 配置，以及 qwen3 需要的 `_project_root` 等额外参数。
 
-`internal/plugin/grpc_stub_test.go`：
-
-```go
-package plugin
-
-import (
-    "context"
-    "testing"
-)
-
-func TestGRPCStub_ImplementsPlugin(t *testing.T) {
-    s := NewGRPCStub("test-plugin", "deployer", "localhost:50051")
-    if s.Name() != "test-plugin" {
-        t.Errorf("Name() = %q, want test-plugin", s.Name())
-    }
-}
-
-func TestGRPCStub_Capability(t *testing.T) {
-    s := NewGRPCStub("test", "deployer", "")
-    if s.Capability() != "deployer" {
-        t.Errorf("Capability() = %q, want deployer", s.Capability())
-    }
-}
-
-func TestGRPCStub_CallReturnsNotImplemented(t *testing.T) {
-    s := NewGRPCStub("test", "", "")
-    _, err := s.Call(context.Background(), "Deploy", nil)
-    if err != ErrGRPCNotImplemented {
-        t.Errorf("Call: want ErrGRPCNotImplemented, got %v", err)
-    }
-}
-
-func TestGRPCStub_HealthReturnsNil(t *testing.T) {
-    s := NewGRPCStub("test", "", "")
-    err := s.Health(context.Background())
-    if err != nil {
-        t.Errorf("Health: want nil, got %v", err)
-    }
-}
-```
-
-Run: `go test ./internal/plugin/ -run "TestGRPCStub_" -v`
-Expected: COMPILATION ERROR (no grpc_stub.go yet)
-
-- [ ] **Step 2: 实现 GRPCStub**
-
-`internal/plugin/grpc_stub.go`：
+- [ ] **Step 1: 修改 LoadPlugin 签名**
 
 ```go
-package plugin
-
-import (
-    "context"
-    "errors"
-)
-
-// ErrGRPCNotImplemented is returned by GRPCStub methods until the gRPC
-// transport layer is actually implemented.
-var ErrGRPCNotImplemented = errors.New("plugin: gRPC not implemented yet")
-
-// GRPCPlugin defines the interface for plugins that communicate via gRPC.
-// This is a reserved interface for future use — the gRPC transport layer
-// will be implemented when cross-language plugin support is needed.
-type GRPCPlugin interface {
-    Plugin
-    // Capability returns the plugin's capability type (e.g. "deployer",
-    // "translator", "seo_checker").
-    Capability() string
-    // Call invokes a remote method on the plugin.
-    // Currently returns ErrGRPCNotImplemented.
-    Call(ctx context.Context, method string, payload []byte) ([]byte, error)
-    // Health checks whether the remote plugin is alive.
-    Health(ctx context.Context) error
-}
-
-// GRPCStub is a placeholder for future gRPC-based plugins. It implements
-// GRPCPlugin with stub methods that return ErrGRPCNotImplemented. The
-// actual gRPC client will be implemented later in internal/plugin/grpc/.
-type GRPCStub struct {
-    name       string
-    capability string
-    address    string // remote gRPC address, e.g. "localhost:50051"
-}
-
-// NewGRPCStub creates a new GRPCStub. All methods return stub values
-// until the gRPC transport layer is implemented.
-func NewGRPCStub(name, capability, address string) *GRPCStub {
-    return &GRPCStub{
-        name:       name,
-        capability: capability,
-        address:    address,
-    }
-}
-
-func (s *GRPCStub) Name() string { return s.name }
-
-func (s *GRPCStub) Capability() string { return s.capability }
-
-func (s *GRPCStub) Call(_ context.Context, _ string, _ []byte) ([]byte, error) {
-    return nil, ErrGRPCNotImplemented
-}
-
-func (s *GRPCStub) Health(_ context.Context) error {
-    return nil
-}
+// LoadPlugin 加载 .so 并传递配置
+func (l *Loader) LoadPlugin(path string, pluginCfg map[string]any) (Plugin, error)
 ```
 
-- [ ] **Step 3: 运行测试验证通过**
+- [ ] **Step 2: 修改 LifecycleManager 的 Load 方法**
 
-Run: `go test ./internal/plugin/ -run "TestGRPCStub_" -v`
-Expected: ALL PASS
+```go
+// Load 接受 config 参数
+func (m *LifecycleManager) Load(soPath string, pluginCfg map[string]any) (Plugin, error)
+```
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 3: 修改 daemon.go 中 LifecycleManager 的 Start 调用**
+
+在 `Start()` 中，`ScanAndLoad` 后需要从 cfg.Plugins 中查找对应的配置，并传入。
+
+- [ ] **Step 4: 更新测试**
 
 ```bash
-git add internal/plugin/grpc_stub.go internal/plugin/grpc_stub_test.go
-git commit -m "feat(plugin): add GRPCStub skeleton for future gRPC plugin support"
+go test ./internal/plugin/... -v
+```
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add internal/plugin/loader.go internal/plugin/lifecycle.go
+git commit -m "feat(plugin): support passing config to .so plugin InitPlugin"
 ```
 
 ---
