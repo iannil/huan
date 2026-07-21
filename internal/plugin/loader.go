@@ -27,6 +27,11 @@ func NewLoader(pluginDir string) *Loader {
 	return &Loader{pluginDir: pluginDir}
 }
 
+// PluginDir returns the plugin directory path.
+func (l *Loader) PluginDir() string {
+	return l.pluginDir
+}
+
 // LoadPlugin opens a .so file, finds the InitPlugin symbol, and calls it.
 // Returns the Plugin instance or an error.
 func (l *Loader) LoadPlugin(path string) (Plugin, error) {
@@ -59,11 +64,17 @@ func (l *Loader) LoadPlugin(path string) (Plugin, error) {
 	return instance, nil
 }
 
+// ScanAndLoadResult pairs a loaded plugin with its .so filesystem path.
+type ScanAndLoadResult struct {
+	Plugin Plugin
+	Path   string
+}
+
 // ScanAndLoad scans the pluginDir for all .so files, loads each one, and
-// returns the successfully loaded plugins. Files that fail to load are
-// skipped with a warning (logged to stderr). Returns an error only if the
-// pluginDir cannot be read.
-func (l *Loader) ScanAndLoad() ([]Plugin, error) {
+// returns the successfully loaded plugins with their paths. Files that
+// fail to load are skipped with a warning (logged to stderr). Returns an
+// error only if the pluginDir cannot be read.
+func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
 	entries, err := os.ReadDir(l.pluginDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -72,7 +83,7 @@ func (l *Loader) ScanAndLoad() ([]Plugin, error) {
 		return nil, fmt.Errorf("plugin: scan dir %s: %w", l.pluginDir, err)
 	}
 
-	var plugins []Plugin
+	var results []ScanAndLoadResult
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
 			continue
@@ -83,7 +94,7 @@ func (l *Loader) ScanAndLoad() ([]Plugin, error) {
 			fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
 			continue
 		}
-		plugins = append(plugins, p)
+		results = append(results, ScanAndLoadResult{Plugin: p, Path: fullPath})
 	}
-	return plugins, nil
+	return results, nil
 }

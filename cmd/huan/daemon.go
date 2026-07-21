@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 
+	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/daemon"
+	"github.com/iannil/huan/internal/plugin"
 	"github.com/spf13/cobra"
 )
 
@@ -26,17 +28,34 @@ A long-running process that serves the site as a backend service.`,
 		disablePlugin, _ := cmd.Flags().GetBool("disable-plugin")
 
 		fmt.Println("huan daemon: starting (v0.6.0) ...")
+
+		// Load config to get compiled plugins
+		cfg, err := config.Load(sourceDir)
+		if err != nil {
+			return fmt.Errorf("daemon: load config: %w", err)
+		}
+
+		// Register compiled plugins into a shared registry
+		var plugRegistry *plugin.Registry
+		if !disablePlugin {
+			plugRegistry, err = newPluginRegistry(cfg)
+			if err != nil {
+				return fmt.Errorf("daemon: register compiled plugins: %w", err)
+			}
+		}
+
 		return daemon.Run(daemon.Options{
-			SourceDir:     sourceDir,
-			ConfigPath:    configPath,
-			Port:          port,
-			Bind:          bind,
-			TLSCert:       tlsCert,
-			TLSKey:        tlsKey,
-			Systemd:       systemd,
-			BuildDrafts:   buildDrafts,
-			PluginDir:     pluginDir,
-			DisablePlugin: disablePlugin,
+			SourceDir:      sourceDir,
+			ConfigPath:     configPath,
+			Port:           port,
+			Bind:           bind,
+			TLSCert:        tlsCert,
+			TLSKey:         tlsKey,
+			Systemd:        systemd,
+			BuildDrafts:    buildDrafts,
+			PluginDir:      pluginDir,
+			DisablePlugin:  disablePlugin,
+			PluginRegistry: plugRegistry,
 		})
 	},
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,9 +37,10 @@ type loadedPlugin struct {
 // LifecycleManager manages the complete lifecycle of plugins: discovery,
 // loading, unloading, reloading, and event publishing.
 type LifecycleManager struct {
-	registry *Registry
-	loader   *Loader
-	bus      eventbus.EventBus
+	registry  *Registry
+	loader    *Loader
+	bus       eventbus.EventBus
+	pluginDir string // plugin directory for path validation
 
 	mu          sync.Mutex
 	loaded      map[string]*loadedPlugin // tracks all plugins (compiled + loaded)
@@ -49,10 +52,11 @@ type LifecycleManager struct {
 // NewLifecycleManager creates a LifecycleManager.
 func NewLifecycleManager(registry *Registry, loader *Loader, bus eventbus.EventBus) *LifecycleManager {
 	return &LifecycleManager{
-		registry: registry,
-		loader:   loader,
-		bus:      bus,
-		loaded:   make(map[string]*loadedPlugin),
+		registry:  registry,
+		loader:    loader,
+		bus:       bus,
+		pluginDir: loader.PluginDir(),
+		loaded:    make(map[string]*loadedPlugin),
 	}
 }
 
@@ -80,25 +84,34 @@ func (m *LifecycleManager) Start(ctx context.Context) error {
 	}
 
 	// Scan and load .so plugins
-	plugins, err := m.loader.ScanAndLoad()
+	results, err := m.loader.ScanAndLoad()
 	if err != nil {
+		m.publishEventUnsafe(ctx, eventbus.EventPluginError, map[string]any{
+			"error": err.Error(),
+		})
 		return fmt.Errorf("lifecycle: scan plugins: %w", err)
 	}
-	for _, p := range plugins {
-		name := p.Name()
+	for _, result := range results {
+		name := result.Plugin.Name()
 		if _, exists := m.registry.Get(name); exists {
 			fmt.Fprintf(os.Stderr, "huan: plugin %q: name conflict with compiled plugin, skipping\n", name)
+			m.publishEventUnsafe(ctx, eventbus.EventPluginError, map[string]any{
+				"name":  name,
+				"error": "name conflict with compiled plugin",
+			})
 			continue
 		}
-		_ = m.registry.Register(p)
+		_ = m.registry.Register(result.Plugin)
 		m.loaded[name] = &loadedPlugin{
-			plugin:   p,
+			plugin:   result.Plugin,
 			source:   "loaded",
+			soPath:   result.Path,
 			loadedAt: time.Now(),
 		}
 		m.publishEventUnsafe(ctx, eventbus.EventPluginLoaded, map[string]any{
 			"name":   name,
 			"source": "loaded",
+			"path":   result.Path,
 		})
 	}
 
@@ -124,10 +137,29 @@ func (m *LifecycleManager) Stop() {
 
 // Load loads a .so plugin from the given path, registers it, and publishes
 // an event. Returns ErrPluginNameConflict if a plugin with the same name
-// already exists.
+// already exists. Returns an error if the path is outside the plugin directory.
 func (m *LifecycleManager) Load(soPath string) (Plugin, error) {
-	p, err := m.loader.LoadPlugin(soPath)
+	// Validate path is within plugin directory
+	cleanPath := filepath.Clean(soPath)
+	cleanPluginDir := filepath.Clean(m.pluginDir)
+	if !filepath.IsAbs(cleanPath) {
+		cleanPath = filepath.Join(cleanPluginDir, cleanPath)
+	}
+	// Ensure the resolved path is within the plugin directory
+	if !isPathWithinDir(cleanPath, cleanPluginDir) {
+		m.publishEvent(context.Background(), eventbus.EventPluginError, map[string]any{
+			"path":  soPath,
+			"error": "path is outside plugin directory",
+		})
+		return nil, fmt.Errorf("plugin: path %q is outside plugin directory %q", soPath, m.pluginDir)
+	}
+
+	p, err := m.loader.LoadPlugin(cleanPath)
 	if err != nil {
+		m.publishEvent(context.Background(), eventbus.EventPluginError, map[string]any{
+			"path":  soPath,
+			"error": err.Error(),
+		})
 		return nil, err
 	}
 
@@ -146,14 +178,14 @@ func (m *LifecycleManager) Load(soPath string) (Plugin, error) {
 	m.loaded[name] = &loadedPlugin{
 		plugin:   p,
 		source:   "loaded",
-		soPath:   soPath,
+		soPath:   cleanPath,
 		loadedAt: time.Now(),
 	}
 
 	m.publishEventUnsafe(context.Background(), eventbus.EventPluginLoaded, map[string]any{
 		"name":   name,
 		"source": "loaded",
-		"path":   soPath,
+		"path":   cleanPath,
 	})
 
 	return p, nil
@@ -227,8 +259,18 @@ func (m *LifecycleManager) Reload(name string, newSO string) error {
 	m.mu.Lock()
 	newName := newPlugin.Name()
 	if newName != name {
-		// Name changed — use the new name
-		// (Silently register under new name; old name stays free)
+		// Name changed during reload — this creates inconsistent state.
+		// The user should Unload + Load instead.
+		_ = m.registry.Register(newPlugin)
+		delete(m.loaded, name)
+		m.loaded[newName] = &loadedPlugin{
+			plugin:   newPlugin,
+			source:   "loaded",
+			soPath:   newSO,
+			loadedAt: time.Now(),
+		}
+		m.mu.Unlock()
+		return fmt.Errorf("reload: plugin name changed from %q to %q (use Unload+Load instead)", name, newName)
 	}
 	_ = m.registry.Register(newPlugin)
 	delete(m.loaded, name)
@@ -314,8 +356,8 @@ func (m *LifecycleManager) publishEvent(ctx context.Context, eventType eventbus.
 	m.mu.Unlock()
 }
 
-func (m *LifecycleManager) publishEventUnsafe(_ context.Context, eventType eventbus.EventType, payload map[string]any) {
-	_ = m.bus.Publish(context.Background(), eventbus.Event{
+func (m *LifecycleManager) publishEventUnsafe(ctx context.Context, eventType eventbus.EventType, payload map[string]any) {
+	_ = m.bus.Publish(ctx, eventbus.Event{
 		Type:      eventType,
 		Timestamp: time.Now(),
 		Payload:   payload,
@@ -345,4 +387,14 @@ func (w *PluginWatcher) Start(ctx context.Context) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// isPathWithinDir checks if a given absolute path is within the specified directory.
+func isPathWithinDir(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	// If the relative path starts with "..", it's outside the directory
+	return !filepath.IsAbs(rel) && !strings.HasPrefix(rel, "..")
 }

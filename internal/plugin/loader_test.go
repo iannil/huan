@@ -35,24 +35,24 @@ func TestLoader_LoadPlugin_FileNotExist(t *testing.T) {
 
 func TestLoader_ScanAndLoad_DirNotExist(t *testing.T) {
 	l := NewLoader("/nonexistent/plugin/dir")
-	plugins, err := l.ScanAndLoad()
+	results, err := l.ScanAndLoad()
 	if err != nil {
 		t.Fatalf("ScanAndLoad on nonexistent dir: %v", err)
 	}
-	if len(plugins) != 0 {
-		t.Errorf("got %d plugins, want 0", len(plugins))
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0", len(results))
 	}
 }
 
 func TestLoader_ScanAndLoad_EmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	l := NewLoader(tmpDir)
-	plugins, err := l.ScanAndLoad()
+	results, err := l.ScanAndLoad()
 	if err != nil {
 		t.Fatalf("ScanAndLoad on empty dir: %v", err)
 	}
-	if len(plugins) != 0 {
-		t.Errorf("got %d plugins, want 0", len(plugins))
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0", len(results))
 	}
 }
 
@@ -71,12 +71,12 @@ func TestLoader_ScanAndLoad_SkipsNonSOFiles(t *testing.T) {
 	}
 
 	l := NewLoader(tmpDir)
-	plugins, err := l.ScanAndLoad()
+	results, err := l.ScanAndLoad()
 	if err != nil {
 		t.Fatalf("ScanAndLoad: %v", err)
 	}
-	if len(plugins) != 0 {
-		t.Errorf("got %d plugins, want 0 (non-.so files should be skipped)", len(plugins))
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (non-.so files should be skipped)", len(results))
 	}
 }
 

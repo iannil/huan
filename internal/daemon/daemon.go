@@ -31,6 +31,7 @@ type Options struct {
 	BuildInterval  time.Duration // periodic full rebuild interval (0 = disabled)
 	PluginDir      string        // plugin directory (default: <sourceDir>/plugins)
 	DisablePlugin  bool          // disable plugin loading
+	PluginRegistry *plugin.Registry // compiled plugins registry (optional)
 }
 
 // Daemon holds the long-running server state.
@@ -103,8 +104,15 @@ func Run(opts Options) error {
 		}
 
 		pluginLoader := plugin.NewLoader(pluginDir)
+
+		// Use the compiled plugin registry if provided, otherwise create a fresh one
+		plugRegistry := opts.PluginRegistry
+		if plugRegistry == nil {
+			plugRegistry = plugin.NewRegistry()
+		}
+
 		d.pluginManager = plugin.NewLifecycleManager(
-			plugin.NewRegistry(),
+			plugRegistry,
 			pluginLoader,
 			d.bus,
 		)
