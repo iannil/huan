@@ -1,66 +1,45 @@
-# Task 2 Report: Create cloudflare independent plugin repository
+# Task 2 Report: 创建图片管线插件仓库骨架
 
-**Date:** 2026-07-21
+## 状态：已完成
 
-## Status: COMPLETED
+## 提交
 
-## Steps Performed
+- **Commit:** `cb7d1e2` feat(image-pipeline): create plugin skeleton with InitPlugin export
+- **分支:** master
 
-### 1. Plugin Repository Setup
-- Created directory `/Users/rong.zhu/Code/zhurong/huan-plugin-cloudflare`
-- Created `go.mod` with `replace` directive pointing to huan main repo (initial approach), then switched to a self-contained approach after discovering Go's `internal/` package restriction prevents plugin modules from importing huan's internal packages via `replace` directive.
+## 文件清单
 
-### 2. Self-Contained Repository Approach
-Since Go's `go build -buildmode=plugin` enforces the `internal/` visibility rule strictly (even with `replace` directives), the plugin repo was restructured to be fully self-contained:
-- **`deploy/types.go`** — copied from `internal/deploy/types.go` with import paths updated
-- **`plugin/plugin.go`** — copied from `internal/plugin/plugin.go` with import paths updated  
-- **`observability/logging.go`** — copied from `internal/observability/logging.go` with import paths updated
-- **`version/version.go`** — created stub for `version.String()` (previously depended on huan's `internal/version`)
-- **Cloudflare source files** — all 11 `.go` files (excluding `_test.go`) copied from `internal/deploy/cloudflare/`, changed to `package main`, with imports updated to point to local packages
+| 文件 | 说明 |
+|------|------|
+| `plugins/image-pipeline/go.mod` | 独立模块 `github.com/iannil/huan-plugin-image-pipeline`，依赖 `gopkg.in/yaml.v3` |
+| `plugins/image-pipeline/plugin/plugin.go` | 自包含 Plugin 接口（Name() string） |
+| `plugins/image-pipeline/plugin.go` | ImagePipelinePlugin 结构体，含 stub Process() |
+| `plugins/image-pipeline/plugin_main.go` | InitPlugin 导出函数 |
+| `plugins/image-pipeline/config.go` | Config 结构体 + ParseConfig（含默认值：Quality=80, Enabled=true） |
+| `plugins/image-pipeline/config_test.go` | 4 个测试用例 |
 
-### 3. Entry Point
-Created `plugin_main.go` with `InitPlugin` export:
-```go
-func InitPlugin(cfg map[string]any) (plugin.Plugin, error) {
-    parsedCfg, err := ParseConfig(cfg)
-    if err != nil {
-        return nil, err
-    }
-    return New(parsedCfg), nil
-}
+## 测试结果
+
+```
+ok  	github.com/iannil/huan-plugin-image-pipeline	0.683s
+?   	github.com/iannil/huan-plugin-image-pipeline/plugin	[no test files]
 ```
 
-### 4. Build Verification
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan-plugin-cloudflare
-go build -buildmode=plugin -o cloudflare.so .
+- **TestParseConfig_Defaults** — nil 输入返回 Quality=80, Enabled=true
+- **TestParseConfig_FromMap** — map 输入正确解析 Quality/Formats/Sizes/Enabled
+- **TestImagePipelinePlugin_Name** — Name() 返回 "image_pipeline"
+- **TestImagePipelinePlugin_Process_Stub** — Process() 空调用不报错
+
+## 编译验证
+
 ```
-**BUILD SUCCESS** — `cloudflare.so` created (17 MB)
-
-### 5. Deletion from Huan Main Repo
-- Removed `internal/deploy/cloudflare/` directory (all 24 files including tests)
-- No import references to `github.com/iannil/huan/internal/deploy/cloudflare` existed outside the package itself
-
-### 6. Build Verification of Huan Main Repo
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan
-go build ./...
+cd plugins/image-pipeline && go build -buildmode=plugin -o ../image_pipeline.so .
 ```
-**BUILD SUCCESS**
 
-### 7. Test Verification
-```bash
-go test ./...
-```
-**ALL PASS** (26 packages, 0 failures)
+编译成功，生成 `plugins/image_pipeline.so`（约 5MB，已被 .gitignore 排除）。
 
-## Key Design Decision
-The initial plan (using `replace` directive in `go.mod`) failed because Go's `internal/` package import restriction is enforced at compile time for plugins, not just at module resolution time. A `replace` directive changes module resolution but does not bypass the internal visibility rule. The self-contained approach (copying required interface/type packages) is the correct pattern for Go plugin systems.
+## 注意事项
 
-## Commit
-`2dd4eff` — `refactor(deploy): extract cloudflare plugin to external repository`
-
-## Concerns
-- The plugin repo now maintains a copy of `deploy/types.go`, `plugin/plugin.go`, and `observability/logging.go`. These need to be kept in sync if interfaces change.
-- The `version/version.go` stub returns a fixed string rather than the actual huan version. This is acceptable for a plugin.
-- Tests from the original `internal/deploy/cloudflare/` were deleted with the source code. They would need to be recreated in the plugin repo to maintain coverage on the plugin side.
+- 与 cloudflare 和 qwen3 插件一致的模块模式：无 `replace` 指令指向 huan 主项目
+- 为满足编译需要，额外创建了 `config.go`（含 Config 结构体和 ParseConfig），这是 cloudflare 插件的标准模式——plugin_main.go 的 InitPlugin 调用了 ParseConfig
+- .so 文件被 .gitignore 忽略，不纳入版本控制

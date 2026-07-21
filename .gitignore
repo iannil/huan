@@ -13,3 +13,4 @@ web/admin/node_modules/
 skills-lock.json
 # Plugin binaries (built from external repos)
 /plugins/*.so
+/plugins/**/image-pipeline.so

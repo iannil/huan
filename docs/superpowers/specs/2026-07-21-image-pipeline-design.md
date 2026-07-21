@@ -1,9 +1,10 @@
 # 设计文档：图片管线插件（Image Pipeline Plugin）
 
 - **日期**：2026-07-21
-- **状态**：Draft
+- **状态**：Implemented
 - **关联 ADR**：[ADR 0003 — 统一插件系统](docs/adr/0003-unified-plugin-system.md)
 - **实现阶段**：v0.8.0
+- **实现完成日期**：2026-07-21
 
 ## 1. 背景
 
