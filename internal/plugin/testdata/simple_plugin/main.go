@@ -9,7 +9,7 @@ type simplePlugin struct {
 
 func (p *simplePlugin) Name() string { return p.name }
 
-// InitPlugin is the exported symbol the Loader looks up.
+// InitPlugin 是 Loader 查找的导出符号
 func InitPlugin(cfg map[string]any) (plugin.Plugin, error) {
 	name := "simple-test"
 	if v, ok := cfg["name"].(string); ok && v != "" {
