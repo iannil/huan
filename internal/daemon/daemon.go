@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/iannil/huan/internal/admin"
+	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/daemon/cache"
 	"github.com/iannil/huan/internal/daemon/dag"
@@ -85,6 +86,9 @@ func Run(opts Options) error {
 	d.dag = dag.NewDependencyGraph()
 
 	// 7. Initialize Builder
+	// Create the PipelineCache up-front so BuildSite can populate it during
+	// the initial full build. Subsequent incremental builds reuse it.
+	pipelineCache := build.NewPipelineCache()
 	d.builder = NewBuilder(BuilderOptions{
 		SourceDir:   opts.SourceDir,
 		OutputDir:   tmpDir,
@@ -94,6 +98,11 @@ func Run(opts Options) error {
 		Metrics:     d.metrics,
 		BuildDrafts: opts.BuildDrafts,
 		Logf:        log.Printf,
+		PipelineCache: pipelineCache,
+		OnAfterBuild: func(r *build.Result) error {
+			// PipelineCache is populated by BuildSite via build.Options.PipelineCache.
+			return nil
+		},
 	})
 
 	// 7.5 Init Plugin Lifecycle Manager

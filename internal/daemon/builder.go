@@ -74,6 +74,7 @@ func (b *Builder) executeFullBuild(ctx context.Context) error {
 		OutputDir:     b.opts.OutputDir,
 		IncludeDrafts: b.opts.BuildDrafts,
 		Logf:          b.opts.Logf,
+		PipelineCache: b.opts.PipelineCache,
 		AfterBuild: func(r *build.Result, fn build.RenderPageFunc) error {
 			renderPageFn = fn // capture for later JIT use
 			if b.opts.OnAfterBuild != nil {

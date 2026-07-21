@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/daemon/cache"
 	"github.com/iannil/huan/internal/daemon/dag"
@@ -587,6 +588,99 @@ func TestBuilder_buildAndPersistDAG(t *testing.T) {
 	if err != nil {
 		t.Errorf("buildAndPersistDAG should not error: %v", err)
 	}
+}
+
+// TestBuilder_FullBuild_PopulatesPipelineCache verifies that when a Builder is
+// configured with a PipelineCache, a successful full build populates the cache
+// with reusable rendering state (templates, site config, writer).
+//
+// This locks in the Task 6 wiring contract: daemon creates the cache, hands it
+// to the Builder, and BuildSite fills it via build.Options.PipelineCache.
+func TestBuilder_FullBuild_PopulatesPipelineCache(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-pipeline-cache-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Minimal site scaffold (mirrors TestDaemonStartupHealthCheck).
+	huanYAML := []byte(`baseURL: "https://example.com/"
+title: "Pipeline Cache Test"
+publishDir: "docs"
+`)
+	if err := os.WriteFile(filepath.Join(tmpDir, "huan.yaml"), huanYAML, 0644); err != nil {
+		t.Fatal(err)
+	}
+	contentDir := filepath.Join(tmpDir, "content")
+	if err := os.MkdirAll(contentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	pageMD := []byte(`---
+title: "Test Page"
+date: "2026-01-01"
+---
+Hello, world.
+`)
+	if err := os.WriteFile(filepath.Join(contentDir, "test.md"), pageMD, 0644); err != nil {
+		t.Fatal(err)
+	}
+	layoutsDir := filepath.Join(tmpDir, "layouts", "_default")
+	if err := os.MkdirAll(layoutsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	singleTmpl := []byte(`<!doctype html><html><body>{{ .Content }}</body></html>`)
+	if err := os.WriteFile(filepath.Join(layoutsDir, "single.html"), singleTmpl, 0644); err != nil {
+		t.Fatal(err)
+	}
+	listTmpl := []byte(`<!doctype html><html><body>{{ .Content }}</body></html>`)
+	if err := os.WriteFile(filepath.Join(layoutsDir, "list.html"), listTmpl, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	// Create a PipelineCache the same way daemon.Run() will after Task 6 wiring.
+	pipelineCache := build.NewPipelineCache()
+	if pipelineCache == nil {
+		t.Fatal("NewPipelineCache returned nil")
+	}
+
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:      tmpDir,
+		OutputDir:      tmpDir,
+		Bus:            bus,
+		DAG:            dag.NewDependencyGraph(),
+		JITCache:       cache.NewJITCache(100, 5*time.Minute),
+		Metrics:        NewMetricsCollector(),
+		BuildDrafts:    true,
+		Logf:           t.Logf,
+		PipelineCache:  pipelineCache,
+	})
+
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild failed: %v", err)
+	}
+
+	// After a successful full build, the cache must be populated with the
+	// reusable rendering infrastructure. The BuiltAt timestamp should move
+	// forward (NewPipelineCache stamps it at creation; populateCache re-stamps
+	// at population time, but even creation time is acceptable — we only
+	// assert infrastructure pointers are set).
+	if pipelineCache.Templates == nil {
+		t.Error("PipelineCache.Templates should be populated after FullBuild")
+	}
+	if pipelineCache.SiteCfg == nil {
+		t.Error("PipelineCache.SiteCfg should be populated after FullBuild")
+	}
+	if pipelineCache.Writer == nil {
+		t.Error("PipelineCache.Writer should be populated after FullBuild")
+	}
+	t.Logf("PipelineCache populated: templates=%v siteCfg=%v writer=%v builtAt=%v",
+		pipelineCache.Templates != nil,
+		pipelineCache.SiteCfg != nil,
+		pipelineCache.Writer != nil,
+		pipelineCache.BuiltAt)
 }
 
 // TestServing_jitFallback verifies JIT fallback behavior.
