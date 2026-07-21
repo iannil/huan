@@ -11,16 +11,11 @@ import (
 )
 
 var imgTagRe = regexp.MustCompile(`<img\s[^>]*src="([^"]+)"[^>]*>`)
+var srcAttrRe = regexp.MustCompile(`src="([^"]+)"`)
 
 // InjectHTMLFiles processes all HTML files in the output directory,
 // replacing img tags with srcset/picture-enhanced versions.
 func InjectHTMLFiles(outputDir string, processed []ProcessedImage, cfg Config) error {
-	// Build lookup map: original relPath -> ProcessedImage
-	lookup := make(map[string]ProcessedImage)
-	for _, p := range processed {
-		lookup[p.Original.RelPath] = p
-	}
-
 	return filepath.Walk(outputDir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -53,9 +48,20 @@ func injectHTML(html string, processed []ProcessedImage, cfg Config) string {
 		lookup[p.Original.RelPath] = p
 	}
 
-	return imgTagRe.ReplaceAllStringFunc(html, func(match string) string {
+	// Pre-process: replace <picture>...</picture> blocks with placeholders
+	// so we don't inject into img tags already inside <picture>.
+	pictureRe := regexp.MustCompile(`(?is)<picture\b[^>]*>.*?</picture>`)
+	type placeholder struct{ id string; block string }
+	var placeholders []placeholder
+	processedHTML := pictureRe.ReplaceAllStringFunc(html, func(block string) string {
+		id := fmt.Sprintf("__PICTURE_PLACEHOLDER_%d__", len(placeholders))
+		placeholders = append(placeholders, placeholder{id, block})
+		return id
+	})
+
+	processedHTML = imgTagRe.ReplaceAllStringFunc(processedHTML, func(match string) string {
 		// Extract src attribute
-		srcMatch := regexp.MustCompile(`src="([^"]+)"`).FindStringSubmatch(match)
+		srcMatch := srcAttrRe.FindStringSubmatch(match)
 		if len(srcMatch) < 2 {
 			return match
 		}
@@ -146,6 +152,13 @@ func injectHTML(html string, processed []ProcessedImage, cfg Config) string {
 
 		return buf.String()
 	})
+
+	// Restore placeholders
+	for _, p := range placeholders {
+		processedHTML = strings.ReplaceAll(processedHTML, p.id, p.block)
+	}
+
+	return processedHTML
 }
 
 // filterVariants returns variants matching the given format.

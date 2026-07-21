@@ -131,3 +131,27 @@ func TestInjectHTMLFile(t *testing.T) {
 		t.Error("HTML file missing srcset after injection")
 	}
 }
+
+func TestInjectSkipInsidePicture(t *testing.T) {
+	cfg := Config{InjectSrcset: true, InjectPicture: true}
+	cfg.defaults(map[string]any{})
+
+	// HTML with an img already inside a <picture> block should not be modified
+	input := `<picture><source srcset="/images/photo.webp" type="image/webp"><img src="/images/photo.jpg" alt="test"></picture>`
+	output := injectHTML(input, []ProcessedImage{
+		{
+			Original: ImageAsset{RelPath: "images/photo.jpg", Width: 1200, Height: 800},
+			Variants: []ImageVariant{
+				{RelPath: "images/photo-480w.jpg", Width: 480, Format: "jpg"},
+			},
+		},
+	}, cfg)
+
+	if strings.Contains(output, "480w") {
+		t.Error("should not modify img already inside <picture>")
+	}
+	// The original <picture> block should be preserved exactly
+	if output != input {
+		t.Errorf("expected unchanged output, got: %s", output)
+	}
+}
