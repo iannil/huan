@@ -1,94 +1,86 @@
-### Task 1: Registry 增强 — 新增 Unregister 方法
+### Task 1: 清理 huan 主仓库中的编译期插件注册
 
 **Files:**
-- Modify: `internal/plugin/plugin.go` — 新增 `Unregister` 方法
-- Modify: `internal/plugin/plugin_test.go` — 新增 `Unregister` 测试
+- Modify: `cmd/huan/plugins.go` — 删除 cloudflare 和 qwen3_translate 的 case
+- Modify: `cmd/huan/plugins_test.go` — 删除对应测试
+- Modify: `cmd/huan/plugin_cmd.go` — 删除 `translate` capability 引用（已不存在）
+- Delete: `cmd/huan/plugins.go` 中 `import` 的 cloudflare 和 qwen3 包
 
-**Interfaces:**
-- Produces: `Registry.Unregister(name string) bool`
+**注意：此任务只做删除，不创建任何新文件。插件代码 `internal/deploy/cloudflare/` 和 `internal/translate/qwen3/` 暂时保留（Task 2 迁移到独立仓库时会删除）**
 
-- [ ] **Step 1: Write the failing test**
-
-在 `internal/plugin/plugin_test.go` 末尾添加：
+- [ ] **Step 1: 删除 plugins.go 中的 cloudflare 和 qwen3_translate case**
 
 ```go
-func TestUnregister_Success(t *testing.T) {
-    r := NewRegistry()
-    if err := r.Register(&stubPlugin{name: "alpha"}); err != nil {
-        t.Fatalf("Register alpha: %v", err)
-    }
-    got := r.Unregister("alpha")
-    if !got {
-        t.Error("Unregister(alpha): want true, got false")
-    }
-    if _, ok := r.Get("alpha"); ok {
-        t.Error("Get(alpha) after Unregister returned ok=true")
-    }
-}
-
-func TestUnregister_NotFound(t *testing.T) {
-    r := NewRegistry()
-    got := r.Unregister("nonexistent")
-    if got {
-        t.Error("Unregister(nonexistent): want false, got true")
-    }
-}
-
-func TestUnregister_MaintainsOrder(t *testing.T) {
-    r := NewRegistry()
-    _ = r.Register(&stubPlugin{name: "alpha"})
-    _ = r.Register(&stubPlugin{name: "bravo"})
-    _ = r.Register(&stubPlugin{name: "charlie"})
-    r.Unregister("bravo")
-    want := []string{"alpha", "charlie"}
-    got := r.Names()
-    if len(got) != len(want) {
-        t.Fatalf("Names() len = %d, want %d", len(got), len(want))
-    }
-    for i, name := range want {
-        if got[i] != name {
-            t.Errorf("Names()[%d] = %q, want %q", i, got[i], name)
+// cmd/huan/plugins.go — 修改 newPluginRegistry
+func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
+    r := plugin.NewRegistry()
+    for name, raw := range cfg.Plugins {
+        switch name {
+        // 删除 cloudflare 和 qwen3_translate 的 case
+        // 未知插件仍报错（fail-fast）
+        default:
+            return nil, fmt.Errorf("plugin %q: unknown (not compiled in)", name)
         }
     }
+    return r, nil
 }
 ```
 
-Run: `go test ./internal/plugin/ -run "TestUnregister_" -v`
-Expected: COMPILATION ERROR or FAIL (no Unregister method)
+同时删除 `import` 中的 cloudflare 和 qwen3 包。
 
-- [ ] **Step 2: 实现 Unregister**
-
-在 `internal/plugin/plugin.go` 的 `All()` 方法之后添加：
+- [ ] **Step 2: 更新 capabilityLabels — 删除 translate 引用**
 
 ```go
-// Unregister removes a plugin by name. Returns false if the name wasn't
-// registered. After Unregister, the plugin is no longer returned by Get,
-// All, Names, or Find[T].
-func (r *Registry) Unregister(name string) bool {
-    if _, exists := r.plugins[name]; !exists {
-        return false
+// cmd/huan/plugins.go — capabilityLabels
+func capabilityLabels(p plugin.Plugin) []string {
+    var labels []string
+    if _, ok := p.(deploy.Deployer); ok {
+        labels = append(labels, "deploy")
     }
-    delete(r.plugins, name)
-    for i, n := range r.order {
-        if n == name {
-            r.order = append(r.order[:i], r.order[i+1:]...)
-            break
-        }
-    }
-    return true
+    // 删除 translate.Translator 引用
+    // 因为 qwen3 不再编译期内置，运行时通过 .so 加载，不会被 capabilityLabels 看到
+    // 但 deploy.Deployer 保留（未来可能有其他编译期 deploy 插件）
+    return labels
 }
 ```
 
-- [ ] **Step 3: Run test to verify it passes**
+- [ ] **Step 3: 删除 `import "github.com/iannil/huan/internal/translate"` （如果只剩下 capabilityLabels 在用）**
 
-Run: `go test ./internal/plugin/ -run "TestUnregister_" -v`
-Expected: All 3 tests PASS
+删除后，`cmd/huan/plugins.go` 不再 import `internal/translate`。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 更新 plugins_test.go — 删除 qwen3 相关测试**
+
+删除 `TestNewPluginRegistry_ValidCloudflare` 和 `TestNewPluginRegistry_CloudflareMissingFieldsReturnsError` 等测试（因为它们依赖 `newPluginRegistry` 中 `cloudflare` case 的存在）。
+
+- [ ] **Step 5: 更新 plugin_cmd.go — 删除 `translate` import**
+
+删除 `import "github.com/iannil/huan/internal/translate"`（如果已不再使用）。
+
+- [ ] **Step 6: 编译验证**
 
 ```bash
-git add internal/plugin/plugin.go internal/plugin/plugin_test.go
-git commit -m "feat(plugin): add Registry.Unregister for runtime plugin removal"
+go build ./... && go vet ./...
+```
+
+预期：BUILD SUCCESS（但 `go test ./...` 中 plugins_test.go 的测试会失败，因为删除了 cloudflare case）
+
+- [ ] **Step 7: 更新测试文件**
+
+修改 `plugins_test.go`，删除依赖 cloudflare 和 qwen3 的测试用例。
+
+- [ ] **Step 8: 运行测试**
+
+```bash
+go test ./cmd/huan/... -v
+```
+
+预期：ALL PASS
+
+- [ ] **Step 9: 提交**
+
+```bash
+git add cmd/huan/plugins.go cmd/huan/plugins_test.go cmd/huan/plugin_cmd.go
+git commit -m "refactor(plugin): remove cloudflare and qwen3_translate from compiled-in plugins"
 ```
 
 ---
