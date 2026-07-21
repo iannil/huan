@@ -1,284 +1,229 @@
-### Task 3: JITCache（LRU + TTL）
+### Task 3: Loader — .so 插件加载器
 
 **Files:**
-- Create: `internal/daemon/cache/jit.go`
-- Create: `internal/daemon/cache/jit_test.go`
+- Create: `internal/plugin/loader.go`
+- Create: `internal/plugin/testdata/simple_plugin/main.go` — 测试用 .so 插件
+- Create: `internal/plugin/testdata/simple_plugin/Makefile` — 编译脚本
+- Create: `internal/plugin/loader_test.go`
 
 **Interfaces:**
-- Consumes: 无（纯数据结构）
-- Produces: `JITCache` 类型, `JITEntry` 类型, `Get()`, `Set()`, `Remove()`, `Clear()`, `Len()`
+- Produces: `Loader`, `Loader.LoadPlugin(path) (Plugin, error)`, `Loader.ScanAndLoad() ([]Plugin, error)`, `PluginInitFunc`, `ErrMissingInitSymbol`, `ErrPluginNameConflict`
 
-- [ ] **Step 1: Write jit.go**
+- [ ] **Step 1: 创建测试用 .so 插件**
 
-```go
-package cache
-
-import (
-	"container/list"
-	"sync"
-	"time"
-)
-
-// JITEntry holds a single JIT-rendered page.
-type JITEntry struct {
-	Path       string
-	HTML       []byte
-	Size       int64
-	ContentType string
-	RenderedAt time.Time
-	TTL        time.Duration
-}
-
-// JITCache provides LRU + TTL caching for JIT-rendered pages.
-// Not safe for concurrent use — callers must hold the lock.
-type JITCache struct {
-	mu       sync.RWMutex
-	entries  map[string]*list.Element
-	ll       *list.List // LRU order: front = most recently used
-	maxSize  int
-	defaultTTL time.Duration
-}
-
-type jitCacheItem struct {
-	key   string
-	entry *JITEntry
-}
-
-// NewJITCache creates a JITCache with the given max entry count and default TTL.
-func NewJITCache(maxSize int, defaultTTL time.Duration) *JITCache {
-	if maxSize <= 0 {
-		maxSize = 1000
-	}
-	if defaultTTL <= 0 {
-		defaultTTL = 5 * time.Minute
-	}
-	return &JITCache{
-		entries:    make(map[string]*list.Element),
-		ll:         list.New(),
-		maxSize:    maxSize,
-		defaultTTL: defaultTTL,
-	}
-}
-
-// Get retrieves a cached entry. Returns nil if not found or expired.
-func (c *JITCache) Get(path string) *JITEntry {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	elem, ok := c.entries[path]
-	if !ok {
-		return nil
-	}
-
-	item := elem.Value.(*jitCacheItem)
-
-	// Check TTL expiration
-	if time.Since(item.entry.RenderedAt) > item.entry.TTL {
-		c.removeElement(elem)
-		return nil
-	}
-
-	// Move to front (most recently used)
-	c.ll.MoveToFront(elem)
-	return item.entry
-}
-
-// Set adds or updates a cached entry.
-func (c *JITCache) Set(path string, entry *JITEntry) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if entry.TTL == 0 {
-		entry.TTL = c.defaultTTL
-	}
-	entry.Size = int64(len(entry.HTML))
-
-	// If exists, update in place
-	if elem, ok := c.entries[path]; ok {
-		item := elem.Value.(*jitCacheItem)
-		item.entry = entry
-		c.ll.MoveToFront(elem)
-		return
-	}
-
-	// Evict if at capacity
-	if c.ll.Len() >= c.maxSize {
-		c.evictOldest()
-	}
-
-	item := &jitCacheItem{key: path, entry: entry}
-	elem := c.ll.PushFront(item)
-	c.entries[path] = elem
-}
-
-// Remove deletes a cached entry.
-func (c *JITCache) Remove(path string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if elem, ok := c.entries[path]; ok {
-		c.removeElement(elem)
-	}
-}
-
-// Clear removes all entries.
-func (c *JITCache) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries = make(map[string]*list.Element)
-	c.ll = list.New()
-}
-
-// Len returns the number of cached entries.
-func (c *JITCache) Len() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.ll.Len()
-}
-
-// evictOldest removes the least recently used entry.
-func (c *JITCache) evictOldest() {
-	elem := c.ll.Back()
-	if elem != nil {
-		c.removeElement(elem)
-	}
-}
-
-func (c *JITCache) removeElement(elem *list.Element) {
-	item := elem.Value.(*jitCacheItem)
-	delete(c.entries, item.key)
-	c.ll.Remove(elem)
-}
-```
-
-- [ ] **Step 2: Run `go vet` to verify jit.go compiles**
-
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan && go vet ./internal/daemon/cache/...
-```
-Expected: no errors
-
-- [ ] **Step 3: Write jit_test.go**
+`internal/plugin/testdata/simple_plugin/main.go`：
 
 ```go
-package cache
+package main
+
+import "github.com/iannil/huan/internal/plugin"
+
+type simplePlugin struct {
+    name    string
+    version string
+}
+
+func (p *simplePlugin) Name() string { return p.name }
+
+// InitPlugin 是 Loader 查找的导出符号
+func InitPlugin(cfg map[string]any) (plugin.Plugin, error) {
+    name := "simple-test"
+    if v, ok := cfg["name"].(string); ok && v != "" {
+        name = v
+    }
+    return &simplePlugin{name: name, version: "1.0.0"}, nil
+}
+```
+
+`internal/plugin/testdata/simple_plugin/Makefile`：
+
+```makefile
+.PHONY: all clean
+
+GO ?= go
+
+all: simple_plugin.so
+
+simple_plugin.so: main.go
+	$(GO) build -buildmode=plugin -o $@ .
+
+clean:
+	rm -f *.so
+```
+
+- [ ] **Step 2: 编写 Loader 失败测试**
+
+`internal/plugin/loader_test.go`：
+
+```go
+package plugin
 
 import (
-	"testing"
-	"time"
+    "os"
+    "path/filepath"
+    "strings"
+    "testing"
 )
 
-func TestJITCache_SetGet(t *testing.T) {
-	c := NewJITCache(10, 5*time.Minute)
-	entry := &JITEntry{Path: "/test/", HTML: []byte("<h1>test</h1>"), TTL: 10 * time.Minute}
-	c.Set("/test/", entry)
-
-	got := c.Get("/test/")
-	if got == nil {
-		t.Fatal("expected non-nil entry")
-	}
-	if string(got.HTML) != "<h1>test</h1>" {
-		t.Errorf("expected '<h1>test</h1>', got '%s'", string(got.HTML))
-	}
+func TestLoader_LoadPlugin_MissingSymbol(t *testing.T) {
+    tmpDir := t.TempDir()
+    // Create an empty .so (no InitPlugin symbol)
+    emptyPath := filepath.Join(tmpDir, "empty.so")
+    if err := os.WriteFile(emptyPath, []byte("not a real .so"), 0644); err != nil {
+        t.Fatal(err)
+    }
+    l := NewLoader(tmpDir)
+    _, err := l.LoadPlugin(emptyPath)
+    if err == nil {
+        t.Fatal("expected error for invalid .so")
+    }
+    // Should mention "missing" or "InitPlugin"
+    if !strings.Contains(err.Error(), "InitPlugin") {
+        t.Errorf("error = %q, want mention InitPlugin", err.Error())
+    }
 }
 
-func TestJITCache_Miss(t *testing.T) {
-	c := NewJITCache(10, 5*time.Minute)
-	got := c.Get("/nonexistent/")
-	if got != nil {
-		t.Error("expected nil for missing entry")
-	}
+func TestLoader_LoadPlugin_FileNotExist(t *testing.T) {
+    l := NewLoader(t.TempDir())
+    _, err := l.LoadPlugin("/nonexistent/path/plugin.so")
+    if err == nil {
+        t.Fatal("expected error for nonexistent file")
+    }
 }
 
-func TestJITCache_TTLExpiration(t *testing.T) {
-	c := NewJITCache(10, 5*time.Minute)
-	entry := &JITEntry{Path: "/test/", HTML: []byte("hello"), TTL: 10 * time.Millisecond}
-	c.Set("/test/", entry)
-
-	// Should be found immediately
-	if c.Get("/test/") == nil {
-		t.Fatal("expected entry before TTL expiry")
-	}
-
-	// Wait for TTL to expire
-	time.Sleep(20 * time.Millisecond)
-	got := c.Get("/test/")
-	if got != nil {
-		t.Error("expected nil after TTL expiry")
-	}
+func TestLoader_ScanAndLoad_DirNotExist(t *testing.T) {
+    l := NewLoader("/nonexistent/plugin/dir")
+    plugins, err := l.ScanAndLoad()
+    if err != nil {
+        t.Fatalf("ScanAndLoad on nonexistent dir: %v", err)
+    }
+    if len(plugins) != 0 {
+        t.Errorf("got %d plugins, want 0", len(plugins))
+    }
 }
 
-func TestJITCache_LRUEviction(t *testing.T) {
-	c := NewJITCache(3, 5*time.Minute)
-
-	c.Set("/a/", &JITEntry{Path: "/a/", HTML: []byte("a")})
-	c.Set("/b/", &JITEntry{Path: "/b/", HTML: []byte("b")})
-	c.Set("/c/", &JITEntry{Path: "/c/", HTML: []byte("c")})
-
-	// Access /a/ to make it most recently used
-	c.Get("/a/")
-
-	// Add /d/ — should evict /b/ (least recently used)
-	c.Set("/d/", &JITEntry{Path: "/d/", HTML: []byte("d")})
-
-	if c.Get("/a/") == nil {
-		t.Error("/a/ should still be in cache")
-	}
-	if c.Get("/b/") != nil {
-		t.Error("/b/ should have been evicted")
-	}
-	if c.Get("/c/") == nil {
-		t.Error("/c/ should still be in cache")
-	}
-	if c.Get("/d/") == nil {
-		t.Error("/d/ should be in cache")
-	}
-}
-
-func TestJITCache_Clear(t *testing.T) {
-	c := NewJITCache(10, 5*time.Minute)
-	c.Set("/a/", &JITEntry{Path: "/a/", HTML: []byte("a")})
-	c.Set("/b/", &JITEntry{Path: "/b/", HTML: []byte("b")})
-
-	c.Clear()
-	if c.Len() != 0 {
-		t.Errorf("expected 0 entries after clear, got %d", c.Len())
-	}
-}
-
-func TestJITCache_Update(t *testing.T) {
-	c := NewJITCache(10, 5*time.Minute)
-	c.Set("/a/", &JITEntry{Path: "/a/", HTML: []byte("old")})
-	c.Set("/a/", &JITEntry{Path: "/a/", HTML: []byte("new")})
-
-	got := c.Get("/a/")
-	if got == nil {
-		t.Fatal("expected non-nil entry")
-	}
-	if string(got.HTML) != "new" {
-		t.Errorf("expected 'new', got '%s'", string(got.HTML))
-	}
+func TestLoader_ScanAndLoad_EmptyDir(t *testing.T) {
+    tmpDir := t.TempDir()
+    l := NewLoader(tmpDir)
+    plugins, err := l.ScanAndLoad()
+    if err != nil {
+        t.Fatalf("ScanAndLoad on empty dir: %v", err)
+    }
+    if len(plugins) != 0 {
+        t.Errorf("got %d plugins, want 0", len(plugins))
+    }
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+Run: `go test ./internal/plugin/ -run "TestLoader_" -v`
+Expected: COMPILATION ERROR (no loader.go yet)
 
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan && go test ./internal/daemon/cache/... -v -count=1
+- [ ] **Step 3: 实现 Loader**
+
+`internal/plugin/loader.go`：
+
+```go
+package plugin
+
+import (
+    "errors"
+    "fmt"
+    "os"
+    "path/filepath"
+    "plugin"
+)
+
+var (
+    ErrMissingInitSymbol = errors.New("plugin: missing InitPlugin symbol")
+    ErrPluginNameConflict = errors.New("plugin: name already registered")
+)
+
+// PluginInitFunc is the exported symbol every .so plugin must define.
+// The function receives the plugin's raw config and returns a Plugin instance.
+type PluginInitFunc func(cfg map[string]any) (Plugin, error)
+
+// Loader discovers and loads .so plugin files from a directory.
+type Loader struct {
+    pluginDir string
+}
+
+// NewLoader creates a Loader that scans pluginDir for .so files.
+func NewLoader(pluginDir string) *Loader {
+    return &Loader{pluginDir: pluginDir}
+}
+
+// LoadPlugin opens a .so file, finds the InitPlugin symbol, and calls it.
+// Returns the Plugin instance or an error.
+func (l *Loader) LoadPlugin(path string) (Plugin, error) {
+    p, err := plugin.Open(path)
+    if err != nil {
+        return nil, fmt.Errorf("plugin: open %s: %w", path, err)
+    }
+
+    sym, err := p.Lookup("InitPlugin")
+    if err != nil {
+        return nil, fmt.Errorf("plugin: %s: %w", path, ErrMissingInitSymbol)
+    }
+
+    initFn, ok := sym.(func(map[string]any) (Plugin, error))
+    if !ok {
+        return nil, fmt.Errorf("plugin: %s: InitPlugin has wrong signature", path)
+    }
+
+    // Pass an empty config map — the plugin can ignore it or use it for
+    // optional configuration. Full config integration is a future enhancement.
+    instance, err := initFn(make(map[string]any))
+    if err != nil {
+        return nil, fmt.Errorf("plugin: %s init: %w", path, err)
+    }
+
+    if instance == nil {
+        return nil, fmt.Errorf("plugin: %s: InitPlugin returned nil", path)
+    }
+
+    return instance, nil
+}
+
+// ScanAndLoad scans the pluginDir for all .so files, loads each one, and
+// returns the successfully loaded plugins. Files that fail to load are
+// skipped with a warning (logged to stderr). Returns an error only if the
+// pluginDir cannot be read.
+func (l *Loader) ScanAndLoad() ([]Plugin, error) {
+    entries, err := os.ReadDir(l.pluginDir)
+    if err != nil {
+        if os.IsNotExist(err) {
+            return nil, nil // directory doesn't exist, no plugins to load
+        }
+        return nil, fmt.Errorf("plugin: scan dir %s: %w", l.pluginDir, err)
+    }
+
+    var plugins []Plugin
+    for _, entry := range entries {
+        if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
+            continue
+        }
+        fullPath := filepath.Join(l.pluginDir, entry.Name())
+        p, err := l.LoadPlugin(fullPath)
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
+            continue
+        }
+        plugins = append(plugins, p)
+    }
+    return plugins, nil
+}
 ```
-Expected: 6 tests PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: 运行测试验证通过**
+
+Run: `go test ./internal/plugin/ -run "TestLoader_" -v`
+Expected: ALL PASS
+
+- [ ] **Step 5: 提交**
 
 ```bash
-git add internal/daemon/cache/
-git commit -m "feat(daemon): add JITCache with LRU eviction + TTL expiration
-
-- JITCache 实现：LRU 淘汰 + TTL 过期
-- Get/Set/Remove/Clear/Len 接口
-- 默认 maxSize 1000，默认 TTL 5 分钟
-- 6 个测试覆盖：基础 SetGet、Miss、TTL 过期、LRU 淘汰、Clear、更新覆盖
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+git add internal/plugin/loader.go internal/plugin/loader_test.go internal/plugin/testdata/
+git commit -m "feat(plugin): add Loader for .so plugin loading"
 ```
 
 ---

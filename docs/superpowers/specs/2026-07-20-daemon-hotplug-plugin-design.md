@@ -1,7 +1,7 @@
 # 设计文档：Daemon 热插拔插件系统（Hot-Pluggable Plugin System）
 
 - **日期**：2026-07-20
-- **状态**：Draft
+- **状态**：Implemented
 - **关联 ADR**：[ADR 0003 — 统一插件系统](docs/adr/0003-unified-plugin-system.md)
 - **实现阶段**：v0.7.0
 

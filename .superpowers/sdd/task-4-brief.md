@@ -1,381 +1,128 @@
-### Task 4: CLI 重命名（serve → dev）+ daemon 命令骨架
+### Task 4: GRPCStub — gRPC 预留骨架
 
 **Files:**
-- Create: `cmd/huan/daemon.go`
-- Create: `cmd/huan/dev.go`
-- Modify: `cmd/huan/main.go`（插入 daemonCmd + devCmd，serve 标记 deprecated）
-- Modify: `cmd/huan/serve.go`（重写为 deprecated stub）
+- Create: `internal/plugin/grpc_stub.go`
+- Create: `internal/plugin/grpc_stub_test.go`
 
-**Interfaces:**
-- Consumes: `internal/daemon/daemon.Run()`（后续任务实现）
-- Produces: `huan dev` 命令, `huan daemon` 命令骨架, `huan serve` deprecated
+- [ ] **Step 1: 编写测试**
 
-- [ ] **Step 1: 创建 daemon.go — daemon 命令定义**
+`internal/plugin/grpc_stub_test.go`：
 
 ```go
-package main
+package plugin
 
 import (
-	"fmt"
-	"time"
-
-	"github.com/spf13/cobra"
+    "context"
+    "testing"
 )
 
-func init() {
-	rootCmd.AddCommand(daemonCmd)
+func TestGRPCStub_ImplementsPlugin(t *testing.T) {
+    s := NewGRPCStub("test-plugin", "deployer", "localhost:50051")
+    if s.Name() != "test-plugin" {
+        t.Errorf("Name() = %q, want test-plugin", s.Name())
+    }
 }
 
-var daemonCmd = &cobra.Command{
-	Use:   "daemon",
-	Short: "Start the production content server",
-	Long: `Start the production content server with mixed rendering (pre-render + JIT),
-REST API, admin panel, and infrastructure features (TLS, health checks, metrics).
-
-A long-running process that serves the site as a backend service.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("huan daemon: starting (v0.6.0) ...")
-		// TODO: Phase 2 — wire up daemon.Run()
-		_ = time.Now()
-		return nil
-	},
+func TestGRPCStub_Capability(t *testing.T) {
+    s := NewGRPCStub("test", "deployer", "")
+    if s.Capability() != "deployer" {
+        t.Errorf("Capability() = %q, want deployer", s.Capability())
+    }
 }
 
-func init() {
-	daemonCmd.Flags().String("port", "8080", "HTTP listen port")
-	daemonCmd.Flags().String("bind", "0.0.0.0", "interface to bind")
-	daemonCmd.Flags().String("config", "", "daemon config file path (daemon.yaml)")
-	daemonCmd.Flags().String("tls-cert", "", "TLS certificate path")
-	daemonCmd.Flags().String("tls-key", "", "TLS private key path")
-	daemonCmd.Flags().Bool("systemd", false, "enable systemd notify integration")
-	daemonCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
+func TestGRPCStub_CallReturnsNotImplemented(t *testing.T) {
+    s := NewGRPCStub("test", "", "")
+    _, err := s.Call(context.Background(), "Deploy", nil)
+    if err != ErrGRPCNotImplemented {
+        t.Errorf("Call: want ErrGRPCNotImplemented, got %v", err)
+    }
+}
+
+func TestGRPCStub_HealthReturnsNil(t *testing.T) {
+    s := NewGRPCStub("test", "", "")
+    err := s.Health(context.Background())
+    if err != nil {
+        t.Errorf("Health: want nil, got %v", err)
+    }
 }
 ```
 
-- [ ] **Step 2: 创建 dev.go — dev 命令（从 serve.go 复制，重命名命令）**
+Run: `go test ./internal/plugin/ -run "TestGRPCStub_" -v`
+Expected: COMPILATION ERROR (no grpc_stub.go yet)
+
+- [ ] **Step 2: 实现 GRPCStub**
+
+`internal/plugin/grpc_stub.go`：
 
 ```go
-package main
+package plugin
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"sync/atomic"
-	"time"
-
-	"github.com/iannil/huan/internal/admin"
-	"github.com/iannil/huan/internal/build"
-	"github.com/iannil/huan/internal/config"
-	"github.com/iannil/huan/internal/dev"
-	"github.com/spf13/cobra"
+    "context"
+    "errors"
 )
 
-func init() {
-	rootCmd.AddCommand(devCmd)
+// ErrGRPCNotImplemented is returned by GRPCStub methods until the gRPC
+// transport layer is actually implemented.
+var ErrGRPCNotImplemented = errors.New("plugin: gRPC not implemented yet")
+
+// GRPCPlugin defines the interface for plugins that communicate via gRPC.
+// This is a reserved interface for future use — the gRPC transport layer
+// will be implemented when cross-language plugin support is needed.
+type GRPCPlugin interface {
+    Plugin
+    // Capability returns the plugin's capability type (e.g. "deployer",
+    // "translator", "seo_checker").
+    Capability() string
+    // Call invokes a remote method on the plugin.
+    // Currently returns ErrGRPCNotImplemented.
+    Call(ctx context.Context, method string, payload []byte) ([]byte, error)
+    // Health checks whether the remote plugin is alive.
+    Health(ctx context.Context) error
 }
 
-var devCmd = &cobra.Command{
-	Use:   "dev",
-	Short: "Start the development server",
-	Long:  "Start the development server with LiveReload, file watching, and admin panel.",
-	RunE:  runDev,
+// GRPCStub is a placeholder for future gRPC-based plugins. It implements
+// GRPCPlugin with stub methods that return ErrGRPCNotImplemented. The
+// actual gRPC client will be implemented later in internal/plugin/grpc/.
+type GRPCStub struct {
+    name       string
+    capability string
+    address    string // remote gRPC address, e.g. "localhost:50051"
 }
 
-func init() {
-	devCmd.Flags().String("port", "1313", "port to serve on")
-	devCmd.Flags().String("bind", "127.0.0.1", "interface to bind")
-	devCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
-	devCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
-	devCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
-	devCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
-	devCmd.Flags().String("adminDev", "", "admin UI Vite dev server URL (e.g. http://localhost:5173) for hot reload")
+// NewGRPCStub creates a new GRPCStub. All methods return stub values
+// until the gRPC transport layer is implemented.
+func NewGRPCStub(name, capability, address string) *GRPCStub {
+    return &GRPCStub{
+        name:       name,
+        capability: capability,
+        address:    address,
+    }
 }
 
-func runDev(cmd *cobra.Command, args []string) error {
-	// --- 从原 serve.go 复制完整逻辑，将 internal/serve 替换为 internal/dev ---
-	port, _ := cmd.Flags().GetString("port")
-	bind, _ := cmd.Flags().GetString("bind")
-	disableLR, _ := cmd.Flags().GetBool("disableLiveReload")
-	disableWatch, _ := cmd.Flags().GetBool("disableWatch")
-	debounce, _ := cmd.Flags().GetDuration("debounce")
-	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
-	adminDevURL, _ := cmd.Flags().GetString("adminDev")
+func (s *GRPCStub) Name() string { return s.name }
 
-	cfg, err := config.Load(sourceDir)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
+func (s *GRPCStub) Capability() string { return s.capability }
 
-	token, tokenFromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token); err != nil {
-		return err
-	}
-	if !tokenFromEnv {
-		var err error
-		if token, err = admin.GenerateToken(); err != nil {
-			return fmt.Errorf("generate admin token: %w", err)
-		}
-		admin.MustPrintAutoGeneratedToken(token, true)
-	}
+func (s *GRPCStub) Call(_ context.Context, _ string, _ []byte) ([]byte, error) {
+    return nil, ErrGRPCNotImplemented
+}
 
-	browserHost := bind
-	if bind == "0.0.0.0" || bind == "::" {
-		browserHost = "localhost"
-	}
-
-	devBaseURL := "http://" + browserHost + ":" + port + "/"
-	lrURL := ""
-	injectLR := false
-	if !disableLR {
-		injectLR = true
-		lrURL = "ws://" + browserHost + ":" + port + "/livereload"
-	}
-
-	var hub *dev.LiveReloadHub
-	if !disableLR {
-		hub = dev.NewHub()
-	}
-
-	tmpDir, err := os.MkdirTemp("", "huan-dev-*")
-	if err != nil {
-		return fmt.Errorf("mkdtemp: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	buildOpts := build.Options{
-		SourceDir:        sourceDir,
-		OutputDir:        tmpDir,
-		IncludeDrafts:    includeDrafts,
-		InjectLiveReload: injectLR,
-		LiveReloadURL:    lrURL,
-		BaseURLOverride:  devBaseURL,
-		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
-	}
-
-	runBuild := func(opts build.Options) error {
-		if cfg.IsMultiLanguage() {
-			res, err := build.BuildMultiSite(opts)
-			if err != nil {
-				return err
-			}
-			fmt.Println(build.SummarizeMultiSite(res))
-			return nil
-		}
-		_, err := build.BuildSite(opts)
-		return err
-	}
-
-	if err := runBuild(buildOpts); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var (
-		rebuildBusy   atomic.Bool
-		rebuildPended atomic.Bool
-	)
-	nextDir := tmpDir + ".next"
-	doRebuild := func() {
-		if !rebuildBusy.CompareAndSwap(false, true) {
-			rebuildPended.Store(true)
-			return
-		}
-		for {
-			fmt.Println("[watch] change detected, rebuilding...")
-			start := time.Now()
-			_ = os.RemoveAll(nextDir)
-			buildOpts.OutputDir = nextDir
-			if err := runBuild(buildOpts); err != nil {
-				_ = os.RemoveAll(nextDir)
-				buildOpts.OutputDir = tmpDir
-				fmt.Printf("[watch] rebuild error: %v\n", err)
-				if hub != nil {
-					hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", err))
-				}
-				break
-			}
-			if err := build.SwapBuildDir(tmpDir, nextDir); err != nil {
-				_ = os.RemoveAll(nextDir)
-				buildOpts.OutputDir = tmpDir
-				fmt.Printf("[watch] swap failed, kept old build: %v\n", err)
-			}
-			buildOpts.OutputDir = tmpDir
-			fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
-			if hub != nil {
-				hub.BroadcastReload()
-			}
-			if !rebuildPended.CompareAndSwap(true, false) {
-				break
-			}
-		}
-		rebuildBusy.Store(false)
-	}
-
-	if !disableWatch {
-		watcher, err := dev.NewWatcher(dev.WatcherOptions{
-			SourceDir: sourceDir,
-			Debounce:  debounce,
-			OnChange:  doRebuild,
-		})
-		if err != nil {
-			fmt.Printf("WARNING: file watcher unavailable: %v\n", err)
-			fmt.Println("WARNING: use --disableWatch to suppress this message")
-		} else {
-			go watcher.Run(ctx)
-		}
-	}
-
-	fmt.Println("Press Ctrl+C to stop")
-
-	serveURL := fmt.Sprintf("http://%s:%s/", browserHost, port)
-	adminHandler := admin.NewHandler(admin.HandlerOptions{
-		Cfg:       cfg,
-		SourceDir: sourceDir,
-		Rebuild:   doRebuild,
-		ServeURL:  serveURL,
-		BindAddr:  bind,
-		Token:     token,
-		MemoryDir: filepath.Join(sourceDir, "memory", "daily"),
-	})
-	if adminDevURL != "" {
-		fmt.Printf("Admin UI dev mode: proxying to %s\n", adminDevURL)
-		adminHandler = dev.NewAdminDevProxy(adminDevURL, adminHandler)
-	}
-
-	srv := dev.New(dev.ServerOptions{
-		OutputDir:    tmpDir,
-		Bind:         bind,
-		Port:         port,
-		Hub:          hub,
-		AdminHandler: adminHandler,
-		Logf:         func(format string, a ...any) { fmt.Printf(format, a...) },
-	})
-	return srv.Run(ctx)
+func (s *GRPCStub) Health(_ context.Context) error {
+    return nil
 }
 ```
 
-- [ ] **Step 3: 修改 main.go — 插入 daemonCmd + devCmd，serve 标记 deprecated**
+- [ ] **Step 3: 运行测试验证通过**
 
-```go
-// 在 rootCmd.AddCommand(...) 行中修改：
-// 原有行：
-//   rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), ...)
-// 改为：
-//   rootCmd.AddCommand(buildCmd, devCmd, daemonCmd, serveCmd, newDeployCmd(), ...)
-//
-// 在 runBuild 函数之前添加 serve 的 deprecated 命令：
+Run: `go test ./internal/plugin/ -run "TestGRPCStub_" -v`
+Expected: ALL PASS
 
-// serveCmd is the deprecated alias for devCmd.
-// Kept for backward compatibility; removed in the next major version.
-var serveCmd = &cobra.Command{
-	Use:        "serve",
-	Short:      "DEPRECATED: use 'huan dev' instead",
-	Hidden:     true,
-	Deprecated: "use 'huan dev' instead",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runDev(cmd, args)
-	},
-}
-```
-
-- [ ] **Step 4: 修改 main.go 的 import — 添加 devCmd 和 daemonCmd 的引用**
-
-```go
-// 在 main.go 中，原有 import 已包含 build, config 等。
-// 添加 devCmd 注册：devCmd 在 dev.go 中通过 init() 自动注册到 rootCmd。
-// 添加 daemonCmd 注册：daemonCmd 在 daemon.go 中通过 init() 自动注册到 rootCmd。
-// 不需要修改 import 部分。
-```
-
-- [ ] **Step 5: 重命名 internal/serve/ → internal/dev/**
+- [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/rong.zhu/Code/zhurong/huan && mkdir -p internal/dev_temp && cp -r internal/serve/* internal/dev_temp/ && rm -rf internal/serve && mv internal/dev_temp internal/dev
-```
-
-- [ ] **Step 6: 更新 internal/dev/ 包名**
-
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan && sed -i '' 's/package serve/package dev/g' internal/dev/*.go
-```
-
-- [ ] **Step 7: 更新 internal/dev/ 中的 import 路径（如果引用了自身）**
-
-```bash
-# 检查是否有引用 internal/serve 自身
-cd /Users/rong.zhu/Code/zhurong/huan && grep -rn '"github.com/iannil/huan/internal/serve"' internal/dev/ --include="*.go"
-```
-Expected: no matches (serve 包不引用自身)
-
-- [ ] **Step 8: 更新 dev.go 中 import internal/serve 为 internal/dev**
-
-```go
-// 在 cmd/huan/dev.go 中：
-import (
-	// ...
-	"github.com/iannil/huan/internal/dev"
-	// 不再引用 internal/serve
-)
-```
-
-- [ ] **Step 9: 清理旧的 serve.go — 改为 deprecated 包装**
-
-```go
-// serve.go — DEPRECATED, use 'huan dev' instead
-package main
-
-import (
-	"fmt"
-
-	"github.com/spf13/cobra"
-)
-
-func init() {
-	// serveCmd is registered in main.go as deprecated
-	// This file kept for backward compatibility.
-	// Remove in next major version.
-}
-
-// runServe is kept as an alias for test compatibility.
-func runServe(cmd *cobra.Command, args []string) error {
-	fmt.Println("WARNING: 'huan serve' is deprecated, use 'huan dev' instead")
-	return runDev(cmd, args)
-}
-```
-
-- [ ] **Step 10: 编译验证**
-
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan && go build -o huan ./cmd/huan && ./huan
-```
-Expected: 输出应该显示 `dev`, `daemon`, `serve (deprecated)` 命令
-
-- [ ] **Step 11: 运行现有测试（确保 serve→dev 重命名不破坏测试）**
-
-```bash
-cd /Users/rong.zhu/Code/zhurong/huan && go test ./internal/dev/... -v -count=1
-```
-Expected: 现有 serve 测试全部 PASS
-
-- [ ] **Step 12: Commit**
-
-```bash
-git add cmd/huan/ internal/dev/
-git rm -r internal/serve/
-git add -A
-git commit -m "refactor(cli): rename serve→dev, add daemon skeleton, deprecate serve
-
-- huan serve → huan dev（功能不变，仅命令名变更）
-- internal/serve/ → internal/dev/（包重命名）
-- huan daemon 命令骨架（Phase 1，暂为 stub）
-- huan serve 标记 deprecated，提示使用 huan dev
-- 现有测试全部通过
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+git add internal/plugin/grpc_stub.go internal/plugin/grpc_stub_test.go
+git commit -m "feat(plugin): add GRPCStub skeleton for future gRPC plugin support"
 ```
 
 ---
