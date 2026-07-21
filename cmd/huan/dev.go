@@ -100,10 +100,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			fmt.Println(build.SummarizeMultiSite(res))
-			return nil
+		} else {
+			_, err := build.BuildSite(opts)
+			if err != nil {
+				return err
+			}
 		}
-		_, err := build.BuildSite(opts)
-		return err
+		// Run image pipeline after build if configured
+		if err := runImagePipeline(cfg, sourceDir, opts.OutputDir); err != nil {
+			return fmt.Errorf("image pipeline: %w", err)
+		}
+		return nil
 	}
 
 	if err := runBuild(buildOpts); err != nil {

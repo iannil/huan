@@ -98,6 +98,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		fmt.Println(build.SummarizeMultiSite(multiResult))
+
+		// Run image pipeline after build if configured
+		if err := runImagePipeline(cfg, sourceDir, outputDir); err != nil {
+			return fmt.Errorf("after build: %w", err)
+		}
 		return nil
 	}
 
@@ -110,6 +115,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		BaseURLOverride:  baseURLOverride,
 		MinifyOverride:   minifyOverride,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Run image pipeline after build if configured
+	return runImagePipeline(cfg, sourceDir, outputDir)
 }
 
