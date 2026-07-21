@@ -168,6 +168,32 @@ func TestOrderByDependency_UnknownPathsPreserved(t *testing.T) {
 	}
 }
 
+func TestOrderByDependency_UnknownPathsAtEnd(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/leaf/"] = &Node{PagePath: "/leaf/", DependsOn: []string{"/parent/"}}
+	dg.nodes["/parent/"] = &Node{PagePath: "/parent/", DependsOn: []string{}, DependedBy: []string{"/leaf/"}}
+
+	// Mixed input: known leaf, unknown, known parent, unknown
+	ordered := dg.OrderByDependency([]string{"/leaf/", "/mystery1/", "/parent/", "/mystery2/"})
+
+	// All known paths must come before all unknown paths.
+	leafIdx := indexOf(ordered, "/leaf/")
+	parentIdx := indexOf(ordered, "/parent/")
+	mystery1Idx := indexOf(ordered, "/mystery1/")
+	mystery2Idx := indexOf(ordered, "/mystery2/")
+	maxKnown := leafIdx
+	if parentIdx > maxKnown {
+		maxKnown = parentIdx
+	}
+	minUnknown := mystery1Idx
+	if mystery2Idx < minUnknown {
+		minUnknown = mystery2Idx
+	}
+	if maxKnown > minUnknown {
+		t.Errorf("unknown paths must come after all known paths; known max idx %d, unknown min idx %d, order: %v", maxKnown, minUnknown, ordered)
+	}
+}
+
 func indexOf(slice []string, s string) int {
 	for i, v := range slice {
 		if v == s {

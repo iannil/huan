@@ -176,22 +176,32 @@ func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
 	dg.mu.RLock()
 	defer dg.mu.RUnlock()
 
-	// Build the subgraph induced by pagePaths.
-	inSet := make(map[string]bool, len(pagePaths))
+	// Partition input into known (present in dg.nodes) and unknown paths,
+	// preserving input order within each. Per the spec, unknown paths are
+	// appended at the end of the result in input order, regardless of where
+	// they appear in the input slice.
+	known := make([]string, 0, len(pagePaths))
+	unknown := make([]string, 0)
 	for _, p := range pagePaths {
+		if _, ok := dg.nodes[p]; ok {
+			known = append(known, p)
+		} else {
+			unknown = append(unknown, p)
+		}
+	}
+
+	// Build the subgraph induced by known paths.
+	inSet := make(map[string]bool, len(known))
+	for _, p := range known {
 		inSet[p] = true
 	}
 
 	// For each node, collect its forward dependencies that are also in the set.
 	// A node is renderable once all nodes that depend on it (its dependers)
 	// have already been rendered.
-	dependers := make(map[string][]string, len(pagePaths))
-	for _, p := range pagePaths {
-		node, ok := dg.nodes[p]
-		if !ok {
-			dependers[p] = nil
-			continue
-		}
+	dependers := make(map[string][]string, len(known))
+	for _, p := range known {
+		node := dg.nodes[p]
 		for _, dep := range node.DependsOn {
 			if inSet[dep] {
 				// p depends on dep, so p must render before dep.
@@ -202,11 +212,11 @@ func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
 
 	// Kahn's algorithm with stable ordering (process in input order).
 	rendered := make(map[string]bool)
-	var result []string
+	result := make([]string, 0, len(pagePaths))
 	// Iterate multiple passes until no progress; this keeps input-order stability.
-	for len(result) < len(pagePaths) {
+	for len(result) < len(known) {
 		progress := false
-		for _, p := range pagePaths {
+		for _, p := range known {
 			if rendered[p] {
 				continue
 			}
@@ -224,8 +234,8 @@ func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
 			}
 		}
 		if !progress {
-			// Cycle or unknown deps: append remaining in input order.
-			for _, p := range pagePaths {
+			// Cycle: append remaining known paths in input order.
+			for _, p := range known {
 				if !rendered[p] {
 					result = append(result, p)
 					rendered[p] = true
@@ -233,5 +243,8 @@ func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
 			}
 		}
 	}
+
+	// Append unknown paths at the end in input order.
+	result = append(result, unknown...)
 	return result
 }
