@@ -96,8 +96,11 @@ func TestImagePipelinePlugin_Name(t *testing.T) {
 }
 
 func TestImagePipelinePlugin_Process_Stub(t *testing.T) {
-	p := &ImagePipelinePlugin{}
-	err := p.Process("/tmp/out", "/tmp/src")
+	// Create a temp output directory
+	tmpDir := t.TempDir()
+	p := &ImagePipelinePlugin{cfg: Config{InjectSrcset: false, InjectPicture: false}}
+	err := p.Process(tmpDir, "/tmp/src")
+	// With empty directory, Process should return nil (no images to process)
 	if err != nil {
 		t.Errorf("Process() error: %v", err)
 	}
