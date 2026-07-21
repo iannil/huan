@@ -106,3 +106,73 @@ func TestEmptyGraph(t *testing.T) {
 		t.Errorf("expected 0 affected, got %d", len(affected))
 	}
 }
+
+func TestOrderByDependency_LeafBeforeParent(t *testing.T) {
+	dg := NewDependencyGraph()
+	// Build a minimal graph: /posts/hello/ depends on /posts/ and /
+	// (so /posts/ and / are "depended by" /posts/hello/ in reverse edges).
+	dg.nodes["/posts/hello/"] = &Node{
+		PagePath:   "/posts/hello/",
+		DependsOn:  []string{"/posts/", "/"},
+		DependedBy: []string{},
+	}
+	dg.nodes["/posts/"] = &Node{
+		PagePath:   "/posts/",
+		DependsOn:  []string{"/"},
+		DependedBy: []string{"/posts/hello/"},
+	}
+	dg.nodes["/"] = &Node{
+		PagePath:   "/",
+		DependsOn:  []string{},
+		DependedBy: []string{"/posts/hello/", "/posts/"},
+	}
+
+	affected := []string{"/posts/hello/", "/posts/", "/"}
+	ordered := dg.OrderByDependency(affected)
+
+	// The leaf (/posts/hello/) must come before pages that depend on it.
+	helloIdx := indexOf(ordered, "/posts/hello/")
+	postsIdx := indexOf(ordered, "/posts/")
+	homeIdx := indexOf(ordered, "/")
+	if helloIdx > postsIdx {
+		t.Errorf("leaf /posts/hello/ (idx %d) must come before /posts/ (idx %d)", helloIdx, postsIdx)
+	}
+	if helloIdx > homeIdx {
+		t.Errorf("leaf /posts/hello/ (idx %d) must come before / (idx %d)", helloIdx, homeIdx)
+	}
+}
+
+func TestOrderByDependency_SinglePage(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/only/"] = &Node{PagePath: "/only/"}
+	ordered := dg.OrderByDependency([]string{"/only/"})
+	if len(ordered) != 1 || ordered[0] != "/only/" {
+		t.Errorf("OrderByDependency single = %v, want [/only/]", ordered)
+	}
+}
+
+func TestOrderByDependency_Empty(t *testing.T) {
+	dg := NewDependencyGraph()
+	ordered := dg.OrderByDependency([]string{})
+	if len(ordered) != 0 {
+		t.Errorf("OrderByDependency empty = %v, want []", ordered)
+	}
+}
+
+func TestOrderByDependency_UnknownPathsPreserved(t *testing.T) {
+	dg := NewDependencyGraph()
+	// Path not in graph should still appear in output.
+	ordered := dg.OrderByDependency([]string{"/unknown/"})
+	if len(ordered) != 1 || ordered[0] != "/unknown/" {
+		t.Errorf("unknown path = %v, want [/unknown/]", ordered)
+	}
+}
+
+func indexOf(slice []string, s string) int {
+	for i, v := range slice {
+		if v == s {
+			return i
+		}
+	}
+	return -1
+}

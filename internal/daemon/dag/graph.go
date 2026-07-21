@@ -159,3 +159,79 @@ func (dg *DependencyGraph) PagePathFromSource(sourceFile string) (string, bool) 
 	path, ok := dg.sources[sourceFile]
 	return path, ok
 }
+
+// OrderByDependency returns the given page paths in rendering order for an
+// incremental build: dependents first (e.g. a leaf article), then the pages
+// they depend on (e.g. the section and home pages that list the article).
+//
+// Rationale: when an article changes, its own HTML must be re-rendered before
+// the section/home list pages that reference it, so the lists reflect the
+// updated article. In other words, for every dependency edge A -> B
+// (A depends on B), A must be rendered before B.
+//
+// The sort is stable: among pages with no dependency relationship, the input
+// order is preserved. Paths not present in the graph are appended at the end
+// in input order.
+func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
+	dg.mu.RLock()
+	defer dg.mu.RUnlock()
+
+	// Build the subgraph induced by pagePaths.
+	inSet := make(map[string]bool, len(pagePaths))
+	for _, p := range pagePaths {
+		inSet[p] = true
+	}
+
+	// For each node, collect its forward dependencies that are also in the set.
+	// A node is renderable once all nodes that depend on it (its dependers)
+	// have already been rendered.
+	dependers := make(map[string][]string, len(pagePaths))
+	for _, p := range pagePaths {
+		node, ok := dg.nodes[p]
+		if !ok {
+			dependers[p] = nil
+			continue
+		}
+		for _, dep := range node.DependsOn {
+			if inSet[dep] {
+				// p depends on dep, so p must render before dep.
+				dependers[dep] = append(dependers[dep], p)
+			}
+		}
+	}
+
+	// Kahn's algorithm with stable ordering (process in input order).
+	rendered := make(map[string]bool)
+	var result []string
+	// Iterate multiple passes until no progress; this keeps input-order stability.
+	for len(result) < len(pagePaths) {
+		progress := false
+		for _, p := range pagePaths {
+			if rendered[p] {
+				continue
+			}
+			ready := true
+			for _, dep := range dependers[p] {
+				if !rendered[dep] {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				result = append(result, p)
+				rendered[p] = true
+				progress = true
+			}
+		}
+		if !progress {
+			// Cycle or unknown deps: append remaining in input order.
+			for _, p := range pagePaths {
+				if !rendered[p] {
+					result = append(result, p)
+					rendered[p] = true
+				}
+			}
+		}
+	}
+	return result
+}
