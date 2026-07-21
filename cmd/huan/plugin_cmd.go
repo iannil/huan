@@ -18,11 +18,15 @@ func newPluginCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newPluginListCmd())
 	cmd.AddCommand(newPluginInfoCmd())
+	cmd.AddCommand(newPluginLoadCmd())
+	cmd.AddCommand(newPluginUnloadCmd())
+	cmd.AddCommand(newPluginReloadCmd())
 	return cmd
 }
 
 func newPluginListCmd() *cobra.Command {
-	return &cobra.Command{
+	var showAll bool
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all configured plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -35,9 +39,18 @@ func newPluginListCmd() *cobra.Command {
 				return fmt.Errorf("plugin registry: %w", err)
 			}
 			printPluginList(registry)
+
+			if showAll {
+				// Also list runtime-loaded plugins from daemon
+				if err := listRuntimePlugins(); err != nil {
+					fmt.Printf("(runtime plugins: %v)\n", err)
+				}
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "also list runtime-loaded plugins from daemon")
+	return cmd
 }
 
 func newPluginInfoCmd() *cobra.Command {
