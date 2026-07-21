@@ -5,10 +5,7 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/deploy"
-	"github.com/iannil/huan/internal/deploy/cloudflare"
 	"github.com/iannil/huan/internal/plugin"
-	"github.com/iannil/huan/internal/translate"
-	"github.com/iannil/huan/internal/translate/qwen3"
 )
 
 // newPluginRegistry is the composition root for the unified plugin system
@@ -22,28 +19,8 @@ import (
 // than silently passing through to a nil pointer dereference later.
 func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
 	r := plugin.NewRegistry()
-	for name, raw := range cfg.Plugins {
+	for name := range cfg.Plugins {
 		switch name {
-		case "cloudflare":
-			cfCfg, err := cloudflare.ParseConfig(raw)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-			if err := r.Register(cloudflare.New(cfCfg)); err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-		case "qwen3_translate":
-			qCfg, err := qwen3.ParseConfig(raw)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-			p, err := qwen3.New(qCfg, sourceDir)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-			if err := r.Register(p); err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
 		default:
 			return nil, fmt.Errorf("plugin %q: unknown (not compiled in)", name)
 		}
@@ -57,9 +34,6 @@ func capabilityLabels(p plugin.Plugin) []string {
 	var labels []string
 	if _, ok := p.(deploy.Deployer); ok {
 		labels = append(labels, "deploy")
-	}
-	if _, ok := p.(translate.Translator); ok {
-		labels = append(labels, "translate")
 	}
 	// future: payment.PaymentProvider -> "payment"; etc.
 	return labels
