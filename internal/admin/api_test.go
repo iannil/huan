@@ -570,3 +570,43 @@ func TestAPI_PluginRoutes_RequireToken(t *testing.T) {
 		})
 	}
 }
+
+// TestAdminAPI_PluginEndpoints_NoManager verifies plugin endpoints return appropriate
+// status when no PluginManager is configured.
+func TestAdminAPI_PluginEndpoints_NoManager(t *testing.T) {
+	// When no PluginManager is configured, list returns unavailable, load returns 503
+	handler := newAPIHandler(apiHandlerConfig{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	// GET /plugins - returns 200 with unavailable status
+	resp, err := http.Get(srv.URL + "/plugins")
+	if err != nil {
+		t.Fatalf("GET /plugins: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /plugins without manager: want 200, got %d", resp.StatusCode)
+	}
+
+	var listResp PluginManageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if listResp.Status != "plugin manager unavailable" {
+		t.Errorf("list status = %q, want 'plugin manager unavailable'", listResp.Status)
+	}
+
+	// POST /plugins/load - returns 503
+	body := `{"path":"test.so"}`
+	resp2, err := http.Post(srv.URL+"/plugins/load", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /plugins/load: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("POST /plugins/load without manager: want 503, got %d", resp2.StatusCode)
+	}
+}
