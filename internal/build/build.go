@@ -357,6 +357,19 @@ func IncrementalRender(opts Options, cache *PipelineCache, affectedURLs []string
 		renderedCount++
 	}
 
+	// Stage 7: regenerate site-wide outputs that aggregate content from
+	// many pages. Without this, sitemap.xml, search.json, RSS feeds,
+	// paginated home, taxonomy/term pages, and AI outputs (llms.txt,
+	// content API) go stale after any content edit. The pipeline state
+	// (site, lookup, writer, templates, renderer) is all fresh from the
+	// content reload + context rebuild above, so these methods work the
+	// same as in a full build.
+	p.renderTaxonomyPages()
+	p.renderPaginatedHome()
+	p.renderSitemap()
+	p.renderSearchIndex()
+	p.renderAIOutputs()
+
 	logf("  Incremental render: %d pages re-rendered (%d affected, %d errors)\n",
 		renderedCount, len(affectedURLs), errors)
 	return nil

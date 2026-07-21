@@ -34,6 +34,20 @@ func NewDependencyGraph() *DependencyGraph {
 
 // BuildFromSite constructs the dependency graph from a fully built site.
 // Called after a full build completes.
+//
+// Edge direction (corrected — see rules.go):
+//
+//	Aggregator pages DEPEND ON the articles they aggregate. So when an
+//	article changes, the aggregators that list it are reached by walking
+//	DependedBy (who lists me) from the article.
+//
+// Concretely, this builds edges:
+//
+//	  section /<sec>/    → DependsOn every article page with Section == <sec>
+//	  home    /          → DependsOn every section page
+//	  term    /tags/<t>/ → DependsOn every article page whose Tags contains <t>
+//
+// Article pages ("page" kind) are leaves with no outgoing DependsOn edges.
 func (dg *DependencyGraph) BuildFromSite(site *content.Site) {
 	dg.mu.Lock()
 	defer dg.mu.Unlock()
@@ -41,14 +55,14 @@ func (dg *DependencyGraph) BuildFromSite(site *content.Site) {
 	dg.nodes = make(map[string]*Node)
 	dg.sources = make(map[string]string)
 
-	// First pass: create nodes for all pages.
+	// First pass: create nodes for all pages (no edges yet).
 	for _, pg := range site.Pages {
 		url := pg.URL
 		node := &Node{
 			PagePath:   url,
 			SourceFile: pg.RelPath,
 			Kind:       pg.Kind,
-			DependsOn:  PageDependencies(pg),
+			DependsOn:  []string{},
 			DependedBy: []string{},
 		}
 		dg.nodes[url] = node
@@ -57,7 +71,67 @@ func (dg *DependencyGraph) BuildFromSite(site *content.Site) {
 		}
 	}
 
-	// Second pass: populate DependedBy (reverse edges).
+	// Second pass: compute forward edges based on aggregator semantics.
+	// Index article pages by section and by tag so we can resolve
+	// aggregator → articles without an O(N²) scan per aggregator.
+	articlesBySection := make(map[string][]string) // section name → article URLs
+	articlesByTag := make(map[string][]string)     // tag → article URLs
+	sectionURLs := make([]string, 0)               // every section URL, for home's edges
+	for _, pg := range site.Pages {
+		switch pg.Kind {
+		case "page":
+			if pg.Section != "" {
+				articlesBySection[pg.Section] = append(articlesBySection[pg.Section], pg.URL)
+			}
+			for _, tag := range pg.Tags {
+				articlesByTag[tag] = append(articlesByTag[tag], pg.URL)
+			}
+		case "section":
+			sectionURLs = append(sectionURLs, pg.URL)
+		}
+	}
+
+	for _, pg := range site.Pages {
+		node := dg.nodes[pg.URL]
+		if node == nil {
+			continue
+		}
+		switch pg.Kind {
+		case "page":
+			// Leaf: no forward dependencies.
+		case "section":
+			// Section list page renders its child articles.
+			if arts, ok := articlesBySection[pg.Section]; ok {
+				node.DependsOn = append(node.DependsOn, arts...)
+			}
+		case "home":
+			// Home iterates sections; depend on every section page so that
+			// editing an article flows home → section → article via DependedBy.
+			node.DependsOn = append(node.DependsOn, sectionURLs...)
+		case "term":
+			// Term page URL looks like /tags/<tag>/. Extract the tag by
+			// trimming the leading "/tags/" and trailing "/". This is
+			// robust to the canonical tag URL form produced by the
+			// content loader; unknown shapes fall back to no edges.
+			tag := extractTermFromURL(pg.URL)
+			if tag != "" {
+				if arts, ok := articlesByTag[tag]; ok {
+					node.DependsOn = append(node.DependsOn, arts...)
+				}
+			}
+		case "taxonomy":
+			// Taxonomy listing (e.g. /tags/) depends on every term page
+			// below it. Not load-bearing for incremental correctness —
+			// included for completeness.
+			for _, other := range site.Pages {
+				if other.Kind == "term" {
+					node.DependsOn = append(node.DependsOn, other.URL)
+				}
+			}
+		}
+	}
+
+	// Third pass: populate DependedBy (reverse edges).
 	for _, node := range dg.nodes {
 		for _, dep := range node.DependsOn {
 			if target, ok := dg.nodes[dep]; ok {
@@ -65,6 +139,21 @@ func (dg *DependencyGraph) BuildFromSite(site *content.Site) {
 			}
 		}
 	}
+}
+
+// extractTermFromURL extracts the term name from a tag URL like
+// "/tags/go/" → "go". Returns "" for URLs that don't match the /tags/<x>/
+// shape.
+func extractTermFromURL(url string) string {
+	const prefix = "/tags/"
+	const suffix = "/"
+	if len(url) < len(prefix)+len(suffix) {
+		return ""
+	}
+	if url[:len(prefix)] != prefix || url[len(url)-len(suffix):] != suffix {
+		return ""
+	}
+	return url[len(prefix) : len(url)-len(suffix)]
 }
 
 // AffectedBy returns the set of page paths that need to be rebuilt when
@@ -161,13 +250,14 @@ func (dg *DependencyGraph) PagePathFromSource(sourceFile string) (string, bool) 
 }
 
 // OrderByDependency returns the given page paths in rendering order for an
-// incremental build: dependents first (e.g. a leaf article), then the pages
-// they depend on (e.g. the section and home pages that list the article).
+// incremental build: dependencies first (e.g. the leaf article), then the
+// aggregators that depend on them (e.g. the section and home pages that list
+// the article).
 //
-// Rationale: when an article changes, its own HTML must be re-rendered before
-// the section/home list pages that reference it, so the lists reflect the
-// updated article. In other words, for every dependency edge A -> B
-// (A depends on B), A must be rendered before B.
+// Rationale: an aggregator renders content drawn from its source articles, so
+// the articles must be re-rendered (or at least sequenced) before the
+// aggregators that list them. Concretely, for every dependency edge
+// A -> B (A depends on B — i.e. A aggregates B), B is rendered before A.
 //
 // The sort is stable: among pages with no dependency relationship, the input
 // order is preserved. Paths not present in the graph are appended at the end
@@ -197,15 +287,14 @@ func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
 	}
 
 	// For each node, collect its forward dependencies that are also in the set.
-	// A node is renderable once all nodes that depend on it (its dependers)
-	// have already been rendered.
-	dependers := make(map[string][]string, len(known))
+	// A node is renderable once all of its dependencies have already been
+	// rendered (dependencies first, then dependents).
+	depsInSet := make(map[string][]string, len(known))
 	for _, p := range known {
 		node := dg.nodes[p]
 		for _, dep := range node.DependsOn {
 			if inSet[dep] {
-				// p depends on dep, so p must render before dep.
-				dependers[dep] = append(dependers[dep], p)
+				depsInSet[p] = append(depsInSet[p], dep)
 			}
 		}
 	}
@@ -221,7 +310,7 @@ func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
 				continue
 			}
 			ready := true
-			for _, dep := range dependers[p] {
+			for _, dep := range depsInSet[p] {
 				if !rendered[dep] {
 					ready = false
 					break

@@ -1,43 +1,20 @@
 package dag
 
-import "github.com/iannil/huan/internal/content"
-
-// PageDependencies returns the list of page paths that a given page depends on.
-// The dependency graph is built by traversing these edges.
-func PageDependencies(pg *content.Page) []string {
-	deps := make([]string, 0, 8)
-
-	switch pg.Kind {
-	case "page":
-		// Article page depends on its section list page, home page, and tag pages.
-		if pg.Section != "" {
-			deps = append(deps, "/"+pg.Section+"/")
-		}
-		deps = append(deps, "/")
-		for _, tag := range pg.Tags {
-			deps = append(deps, "/tags/"+tag+"/")
-		}
-	case "section":
-		// Section list page contains its child pages. Dependencies are
-		// reverse: the section page is depended on by its children.
-		// Section itself depends on home page.
-		deps = append(deps, "/")
-	case "home":
-		// Home page depends on all published pages (reverse edges).
-		// No forward dependencies.
-	case "term":
-		// Term page depends on home page.
-		deps = append(deps, "/")
-	}
-
-	return deps
-}
-
-// IsReverseDependency reports whether a dependency is inherently "reverse"
-// (i.e., A depends on the existence of B, but changes to A don't affect B).
-// Such edges are not traversed in the forward direction during incremental builds.
-func IsReverseDependency(from, to string) bool {
-	// Section pages are "reverse" dependencies of their children:
-	// changing a section page doesn't affect article pages.
-	return false
-}
+// rules.go: dependency-edge rules used by BuildFromSite.
+//
+// Dependency semantics (corrected):
+//
+//	Aggregator pages DEPEND ON the articles they aggregate, because they
+//	DISPLAY article content. When an article changes, every aggregator that
+//	lists it must be rebuilt. Concretely:
+//
+//	  - article ("page" kind): DependsOn = [] (leaf)
+//	  - section list page:     DependsOn = [all article URLs in this section]
+//	  - home page:             DependsOn = [all section URLs] (home iterates sections)
+//	  - term/tag page:         DependsOn = [all article URLs tagged with this tag]
+//
+// AffectedBy then walks DependedBy (who lists me) starting from the changed
+// article, which yields the article + every aggregator that lists it. This is
+// the inverse of the earlier (buggy) design where articles forward-depended on
+// their aggregators; that design left the aggregators stale after an article
+// edit because nothing depended on the article.

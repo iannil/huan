@@ -23,22 +23,52 @@ func TestBuildFromSite(t *testing.T) {
 		t.Errorf("expected 4 nodes, got %d", n)
 	}
 
-	// Check /posts/hello/ depends on section, home, and tag
-	node, ok := dg.nodes["/posts/hello/"]
+	// Article is a leaf: no outgoing DependsOn edges.
+	article, ok := dg.nodes["/posts/hello/"]
 	if !ok {
 		t.Fatal("expected node for /posts/hello/")
 	}
-	if node.Kind != "page" {
-		t.Errorf("expected kind=page, got %s", node.Kind)
+	if article.Kind != "page" {
+		t.Errorf("expected kind=page, got %s", article.Kind)
 	}
+	if len(article.DependsOn) != 0 {
+		t.Errorf("article should be a leaf (no DependsOn), got %v", article.DependsOn)
+	}
+
+	// Section DependsOn the article(s) in that section.
+	section := dg.nodes["/posts/"]
+	foundArticle := false
+	for _, dep := range section.DependsOn {
+		if dep == "/posts/hello/" {
+			foundArticle = true
+		}
+	}
+	if !foundArticle {
+		t.Error("/posts/ section should depend on /posts/hello/")
+	}
+
+	// Tag/term DependsOn the article(s) tagged with it.
+	term := dg.nodes["/tags/go/"]
+	foundTaggedArticle := false
+	for _, dep := range term.DependsOn {
+		if dep == "/posts/hello/" {
+			foundTaggedArticle = true
+		}
+	}
+	if !foundTaggedArticle {
+		t.Error("/tags/go/ term should depend on tagged article /posts/hello/")
+	}
+
+	// Home DependsOn every section.
+	home := dg.nodes["/"]
 	foundSection := false
-	for _, dep := range node.DependsOn {
+	for _, dep := range home.DependsOn {
 		if dep == "/posts/" {
 			foundSection = true
 		}
 	}
 	if !foundSection {
-		t.Error("/posts/hello/ should depend on /posts/")
+		t.Error("/ home should depend on /posts/ section")
 	}
 }
 
@@ -55,17 +85,35 @@ func TestAffectedBy_PageChange(t *testing.T) {
 	dg := NewDependencyGraph()
 	dg.BuildFromSite(site)
 
-	// Changing posts/hello.md should affect: itself
-	// Note: home page is NOT affected because it has no DependedBy edges from /posts/hello/
-	// The dependency direction is: /posts/hello/ -> /, not / -> /posts/hello/
+	// Changing posts/hello.md must affect: the article itself PLUS every
+	// aggregator that lists it (section, home via section, tag term).
 	affected := dg.AffectedBy([]string{"posts/hello.md"})
-	if len(affected) != 1 {
-		t.Fatalf("expected 1 affected page, got %d: %v", len(affected), affected)
-	}
 
-	// The affected page should be /posts/hello/ itself
-	if affected[0] != "/posts/hello/" {
-		t.Errorf("expected /posts/hello/ to be affected, got %s", affected[0])
+	want := map[string]bool{
+		"/posts/hello/": true,
+		"/posts/":       true,
+		"/tags/go/":     true,
+		"/":             true,
+	}
+	if len(affected) != len(want) {
+		t.Fatalf("expected %d affected pages, got %d: %v", len(want), len(affected), affected)
+	}
+	for _, a := range affected {
+		if !want[a] {
+			t.Errorf("unexpected affected page: %s", a)
+		}
+	}
+	for w := range want {
+		found := false
+		for _, a := range affected {
+			if a == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %s to be affected, got: %v", w, affected)
+		}
 	}
 }
 
@@ -109,36 +157,40 @@ func TestEmptyGraph(t *testing.T) {
 
 func TestOrderByDependency_LeafBeforeParent(t *testing.T) {
 	dg := NewDependencyGraph()
-	// Build a minimal graph: /posts/hello/ depends on /posts/ and /
-	// (so /posts/ and / are "depended by" /posts/hello/ in reverse edges).
+	// Corrected semantics: section/home DEPEND ON the article.
+	//   /posts/hello/ is a leaf (no DependsOn).
+	//   /posts/ depends on /posts/hello/ (aggregates the article).
+	//   / depends on /posts/ (home aggregates sections).
+	// Render order: leaf (article) first, then section, then home.
 	dg.nodes["/posts/hello/"] = &Node{
 		PagePath:   "/posts/hello/",
-		DependsOn:  []string{"/posts/", "/"},
-		DependedBy: []string{},
+		DependsOn:  []string{},
+		DependedBy: []string{"/posts/"},
 	}
 	dg.nodes["/posts/"] = &Node{
 		PagePath:   "/posts/",
-		DependsOn:  []string{"/"},
-		DependedBy: []string{"/posts/hello/"},
+		DependsOn:  []string{"/posts/hello/"},
+		DependedBy: []string{"/"},
 	}
 	dg.nodes["/"] = &Node{
 		PagePath:   "/",
-		DependsOn:  []string{},
-		DependedBy: []string{"/posts/hello/", "/posts/"},
+		DependsOn:  []string{"/posts/"},
+		DependedBy: []string{},
 	}
 
 	affected := []string{"/posts/hello/", "/posts/", "/"}
 	ordered := dg.OrderByDependency(affected)
 
-	// The leaf (/posts/hello/) must come before pages that depend on it.
+	// The leaf (/posts/hello/) must come before the aggregators that
+	// depend on it.
 	helloIdx := indexOf(ordered, "/posts/hello/")
 	postsIdx := indexOf(ordered, "/posts/")
 	homeIdx := indexOf(ordered, "/")
 	if helloIdx > postsIdx {
 		t.Errorf("leaf /posts/hello/ (idx %d) must come before /posts/ (idx %d)", helloIdx, postsIdx)
 	}
-	if helloIdx > homeIdx {
-		t.Errorf("leaf /posts/hello/ (idx %d) must come before / (idx %d)", helloIdx, homeIdx)
+	if postsIdx > homeIdx {
+		t.Errorf("/posts/ (idx %d) must come before home / (idx %d)", postsIdx, homeIdx)
 	}
 }
 

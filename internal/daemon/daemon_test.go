@@ -1066,3 +1066,137 @@ func mustWriteIncFile(t *testing.T, root, relPath string, data []byte) {
 		t.Fatal(err)
 	}
 }
+
+// TestIncrementalBuild_UpdatesListingPages is the regression guard for the
+// two CRITICAL incremental-build defects:
+//
+//  1. DAG dependency direction was inverted — article edits failed to mark
+//     aggregator pages (section, tag, home) as affected, so their output
+//     stayed stale.
+//  2. IncrementalRender skipped site-wide outputs (sitemap, search index,
+//     taxonomy pages, paginated home, AI outputs) — those files went stale
+//     after any content edit.
+//
+// This test builds a site with one section containing two articles (one
+// tagged), edits the tagged article's title+content, runs IncrementalBuild,
+// and asserts that BOTH the section listing page AND the tag/term listing
+// page now reflect the updated title.
+//
+// It MUST fail before the C1 fix (because the listing URLs are not in
+// `affected` and so are never re-rendered) and pass after.
+func TestIncrementalBuild_UpdatesListingPages(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-incr-listing-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte(`baseURL: "https://example.com/"
+title: "Listing Test"
+publishDir: "docs"
+`))
+	// Two articles in the same section; one is tagged so a /tags/<tag>/ page
+	// gets generated.
+	mustWriteIncFile(t, tmpDir, "content/posts/alpha.md", []byte(`---
+title: "Alpha Original"
+date: "2026-01-01"
+tags: ["go"]
+---
+Alpha original body.
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/beta.md", []byte(`---
+title: "Beta"
+date: "2026-01-02"
+---
+Beta body.
+`))
+	// single.html: just renders the article.
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html",
+		[]byte(`<!doctype html><html><body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>`))
+	// list.html: used for BOTH section pages and term (tag) pages. Renders
+	// the title of each page in .Data.Pages so we can detect stale listings.
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html",
+		[]byte(`<!doctype html><html><body>{{ range .Data.Pages }}<a href="{{ .Permalink }}">{{ .Title }}</a>{{ end }}</body></html>`))
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	dagGraph := dag.NewDependencyGraph()
+	pipelineCache := build.NewPipelineCache()
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dagGraph,
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+
+	// Full build first.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Locate the section listing and the tag listing output files.
+	sectionPath := filepath.Join(tmpDir, "posts", "index.html")
+	tagPath := filepath.Join(tmpDir, "tags", "go", "index.html")
+
+	// Sanity: both listing pages must exist after the full build, and the
+	// section listing must include the original Alpha title.
+	sectionBytes, err := os.ReadFile(sectionPath)
+	if err != nil {
+		t.Fatalf("section listing not written by full build: %v", err)
+	}
+	if !strings.Contains(string(sectionBytes), "Alpha Original") {
+		t.Fatalf("section listing missing original Alpha title:\n%s", sectionBytes)
+	}
+	tagBytes, err := os.ReadFile(tagPath)
+	if err != nil {
+		t.Fatalf("tag listing not written by full build: %v", err)
+	}
+	if !strings.Contains(string(tagBytes), "Alpha Original") {
+		t.Fatalf("tag listing missing original Alpha title:\n%s", tagBytes)
+	}
+
+	// Edit the tagged article: change title AND body. A correct incremental
+	// build must propagate this to every aggregator that lists it.
+	mustWriteIncFile(t, tmpDir, "content/posts/alpha.md", []byte(`---
+title: "Alpha Updated"
+date: "2026-01-01"
+tags: ["go"]
+---
+Alpha updated body.
+`))
+
+	// Trigger incremental build for the changed file.
+	changedFile := filepath.Join(tmpDir, "content", "posts", "alpha.md")
+	if err := builder.IncrementalBuild(context.Background(), []string{changedFile}); err != nil {
+		t.Fatalf("IncrementalBuild: %v", err)
+	}
+
+	// Assert: section listing page now shows the updated title.
+	newSectionBytes, err := os.ReadFile(sectionPath)
+	if err != nil {
+		t.Fatalf("section listing missing after incremental build: %v", err)
+	}
+	if !strings.Contains(string(newSectionBytes), "Alpha Updated") {
+		t.Errorf("section listing NOT updated after incremental build (C1 regression):\n%s", newSectionBytes)
+	}
+	if strings.Contains(string(newSectionBytes), "Alpha Original") {
+		t.Errorf("section listing still shows stale title after incremental build:\n%s", newSectionBytes)
+	}
+
+	// Assert: tag/term listing page now shows the updated title.
+	newTagBytes, err := os.ReadFile(tagPath)
+	if err != nil {
+		t.Fatalf("tag listing missing after incremental build: %v", err)
+	}
+	if !strings.Contains(string(newTagBytes), "Alpha Updated") {
+		t.Errorf("tag listing NOT updated after incremental build (C1 regression):\n%s", newTagBytes)
+	}
+	if strings.Contains(string(newTagBytes), "Alpha Original") {
+		t.Errorf("tag listing still shows stale title after incremental build:\n%s", newTagBytes)
+	}
+}
