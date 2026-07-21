@@ -11,6 +11,8 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
+	"github.com/iannil/huan/internal/output"
+	tmpl "github.com/iannil/huan/internal/template"
 )
 
 // Options controls a single BuildSite invocation.
@@ -235,4 +237,127 @@ func hostFromURL(wsURL string) string {
 		return "localhost"
 	}
 	return u.Hostname()
+}
+
+// IncrementalRender re-renders only the pages whose URLs are in affectedURLs,
+// after a content change. It reuses cached templates/i18n/writer from a prior
+// full build (via cache), but reloads all content + rebuilds contexts to
+// ensure correctness (list pages must see updated page content).
+//
+// Only pages in affectedURLs are re-rendered and written to OutputDir;
+// other pages are left untouched on disk. This skips the expensive
+// per-page template rendering for the ~95% of unaffected pages.
+//
+// Use HasTemplateChanges() first: if templates changed, call BuildSite
+// (full build) instead. Pass cache=nil to rebuild everything from scratch
+// (slower, but always correct).
+func IncrementalRender(opts Options, cache *PipelineCache, affectedURLs []string) error {
+	if len(affectedURLs) == 0 {
+		return nil
+	}
+
+	logf := opts.logf()
+	p := newPipeline(opts)
+
+	// Stage 1: load config. Reuse cached cfg when available (faster).
+	if cache != nil && cache.SiteCfg != nil {
+		p.cfg = cache.SiteCfg
+		// Apply serve-mode overrides (they may differ from the cached build).
+		if opts.BaseURLOverride != "" {
+			p.cfg.BaseURL = opts.BaseURLOverride
+		}
+		if opts.MinifyOverride != nil {
+			p.cfg.Minify = *opts.MinifyOverride
+		}
+	} else {
+		if err := p.loadConfig(); err != nil {
+			return fmt.Errorf("IncrementalRender loadConfig: %w", err)
+		}
+	}
+
+	// Stage 2: reload ALL content. This is required for correctness:
+	// list/tag/section pages reference child pages, so their contexts must
+	// see the updated page content. Content loading is cheap relative to
+	// template rendering.
+	if err := p.loadContent(); err != nil {
+		return fmt.Errorf("IncrementalRender loadContent: %w", err)
+	}
+
+	// Stage 3: render markdown + build content tree + taxonomies.
+	if err := p.renderMarkdownAndTree(); err != nil {
+		return fmt.Errorf("IncrementalRender renderMarkdownAndTree: %w", err)
+	}
+
+	// Stage 4: reuse cached rendering infrastructure OR rebuild.
+	if cache != nil && cache.Templates != nil && cache.Writer != nil {
+		p.tmpls = cache.Templates
+		p.i18nBundle = cache.I18nBundle
+		p.scRegistry = cache.SCRegistry
+		p.md = cache.MDRenderer
+		// Renderer wraps the cached templates with the current BaseURL FuncMap.
+		p.renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(p.cfg.BaseURL))
+		p.writer = cache.Writer
+		// Ensure the i18n bundle is wired into the template package (global state).
+		tmpl.SetI18nBundle(p.i18nBundle)
+	} else {
+		if err := p.setupTemplatesAndWriter(); err != nil {
+			return fmt.Errorf("IncrementalRender setupTemplatesAndWriter: %w", err)
+		}
+	}
+
+	// Stage 5: build contexts (site-wide + per-page). Always rebuilt —
+	// contexts reference page pointers that changed during content reload.
+	p.buildContexts()
+
+	// Stage 6: render ONLY affected pages. This is the performance win:
+	// ~95% of pages are skipped.
+	affectedSet := make(map[string]bool, len(affectedURLs))
+	for _, u := range affectedURLs {
+		affectedSet[u] = true
+	}
+
+	renderedCount := 0
+	errors := 0
+	for _, pg := range p.site.Pages {
+		if !affectedSet[pg.URL] {
+			continue
+		}
+		tmplName := ResolveTemplateName(p.tmpls, pg)
+		if tmplName == "" {
+			continue
+		}
+		ctx := p.lookup[pg]
+		if ctx == nil {
+			continue
+		}
+		// Section/home pages expose their pages via .Data.Pages.
+		if pg.Kind == "section" || pg.Kind == "home" {
+			ctx.Data = &tmpl.DataAccessor{Pages: ctx.RegularPages}
+		}
+
+		html, err := p.renderer.Render(tmplName, ctx)
+		if err != nil {
+			logf("  WARN: incremental render %s: %v\n", pg.URL, err)
+			errors++
+			continue
+		}
+
+		// Inject LiveReload (serve mode only) so re-rendered pages stay
+		// live-reload-enabled without a full rebuild.
+		if opts.InjectLiveReload && opts.LiveReloadURL != "" {
+			html = InjectLiveReload(html, opts.LiveReloadURL)
+		}
+
+		outPath := output.URLToFilePath(pg.URL, "")
+		if err := p.writer.Write(outPath, html); err != nil {
+			logf("  WARN: incremental write %s: %v\n", pg.URL, err)
+			errors++
+			continue
+		}
+		renderedCount++
+	}
+
+	logf("  Incremental render: %d pages re-rendered (%d affected, %d errors)\n",
+		renderedCount, len(affectedURLs), errors)
+	return nil
 }
