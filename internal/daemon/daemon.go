@@ -14,6 +14,7 @@ import (
 	"github.com/iannil/huan/internal/daemon/cache"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/plugin"
 )
 
 // Options configures the daemon.
@@ -28,21 +29,24 @@ type Options struct {
 	BuildDrafts    bool
 	DisableWatch   bool          // disable file watching (default false)
 	BuildInterval  time.Duration // periodic full rebuild interval (0 = disabled)
+	PluginDir      string        // plugin directory (default: <sourceDir>/plugins)
+	DisablePlugin  bool          // disable plugin loading
 }
 
 // Daemon holds the long-running server state.
 type Daemon struct {
-	opts     Options
-	cfg      *config.Config
-	bus      eventbus.EventBus
-	builder  *Builder
-	serving  *Serving
-	dag      *dag.DependencyGraph
-	jitCache *cache.JITCache
-	health   *HealthChecker
-	metrics  *MetricsCollector
-	tmpDir   string
-	httpSrv  *http.Server
+	opts          Options
+	cfg           *config.Config
+	bus           eventbus.EventBus
+	builder       *Builder
+	serving       *Serving
+	dag           *dag.DependencyGraph
+	jitCache      *cache.JITCache
+	health        *HealthChecker
+	metrics       *MetricsCollector
+	pluginManager *plugin.LifecycleManager
+	tmpDir        string
+	httpSrv       *http.Server
 }
 
 // Run starts the daemon and blocks until shutdown.
@@ -91,15 +95,36 @@ func Run(opts Options) error {
 		Logf:        log.Printf,
 	})
 
+	// 7.5 Init Plugin Lifecycle Manager
+	if !opts.DisablePlugin {
+		pluginDir := opts.PluginDir
+		if pluginDir == "" {
+			pluginDir = filepath.Join(opts.SourceDir, "plugins")
+		}
+
+		pluginLoader := plugin.NewLoader(pluginDir)
+		d.pluginManager = plugin.NewLifecycleManager(
+			plugin.NewRegistry(),
+			pluginLoader,
+			d.bus,
+		)
+
+		if err := d.pluginManager.Start(context.Background()); err != nil {
+			log.Printf("daemon: plugin manager start warning: %v", err)
+		}
+		log.Printf("daemon: plugin manager started (dir: %s)", pluginDir)
+	}
+
 	// 8. Initialize Serving
 	adminHandler := admin.NewHandler(admin.HandlerOptions{
-		Cfg:       cfg,
-		SourceDir: opts.SourceDir,
-		Rebuild:   d.builder.TriggerRebuild,
-		ServeURL:  fmt.Sprintf("http://%s:%s/", opts.Bind, opts.Port),
-		BindAddr:  opts.Bind,
-		Token:     "", // Uses env var HUAN_ADMIN_TOKEN
-		MemoryDir: filepath.Join(opts.SourceDir, "memory", "daily"),
+		Cfg:           cfg,
+		SourceDir:     opts.SourceDir,
+		Rebuild:       d.builder.TriggerRebuild,
+		ServeURL:      fmt.Sprintf("http://%s:%s/", opts.Bind, opts.Port),
+		BindAddr:      opts.Bind,
+		Token:         "", // Uses env var HUAN_ADMIN_TOKEN
+		MemoryDir:     filepath.Join(opts.SourceDir, "memory", "daily"),
+		PluginManager: d.pluginManager,
 	})
 
 	d.serving = NewServing(ServingOptions{
@@ -192,6 +217,11 @@ func Run(opts Options) error {
 
 	notifier.Stopping()
 	log.Println("daemon: shutting down...")
+
+	// Stop plugin manager before shutting down HTTP server
+	if d.pluginManager != nil {
+		d.pluginManager.Stop()
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()

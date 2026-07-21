@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var daemonCmd = &cobra.Command{
+	var daemonCmd = &cobra.Command{
 	Use:   "daemon",
 	Short: "Start the production content server",
 	Long: `Start the production content server with mixed rendering (pre-render + JIT),
@@ -22,17 +22,21 @@ A long-running process that serves the site as a backend service.`,
 		tlsKey, _ := cmd.Flags().GetString("tls-key")
 		systemd, _ := cmd.Flags().GetBool("systemd")
 		buildDrafts, _ := cmd.Flags().GetBool("buildDrafts")
+		pluginDir, _ := cmd.Flags().GetString("plugin-dir")
+		disablePlugin, _ := cmd.Flags().GetBool("disable-plugin")
 
 		fmt.Println("huan daemon: starting (v0.6.0) ...")
 		return daemon.Run(daemon.Options{
-			SourceDir:   sourceDir,
-			ConfigPath:  configPath,
-			Port:        port,
-			Bind:        bind,
-			TLSCert:     tlsCert,
-			TLSKey:      tlsKey,
-			Systemd:     systemd,
-			BuildDrafts: buildDrafts,
+			SourceDir:     sourceDir,
+			ConfigPath:    configPath,
+			Port:          port,
+			Bind:          bind,
+			TLSCert:       tlsCert,
+			TLSKey:        tlsKey,
+			Systemd:       systemd,
+			BuildDrafts:   buildDrafts,
+			PluginDir:     pluginDir,
+			DisablePlugin: disablePlugin,
 		})
 	},
 }
@@ -46,4 +50,6 @@ func init() {
 	daemonCmd.Flags().String("tls-key", "", "TLS private key path")
 	daemonCmd.Flags().Bool("systemd", false, "enable systemd notify integration")
 	daemonCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
+	daemonCmd.Flags().String("plugin-dir", "", "plugin directory (default: <sourceDir>/plugins)")
+	daemonCmd.Flags().Bool("disable-plugin", false, "disable plugin loading")
 }
