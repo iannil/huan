@@ -52,6 +52,12 @@ type Options struct {
 	// dependency graph for incremental updates.
 	// Experimental: API may change in future versions.
 	AfterBuildSite func(*content.Site) error
+
+	// PipelineCache, if non-nil, is populated with reusable build state
+	// after BuildSite completes successfully. Used by daemon for
+	// incremental builds. Pass a cache created by NewPipelineCache().
+	// Experimental: API may change in future versions.
+	PipelineCache *PipelineCache
 }
 
 // RenderPageFunc is the callback signature for single-page rendering.
@@ -133,6 +139,11 @@ func BuildSite(opts Options) (*Result, error) {
 		if err := opts.AfterBuildSite(p.site); err != nil {
 			return p.result, fmt.Errorf("AfterBuildSite callback: %w", err)
 		}
+	}
+
+	// Populate the pipeline cache if requested (for daemon incremental builds).
+	if opts.PipelineCache != nil {
+		p.populateCache(opts.PipelineCache)
 	}
 
 	return p.result, nil

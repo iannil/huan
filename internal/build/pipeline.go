@@ -254,3 +254,16 @@ func (p *pipeline) buildTaxonomies() {
 	p.site.Taxonomies = converted
 	p.site.TaxonomyOriginalCase = originalCases
 }
+
+// populateCache fills the PipelineCache with reusable rendering state
+// after a successful full build. Called by BuildSite when opts.PipelineCache
+// is non-nil.
+func (p *pipeline) populateCache(cache *PipelineCache) {
+	cache.Templates = p.tmpls
+	cache.I18nBundle = p.i18nBundle
+	cache.SCRegistry = p.scRegistry
+	cache.MDRenderer = p.md
+	cache.SiteCfg = p.cfg
+	cache.Writer = p.writer
+	cache.BuiltAt = time.Now()
+}
