@@ -33,8 +33,9 @@ func (l *Loader) PluginDir() string {
 }
 
 // LoadPlugin opens a .so file, finds the InitPlugin symbol, and calls it.
-// Returns the Plugin instance or an error.
-func (l *Loader) LoadPlugin(path string) (Plugin, error) {
+// Returns the Plugin instance or an error. The pluginCfg map is passed to
+// the plugin's InitPlugin function, allowing configuration from huan.yaml.
+func (l *Loader) LoadPlugin(path string, pluginCfg map[string]any) (Plugin, error) {
 	p, err := plugin.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("plugin: open %s: %w", path, err)
@@ -50,9 +51,11 @@ func (l *Loader) LoadPlugin(path string) (Plugin, error) {
 		return nil, fmt.Errorf("plugin: %s: InitPlugin has wrong signature", path)
 	}
 
-	// Pass an empty config map — the plugin can ignore it or use it for
-	// optional configuration. Full config integration is a future enhancement.
-	instance, err := initFn(make(map[string]any))
+	// Pass the provided config map to the plugin. If nil, pass an empty map.
+	if pluginCfg == nil {
+		pluginCfg = make(map[string]any)
+	}
+	instance, err := initFn(pluginCfg)
 	if err != nil {
 		return nil, fmt.Errorf("plugin: %s init: %w", path, err)
 	}
@@ -89,7 +92,7 @@ func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
 			continue
 		}
 		fullPath := filepath.Join(l.pluginDir, entry.Name())
-		p, err := l.LoadPlugin(fullPath)
+		p, err := l.LoadPlugin(fullPath, nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
 			continue

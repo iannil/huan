@@ -38,6 +38,7 @@ func newDeployCloudflareCmd() *cobra.Command {
 	cmd.Flags().String("commit-sha", "", "commit SHA to attach to the deployment (default: git HEAD)")
 	cmd.Flags().String("commit-message", "", "commit message to attach (default: git log -1)")
 	cmd.Flags().Bool("prune", false, "(r2 only) delete remote objects under your configured to: prefixes that are not in local sync set. WARNING: do not share R2 buckets across apps; prune is scoped to configured prefixes only.")
+	cmd.Flags().String("plugin-dir", "", "directory containing .so plugin files (default: <source>/plugins)")
 	return cmd
 }
 
@@ -70,7 +71,19 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 
 	p, ok := registry.Get("cloudflare")
 	if !ok {
-		return fmt.Errorf("cloudflare plugin not configured (add plugins.cloudflare.* to huan.yaml)")
+		// Try to load from .so plugin
+		pluginDir, _ := cmd.Flags().GetString("plugin-dir")
+		if pluginDir == "" {
+			pluginDir = filepath.Join(sourceDir, "plugins")
+		}
+		soPath := filepath.Join(pluginDir, "cloudflare.so")
+		loader := plugin.NewLoader(pluginDir)
+		pluginCfg := cfg.Plugins["cloudflare"]
+		p, err = loader.LoadPlugin(soPath, pluginCfg)
+		if err != nil {
+			return fmt.Errorf("cloudflare plugin not found (not compiled in and no .so loaded): %w", err)
+		}
+		_ = registry.Register(p)
 	}
 	deployer, ok := p.(deploy.Deployer)
 	if !ok {

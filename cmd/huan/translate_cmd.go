@@ -10,6 +10,7 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
+	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/translate"
 	"github.com/spf13/cobra"
 )
@@ -53,6 +54,7 @@ func newTranslateQwen3Cmd() *cobra.Command {
 	cmd.Flags().String("model", "", "override configured model for this invocation")
 	cmd.Flags().String("source-lang", "zh-cn", "source language code")
 	cmd.Flags().String("target-lang", "en", "target language code")
+	cmd.Flags().String("plugin-dir", "", "directory containing .so plugin files (default: <source>/plugins)")
 	return cmd
 }
 
@@ -79,13 +81,30 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 
 	p, ok := registry.Get("qwen3_translate")
 	if !ok {
-		// Graceful skip: deploy.sh calls `huan translate qwen3` unconditionally;
-		// if the plugin isn't configured (no qwen3_translate block in huan.yaml),
-		// exit cleanly with a friendly message rather than erroring out. This
-		// keeps the deploy chain resilient — operators who don't use i18n
-		// translation shouldn't have to gate the call.
-		fmt.Fprintln(os.Stderr, "translate: qwen3_translate plugin not configured; skipping (add plugins.qwen3_translate.* to huan.yaml to enable)")
-		return nil
+		// Try to load from .so plugin
+		pluginDir, _ := cmd.Flags().GetString("plugin-dir")
+		if pluginDir == "" {
+			pluginDir = filepath.Join(sourceDir, "plugins")
+		}
+		soPath := filepath.Join(pluginDir, "qwen3.so")
+		loader := plugin.NewLoader(pluginDir)
+		pluginCfg := cfg.Plugins["qwen3_translate"]
+		if pluginCfg == nil {
+			pluginCfg = make(map[string]any)
+		}
+		// Inject _project_root for the plugin
+		pluginCfg["_project_root"] = sourceDir
+		p, err = loader.LoadPlugin(soPath, pluginCfg)
+		if err != nil {
+			// Graceful skip: deploy.sh calls `huan translate qwen3` unconditionally;
+			// if the plugin isn't configured (no qwen3_translate block in huan.yaml),
+			// exit cleanly with a friendly message rather than erroring out. This
+			// keeps the deploy chain resilient — operators who don't use i18n
+			// translation shouldn't have to gate the call.
+			fmt.Fprintln(os.Stderr, "translate: qwen3_translate plugin not configured; skipping (add plugins.qwen3_translate.* to huan.yaml to enable)")
+			return nil
+		}
+		_ = registry.Register(p)
 	}
 	translator, ok := p.(translate.Translator)
 	if !ok {

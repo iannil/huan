@@ -15,7 +15,7 @@ func TestLoader_LoadPlugin_MissingSymbol(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := NewLoader(tmpDir)
-	_, err := l.LoadPlugin(emptyPath)
+	_, err := l.LoadPlugin(emptyPath, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid .so")
 	}
@@ -27,7 +27,18 @@ func TestLoader_LoadPlugin_MissingSymbol(t *testing.T) {
 
 func TestLoader_LoadPlugin_FileNotExist(t *testing.T) {
 	l := NewLoader(t.TempDir())
-	_, err := l.LoadPlugin("/nonexistent/path/plugin.so")
+	_, err := l.LoadPlugin("/nonexistent/path/plugin.so", nil)
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestLoader_LoadPlugin_NilConfig(t *testing.T) {
+	// Verify that passing nil config doesn't panic and is treated as empty map.
+	// This test uses a nonexistent path, so it will error — but the important
+	// thing is that nil config is accepted without panic.
+	l := NewLoader(t.TempDir())
+	_, err := l.LoadPlugin("/nonexistent/path/plugin.so", nil)
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}

@@ -138,7 +138,8 @@ func (m *LifecycleManager) Stop() {
 // Load loads a .so plugin from the given path, registers it, and publishes
 // an event. Returns ErrPluginNameConflict if a plugin with the same name
 // already exists. Returns an error if the path is outside the plugin directory.
-func (m *LifecycleManager) Load(soPath string) (Plugin, error) {
+// The pluginCfg map is passed to the plugin's InitPlugin function.
+func (m *LifecycleManager) Load(soPath string, pluginCfg map[string]any) (Plugin, error) {
 	// Validate path is within plugin directory
 	cleanPath := filepath.Clean(soPath)
 	cleanPluginDir := filepath.Clean(m.pluginDir)
@@ -154,7 +155,7 @@ func (m *LifecycleManager) Load(soPath string) (Plugin, error) {
 		return nil, fmt.Errorf("plugin: path %q is outside plugin directory %q", soPath, m.pluginDir)
 	}
 
-	p, err := m.loader.LoadPlugin(cleanPath)
+	p, err := m.loader.LoadPlugin(cleanPath, pluginCfg)
 	if err != nil {
 		m.publishEvent(context.Background(), eventbus.EventPluginError, map[string]any{
 			"path":  soPath,
@@ -218,7 +219,8 @@ func (m *LifecycleManager) Unload(name string) error {
 // Reload replaces a loaded plugin's implementation by loading a new .so.
 // If the new .so fails to load, the original plugin is preserved (rollback).
 // Returns ErrPluginNotFound if the plugin is not registered.
-func (m *LifecycleManager) Reload(name string, newSO string) error {
+// The pluginCfg map is passed to the plugin's InitPlugin function.
+func (m *LifecycleManager) Reload(name string, newSO string, pluginCfg map[string]any) error {
 	m.mu.Lock()
 
 	lp, exists := m.loaded[name]
@@ -240,7 +242,7 @@ func (m *LifecycleManager) Reload(name string, newSO string) error {
 	m.mu.Unlock()
 
 	// Load new .so (outside the lock — plugin.Open can block)
-	newPlugin, err := m.loader.LoadPlugin(newSO)
+	newPlugin, err := m.loader.LoadPlugin(newSO, pluginCfg)
 	if err != nil {
 		// Rollback: re-register old
 		m.mu.Lock()

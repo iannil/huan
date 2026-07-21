@@ -28,7 +28,7 @@ registry for development/testing purposes.`,
 			// Fallback: local load (dev mode)
 			fmt.Printf("plugin: loading %s (local mode)...\n", pluginPath)
 			loader := newLocalPluginLoader()
-			p, err := loader.LoadPlugin(pluginPath)
+			p, err := loader.LoadPlugin(pluginPath, nil)
 			if err != nil {
 				return fmt.Errorf("load plugin: %w", err)
 			}

@@ -100,7 +100,7 @@ func TestLifecycleManager_Reload_Rollback(t *testing.T) {
 	lm := NewLifecycleManager(registry, NewLoader(t.TempDir()), bus)
 
 	// Reload with a nonexistent .so path should fail and roll back
-	err := lm.Reload("test-p", "/nonexistent/plugin.so")
+	err := lm.Reload("test-p", "/nonexistent/plugin.so", nil)
 	if err == nil {
 		t.Fatal("expected error for nonexistent .so path")
 	}

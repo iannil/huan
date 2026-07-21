@@ -397,7 +397,7 @@ func (h *apiHandler) loadPlugin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIError{Error: "path is required"})
 		return
 	}
-	p, err := h.pluginManager.Load(req.Path)
+	p, err := h.pluginManager.Load(req.Path, nil)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if err == plugin.ErrPluginNameConflict {
@@ -463,7 +463,7 @@ func (h *apiHandler) reloadPlugin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIError{Error: "name and path are required"})
 		return
 	}
-	if err := h.pluginManager.Reload(req.Name, req.Path); err != nil {
+	if err := h.pluginManager.Reload(req.Name, req.Path, nil); err != nil {
 		status := http.StatusInternalServerError
 		if err == plugin.ErrPluginNotFound {
 			status = http.StatusNotFound
