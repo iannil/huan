@@ -41,6 +41,46 @@ func TestScan_NonExistentDir(t *testing.T) {
 	}
 }
 
+func TestScan_SkipVariants(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create original image
+	mustWriteFile(t, filepath.Join(tmpDir, "photo.jpg"), fakeJPEG())
+	// Create processed variants that should be skipped
+	mustWriteFile(t, filepath.Join(tmpDir, "photo-480w.jpg"), fakeJPEG())
+	mustWriteFile(t, filepath.Join(tmpDir, "photo-768w.jpg"), fakeJPEG())
+	mustWriteFile(t, filepath.Join(tmpDir, "photo-1024w.jpg"), fakeJPEG())
+
+	assets, err := Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	// Only the original photo.jpg should be returned
+	if len(assets) != 1 {
+		t.Errorf("expected 1 asset (original only), got %d", len(assets))
+	}
+}
+
+func TestScan_IncludeHyphenatedNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create images with hyphens in their names (NOT variant pattern)
+	mustWriteFile(t, filepath.Join(tmpDir, "my-photo.jpg"), fakeJPEG())
+	mustWriteFile(t, filepath.Join(tmpDir, "banner-image.png"), fakePNG())
+	// Create a variant that SHOULD be skipped
+	mustWriteFile(t, filepath.Join(tmpDir, "my-photo-480w.jpg"), fakeJPEG())
+
+	assets, err := Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	// Should have 2 assets (my-photo.jpg and banner-image.png), not the variant
+	if len(assets) != 2 {
+		t.Errorf("expected 2 assets (hyphenated originals), got %d", len(assets))
+		for _, a := range assets {
+			t.Logf("  asset: %s", a.RelPath)
+		}
+	}
+}
+
 func mustWriteFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

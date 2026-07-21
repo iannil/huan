@@ -29,6 +29,7 @@ type ProcessedImage struct {
 // Returns the list of processed images with their variants.
 func Process(assets []ImageAsset, cfg Config, outputDir string) ([]ProcessedImage, error) {
 	var results []ProcessedImage
+	var errs []error
 
 	for _, asset := range assets {
 		result := ProcessedImage{Original: asset}
@@ -36,11 +37,13 @@ func Process(assets []ImageAsset, cfg Config, outputDir string) ([]ProcessedImag
 		// Decode original image
 		f, err := os.Open(asset.SrcPath)
 		if err != nil {
+			errs = append(errs, fmt.Errorf("open %s: %w", asset.RelPath, err))
 			continue
 		}
 		srcImg, _, err := image.Decode(f)
 		f.Close()
 		if err != nil {
+			errs = append(errs, fmt.Errorf("decode %s: %w", asset.RelPath, err))
 			continue
 		}
 
@@ -53,7 +56,6 @@ func Process(assets []ImageAsset, cfg Config, outputDir string) ([]ProcessedImag
 		// Determine working width for size labels
 		bounds := img.Bounds()
 		width := bounds.Dx()
-		// height := bounds.Dy()
 
 		// Generate format variants for each size
 		sizes := cfg.Sizes
@@ -74,26 +76,27 @@ func Process(assets []ImageAsset, cfg Config, outputDir string) ([]ProcessedImag
 				sizedImg = resizeWidth(img, size)
 			}
 
-			// Generate each format
+			// Generate each format from config
 			for _, format := range cfg.Formats {
+				// Skip webp/avif since no real encoder is available
+				if format != "jpg" {
+					continue
+				}
+
 				variantName := variantFilename(asset.RelPath, size, format)
 				variantPath := filepath.Join(outputDir, variantName)
 				if err := os.MkdirAll(filepath.Dir(variantPath), 0755); err != nil {
+					errs = append(errs, fmt.Errorf("mkdir %s: %w", filepath.Dir(variantPath), err))
 					continue
 				}
 
 				outFile, err := os.Create(variantPath)
 				if err != nil {
+					errs = append(errs, fmt.Errorf("create %s: %w", variantName, err))
 					continue
 				}
 
-				var sizeBytes int64
-				switch format {
-				case "webp":
-					sizeBytes = encodeWebP(outFile, sizedImg, cfg.Quality)
-				case "avif":
-					sizeBytes = encodeAVIF(outFile, sizedImg, cfg.Quality)
-				}
+				sizeBytes := encodeJPEG(outFile, sizedImg, cfg.Quality)
 				outFile.Close()
 
 				result.Variants = append(result.Variants, ImageVariant{
@@ -103,9 +106,48 @@ func Process(assets []ImageAsset, cfg Config, outputDir string) ([]ProcessedImag
 					Size:    sizeBytes,
 				})
 			}
+
+			// Always generate a JPEG variant for each size so the injector
+			// always has jpg variants to work with (I7: PNG/GIF originals).
+			variantName := variantFilename(asset.RelPath, size, "jpg")
+			variantPath := filepath.Join(outputDir, variantName)
+			if err := os.MkdirAll(filepath.Dir(variantPath), 0755); err != nil {
+				errs = append(errs, fmt.Errorf("mkdir %s: %w", filepath.Dir(variantPath), err))
+				continue
+			}
+
+			// Check if we already generated this variant from the config loop
+			alreadyGenerated := false
+			for _, v := range result.Variants {
+				if v.RelPath == variantName {
+					alreadyGenerated = true
+					break
+				}
+			}
+			if !alreadyGenerated {
+				outFile, err := os.Create(variantPath)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("create %s: %w", variantName, err))
+					continue
+				}
+
+				sizeBytes := encodeJPEG(outFile, sizedImg, cfg.Quality)
+				outFile.Close()
+
+				result.Variants = append(result.Variants, ImageVariant{
+					RelPath: variantName,
+					Width:   sizedImg.Bounds().Dx(),
+					Format:  "jpg",
+					Size:    sizeBytes,
+				})
+			}
 		}
 
 		results = append(results, result)
+	}
+
+	if len(results) == 0 && len(errs) > 0 {
+		return nil, fmt.Errorf("all images failed: %v", errs[0])
 	}
 
 	return results, nil
@@ -145,7 +187,7 @@ func resizeWidth(img image.Image, targetWidth int) image.Image {
 }
 
 // variantFilename generates the filename for a processed variant.
-// Examples: photo-480w.webp, photo-768w.webp, photo.webp
+// Examples: photo-480w.jpg, photo-768w.jpg, photo.jpg
 func variantFilename(relPath string, width int, format string) string {
 	ext := filepath.Ext(relPath)
 	base := strings.TrimSuffix(relPath, ext)
@@ -155,19 +197,8 @@ func variantFilename(relPath string, width int, format string) string {
 	return fmt.Sprintf("%s.%s", base, format)
 }
 
-// encodeWebP encodes the image as WebP and returns the file size.
-func encodeWebP(f *os.File, img image.Image, quality int) int64 {
-	return encodeJPEGFallback(f, img, quality)
-}
-
-// encodeAVIF encodes the image as AVIF and returns the file size.
-func encodeAVIF(f *os.File, img image.Image, quality int) int64 {
-	return encodeJPEGFallback(f, img, quality)
-}
-
-// encodeJPEGFallback is a fallback if WebP/AVIF encoding is unavailable.
-// Encodes as JPEG with the given quality setting.
-func encodeJPEGFallback(f *os.File, img image.Image, quality int) int64 {
+// encodeJPEG encodes the image as JPEG and returns the file size.
+func encodeJPEG(f *os.File, img image.Image, quality int) int64 {
 	opts := &jpeg.Options{Quality: quality}
 	if err := jpeg.Encode(f, img, opts); err != nil {
 		return 0

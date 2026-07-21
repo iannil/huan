@@ -8,8 +8,12 @@ import (
 	_ "image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+// variantPattern matches processed variant filenames like photo-480w.jpg, banner-768w.png
+var variantPattern = regexp.MustCompile(`-\d+w\.(jpg|jpeg|png|gif)$`)
 
 // ImageAsset represents a single image found in the output directory.
 type ImageAsset struct {
@@ -45,8 +49,7 @@ func Scan(outputDir string) ([]ImageAsset, error) {
 			return nil
 		}
 		// Skip already-processed variants (e.g. photo-480w.jpg)
-		base := filepath.Base(path)
-		if strings.Contains(base, "-") {
+		if variantPattern.MatchString(path) {
 			return nil
 		}
 

@@ -2,14 +2,11 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/iannil/huan-plugin-image-pipeline/plugin"
 )
 
 // ImagePipelinePlugin processes images during build: compress, convert
 // formats, generate multi-size variants, and inject srcset/picture in HTML.
 type ImagePipelinePlugin struct {
-	plugin.Plugin
 	cfg Config
 }
 
