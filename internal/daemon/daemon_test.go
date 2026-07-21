@@ -517,7 +517,9 @@ func TestBuilder_TriggerRebuild(t *testing.T) {
 	}
 }
 
-// TestBuilder_IncrementalBuild_EmptyDAG verifies IncrementalBuild with empty DAG.
+// TestBuilder_IncrementalBuild_EmptyDAG verifies IncrementalBuild with empty DAG
+// falls back to a full build. With no source directory configured, the full
+// build fails, so IncrementalBuild must return a non-nil error.
 func TestBuilder_IncrementalBuild_EmptyDAG(t *testing.T) {
 	bus := eventbus.NewChannelBus()
 	defer bus.Close()
@@ -527,10 +529,12 @@ func TestBuilder_IncrementalBuild_EmptyDAG(t *testing.T) {
 		Logf: t.Logf,
 	})
 
-	// With empty DAG, AffectedBy returns empty list and IncrementalBuild returns nil
+	// With an empty DAG, IncrementalBuild cannot compute affected pages and
+	// must fall back to a full build. No source dir is configured, so the
+	// full build fails and IncrementalBuild returns an error.
 	err := builder.IncrementalBuild(context.Background(), []string{"content/test.md"})
-	if err != nil {
-		t.Errorf("IncrementalBuild with empty DAG should return nil (no affected pages), got: %v", err)
+	if err == nil {
+		t.Error("IncrementalBuild with empty DAG should fall back to full build and error without a source dir")
 	}
 }
 

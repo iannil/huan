@@ -29,6 +29,11 @@ type BuilderOptions struct {
 	// OnAfterBuild is called after a successful full build completes.
 	// This is separate from the build's AfterBuild which captures the RenderPageFunc.
 	OnAfterBuild func(*build.Result) error
+
+	// PipelineCache holds reusable build state for incremental builds.
+	// Populated after the first full build (via build.Options.PipelineCache).
+	// When nil, IncrementalBuild falls back to a full build.
+	PipelineCache *build.PipelineCache
 }
 
 // Builder manages the full build and incremental update pipeline.
@@ -174,22 +179,69 @@ func (b *Builder) HandleContentChanged(ctx context.Context, event eventbus.Event
 }
 
 // IncrementalBuild rebuilds only the pages affected by the given file changes.
-// It uses the DAG to determine which pages need to be rebuilt.
+// It uses the DAG to determine affected pages and build.IncrementalRender
+// to re-render only those pages, reusing the cached pipeline state.
+//
+// Falls back to a full build when:
+//   - a template/i18n/config/theme file changed (cache invalid)
+//   - no PipelineCache is available
+//   - the DAG is empty (no prior full build)
 func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) error {
+	// 1. Template/config/i18n change → full rebuild.
+	if build.HasTemplateChanges(changedFiles, b.opts.SourceDir) {
+		b.opts.Logf("builder: template/config change detected, doing full build")
+		return b.executeFullBuild(ctx)
+	}
+
+	// 2. No cache or empty DAG → full build.
+	if b.opts.PipelineCache == nil || b.opts.DAG.NodeCount() == 0 {
+		b.opts.Logf("builder: no pipeline cache or empty DAG, doing full build")
+		return b.executeFullBuild(ctx)
+	}
+
+	// 3. Compute affected pages via DAG.
 	affected := b.opts.DAG.AffectedBy(changedFiles)
 	if len(affected) == 0 {
-		b.opts.Logf("builder: no pages affected by changes")
+		b.opts.Logf("builder: no pages affected by %d file changes", len(changedFiles))
 		return nil
 	}
 
+	// 4. Order by dependency (leaf first, parents last).
+	ordered := b.opts.DAG.OrderByDependency(affected)
 	b.opts.Logf("builder: incremental build: %d pages affected by %d file changes",
-		len(affected), len(changedFiles))
+		len(ordered), len(changedFiles))
 
-	// Phase 1 limitation: Single-page rendering (build.RenderPage) is not
-	// implemented yet. For now, fall back to full build when incremental
-	// is triggered. This will be properly implemented in Phase 2.
-	b.opts.Logf("builder: incremental build using full build path")
-	return b.executeFullBuild(ctx)
+	// 5. Re-render only affected pages, reusing the cached pipeline state.
+	start := time.Now()
+	err := build.IncrementalRender(build.Options{
+		SourceDir:     b.opts.SourceDir,
+		OutputDir:     b.opts.OutputDir,
+		IncludeDrafts: b.opts.BuildDrafts,
+		Logf:          b.opts.Logf,
+		PipelineCache: b.opts.PipelineCache,
+	}, b.opts.PipelineCache, ordered)
+
+	if err != nil {
+		b.opts.Logf("builder: incremental render failed: %v", err)
+		return fmt.Errorf("incremental build: %w", err)
+	}
+
+	if b.opts.Metrics != nil {
+		b.opts.Metrics.RecordBuild(time.Since(start))
+	}
+
+	b.opts.Logf("builder: incremental build complete in %v", time.Since(start))
+
+	// 6. Publish build-completed event with incremental marker.
+	_ = b.opts.Bus.Publish(ctx, eventbus.Event{
+		Type:      eventbus.EventBuildCompleted,
+		Timestamp: time.Now(),
+		Payload: map[string]interface{}{
+			"incremental": true,
+			"pages":       len(ordered),
+		},
+	})
+	return nil
 }
 
 // TriggerRebuild is an external trigger (from Admin API) to rebuild.
