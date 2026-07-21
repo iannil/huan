@@ -845,3 +845,224 @@ func TestDaemon_PluginManager_Disabled(t *testing.T) {
 		t.Error("pluginManager should be nil when DisablePlugin is true")
 	}
 }
+
+// TestPipelineCache_PopulatedAfterFullBuild verifies that a successful full
+// build populates the PipelineCache with reusable rendering state.
+func TestPipelineCache_PopulatedAfterFullBuild(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-incr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Minimal site: config + 2 pages + templates.
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte(`baseURL: "https://example.com/"
+title: "Test"
+publishDir: "docs"
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/a.md", []byte(`---
+title: "Page A"
+date: "2026-01-01"
+---
+Content A.
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/b.md", []byte(`---
+title: "Page B"
+date: "2026-01-02"
+---
+Content B.
+`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html",
+		[]byte(`<!doctype html><html><body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html",
+		[]byte(`<!doctype html><html><body>{{ range .Pages }}<a href="{{ .URL }}">{{ .Title }}</a>{{ end }}</body></html>`))
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	dagGraph := dag.NewDependencyGraph()
+	pipelineCache := build.NewPipelineCache()
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dagGraph,
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+
+	// Full build.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// PipelineCache should be populated.
+	if pipelineCache.Templates == nil {
+		t.Error("PipelineCache.Templates not populated after full build")
+	}
+	if pipelineCache.Writer == nil {
+		t.Error("PipelineCache.Writer not populated after full build")
+	}
+	if pipelineCache.SiteCfg == nil {
+		t.Error("PipelineCache.SiteCfg not populated after full build")
+	}
+	if dagGraph.NodeCount() == 0 {
+		t.Error("DAG should have nodes after full build")
+	}
+}
+
+// TestIncrementalBuild_ContentChange verifies that a content file change
+// triggers incremental re-rendering and produces updated output.
+func TestIncrementalBuild_ContentChange(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-incr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte(`baseURL: "https://example.com/"
+title: "Test"
+publishDir: "docs"
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte(`---
+title: "Hello"
+date: "2026-01-01"
+---
+Original content.
+`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html",
+		[]byte(`<!doctype html><html><body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html",
+		[]byte(`<!doctype html><html><body>{{ range .Pages }}{{ .Title }}{{ end }}</body></html>`))
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	dagGraph := dag.NewDependencyGraph()
+	pipelineCache := build.NewPipelineCache()
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dagGraph,
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+
+	// Full build first.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Capture the page output.
+	outPath := filepath.Join(tmpDir, "posts", "hello", "index.html")
+	origBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read original output: %v", err)
+	}
+	origOutput := string(origBytes)
+	if !strings.Contains(origOutput, "Original content.") {
+		t.Fatalf("original output missing expected content:\n%s", origOutput)
+	}
+
+	// Modify the content file.
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte(`---
+title: "Hello"
+date: "2026-01-01"
+---
+Updated content.
+`))
+
+	// Trigger incremental build with the changed file.
+	changedFile := filepath.Join(tmpDir, "content", "posts", "hello.md")
+	if err := builder.IncrementalBuild(context.Background(), []string{changedFile}); err != nil {
+		t.Fatalf("IncrementalBuild: %v", err)
+	}
+
+	// Verify the output was updated.
+	newBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read updated output: %v", err)
+	}
+	newOutput := string(newBytes)
+	if !strings.Contains(newOutput, "Updated content.") {
+		t.Errorf("output not updated after incremental build:\n%s", newOutput)
+	}
+	if strings.Contains(newOutput, "Original content.") {
+		t.Errorf("output still contains old content after incremental build:\n%s", newOutput)
+	}
+}
+
+// TestIncrementalBuild_TemplateChangeFallback verifies that a template
+// change falls back to a full build.
+func TestIncrementalBuild_TemplateChangeFallback(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-incr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte(`baseURL: "https://example.com/"
+title: "Test"
+publishDir: "docs"
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte(`---
+title: "Hello"
+date: "2026-01-01"
+---
+Content.
+`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html",
+		[]byte(`<!doctype html><html><body>{{ .Content }}</body></html>`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html",
+		[]byte(`<!doctype html><html><body>{{ range .Pages }}{{ .Title }}{{ end }}</body></html>`))
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	dagGraph := dag.NewDependencyGraph()
+	pipelineCache := build.NewPipelineCache()
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dagGraph,
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+
+	// Full build.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// A template file change should be detected as requiring full build.
+	changedFile := filepath.Join(tmpDir, "layouts", "_default", "single.html")
+	if !build.HasTemplateChanges([]string{changedFile}, tmpDir) {
+		t.Error("template change should be detected by HasTemplateChanges")
+	}
+
+	// IncrementalBuild with a template change should not error (it falls back
+	// to full build internally).
+	if err := builder.IncrementalBuild(context.Background(), []string{changedFile}); err != nil {
+		t.Errorf("IncrementalBuild with template change should fall back cleanly, got: %v", err)
+	}
+}
+
+// mustWriteIncFile is a test helper that writes a file, creating parent dirs.
+func mustWriteIncFile(t *testing.T, root, relPath string, data []byte) {
+	t.Helper()
+	full := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}

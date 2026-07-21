@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -201,7 +202,15 @@ func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) e
 	}
 
 	// 3. Compute affected pages via DAG.
-	affected := b.opts.DAG.AffectedBy(changedFiles)
+	//
+	// Path normalization: the file watcher (fsnotify) emits absolute paths,
+	// while DAG.sources is keyed by page.RelPath — a path relative to the
+	// content/ directory (e.g. "posts/hello.md"). Without normalization,
+	// AffectedBy never matches and incremental builds silently no-op. Accept
+	// both absolute and site-relative paths; strip the SourceDir prefix and
+	// any leading content/ segment so the result matches the RelPath form.
+	normalized := normalizeChangedFiles(changedFiles, b.opts.SourceDir)
+	affected := b.opts.DAG.AffectedBy(normalized)
 	if len(affected) == 0 {
 		b.opts.Logf("builder: no pages affected by %d file changes", len(changedFiles))
 		return nil
@@ -243,6 +252,45 @@ func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) e
 		},
 	})
 	return nil
+}
+
+// normalizeChangedFiles converts each changed file path to the DAG's
+// RelPath form (relative to the content/ directory, e.g. "posts/hello.md").
+//
+// Accepts absolute paths (as emitted by the fsnotify watcher), site-relative
+// paths (e.g. "content/posts/hello.md"), and already-normalized RelPaths
+// (e.g. "posts/hello.md"). Paths outside SourceDir are passed through
+// unchanged so HasTemplateChanges-style lookups still work for layouts, etc.
+func normalizeChangedFiles(files []string, sourceDir string) []string {
+	if len(files) == 0 {
+		return files
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, normalizeOneChangedFile(f, sourceDir))
+	}
+	return out
+}
+
+// normalizeOneChangedFile normalizes a single path; see normalizeChangedFiles.
+func normalizeOneChangedFile(f, sourceDir string) string {
+	if f == "" {
+		return f
+	}
+	// Convert absolute paths to site-relative first.
+	rel := f
+	if filepath.IsAbs(f) && sourceDir != "" {
+		if r, err := filepath.Rel(sourceDir, f); err == nil && !strings.HasPrefix(r, "..") {
+			rel = filepath.ToSlash(r)
+		}
+	} else {
+		rel = filepath.ToSlash(rel)
+	}
+	// Strip the leading "content/" segment so the result matches page.RelPath.
+	if strings.HasPrefix(rel, "content/") {
+		return strings.TrimPrefix(rel, "content/")
+	}
+	return rel
 }
 
 // TriggerRebuild is an external trigger (from Admin API) to rebuild.
