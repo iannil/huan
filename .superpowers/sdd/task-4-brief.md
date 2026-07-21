@@ -1,179 +1,192 @@
-### Task 4: 实现 Scanner — 扫描输出目录中的图片
+### Task 4: DAG — OrderByDependency 方法
 
 **Files:**
-- Create: `plugins/image-pipeline/scanner.go`
-- Create: `plugins/image-pipeline/scanner_test.go`
+- Modify: `internal/daemon/dag/graph.go` — 新增 OrderByDependency
+- Modify: `internal/daemon/dag/graph_test.go` — 测试
+
+**Interfaces:**
+- Produces: `DependencyGraph.OrderByDependency(pagePaths []string) []string`
+
+**说明：** 返回拓扑排序后的页面路径（被依赖的页面在前，依赖它们的页面在后）。例如：先渲染 `/posts/hello/`，再渲染引用它的 `/posts/`（section）和 `/`（home）。
 
 - [ ] **Step 1: 编写测试**
 
-`plugins/image-pipeline/scanner_test.go`：
+在 `internal/daemon/dag/graph_test.go` 末尾添加：
 
 ```go
-package main
+func TestOrderByDependency_LeafBeforeParent(t *testing.T) {
+	dg := NewDependencyGraph()
+	// Build a minimal graph: /posts/hello/ depends on /posts/ and /
+	// (so /posts/ and / are "depended by" /posts/hello/ in reverse edges).
+	dg.nodes["/posts/hello/"] = &Node{
+		PagePath:   "/posts/hello/",
+		DependsOn:  []string{"/posts/", "/"},
+		DependedBy: []string{},
+	}
+	dg.nodes["/posts/"] = &Node{
+		PagePath:   "/posts/",
+		DependsOn:  []string{"/"},
+		DependedBy: []string{"/posts/hello/"},
+	}
+	dg.nodes["/"] = &Node{
+		PagePath:   "/",
+		DependsOn:  []string{},
+		DependedBy: []string{"/posts/hello/", "/posts/"},
+	}
 
-import (
-    "os"
-    "path/filepath"
-    "testing"
-)
+	affected := []string{"/posts/hello/", "/posts/", "/"}
+	ordered := dg.OrderByDependency(affected)
 
-func TestScan_Images(t *testing.T) {
-    tmpDir := t.TempDir()
-    // Create test images
-    mustWriteFile(t, filepath.Join(tmpDir, "images", "photo.jpg"), fakeJPEG())
-    mustWriteFile(t, filepath.Join(tmpDir, "images", "logo.png"), fakePNG())
-    mustWriteFile(t, filepath.Join(tmpDir, "css", "style.css"), []byte("body{}"))
-    mustWriteFile(t, filepath.Join(tmpDir, "index.html"), []byte("<html></html>"))
-
-    assets, err := Scan(tmpDir)
-    if err != nil {
-        t.Fatalf("Scan: %v", err)
-    }
-    if len(assets) != 2 {
-        t.Fatalf("expected 2 image assets, got %d", len(assets))
-    }
+	// The leaf (/posts/hello/) must come before pages that depend on it.
+	helloIdx := indexOf(ordered, "/posts/hello/")
+	postsIdx := indexOf(ordered, "/posts/")
+	homeIdx := indexOf(ordered, "/")
+	if helloIdx > postsIdx {
+		t.Errorf("leaf /posts/hello/ (idx %d) must come before /posts/ (idx %d)", helloIdx, postsIdx)
+	}
+	if helloIdx > homeIdx {
+		t.Errorf("leaf /posts/hello/ (idx %d) must come before / (idx %d)", helloIdx, homeIdx)
+	}
 }
 
-func TestScan_EmptyDir(t *testing.T) {
-    tmpDir := t.TempDir()
-    assets, err := Scan(tmpDir)
-    if err != nil {
-        t.Fatalf("Scan: %v", err)
-    }
-    if len(assets) != 0 {
-        t.Errorf("expected 0 assets, got %d", len(assets))
-    }
+func TestOrderByDependency_SinglePage(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/only/"] = &Node{PagePath: "/only/"}
+	ordered := dg.OrderByDependency([]string{"/only/"})
+	if len(ordered) != 1 || ordered[0] != "/only/" {
+		t.Errorf("OrderByDependency single = %v, want [/only/]", ordered)
+	}
 }
 
-func TestScan_NonExistentDir(t *testing.T) {
-    _, err := Scan("/nonexistent")
-    if err == nil {
-        t.Error("expected error for nonexistent dir")
-    }
+func TestOrderByDependency_Empty(t *testing.T) {
+	dg := NewDependencyGraph()
+	ordered := dg.OrderByDependency([]string{})
+	if len(ordered) != 0 {
+		t.Errorf("OrderByDependency empty = %v, want []", ordered)
+	}
 }
 
-func mustWriteFile(t *testing.T, path string, data []byte) {
-    t.Helper()
-    if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-        t.Fatal(err)
-    }
-    if err := os.WriteFile(path, data, 0644); err != nil {
-        t.Fatal(err)
-    }
+func TestOrderByDependency_UnknownPathsPreserved(t *testing.T) {
+	dg := NewDependencyGraph()
+	// Path not in graph should still appear in output.
+	ordered := dg.OrderByDependency([]string{"/unknown/"})
+	if len(ordered) != 1 || ordered[0] != "/unknown/" {
+		t.Errorf("unknown path = %v, want [/unknown/]", ordered)
+	}
 }
 
-// fakeJPEG returns minimal valid JPEG bytes (SOI + EOI markers).
-func fakeJPEG() []byte {
-    return []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9}
-}
-
-// fakePNG returns minimal valid PNG bytes.
-func fakePNG() []byte {
-    return []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0x60, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE6, 0x21, 0x25, 0x77, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82}
+func indexOf(slice []string, s string) int {
+	for i, v := range slice {
+		if v == s {
+			return i
+		}
+	}
+	return -1
 }
 ```
 
-- [ ] **Step 2: 实现 Scanner**
+- [ ] **Step 2: 运行测试验证失败**
 
-`plugins/image-pipeline/scanner.go`：
+```bash
+go test ./internal/daemon/dag/ -run "TestOrderByDependency" -v
+```
+Expected: COMPILATION ERROR (no OrderByDependency method)
+
+- [ ] **Step 3: 实现 OrderByDependency**
+
+在 `internal/daemon/dag/graph.go` 的 `PagePathFromSource` 方法之后添加：
 
 ```go
-package main
+// OrderByDependency returns the given page paths in topological order:
+// pages that are depended-upon come first, pages that depend on them come
+// later. This is the correct rendering order for incremental builds — a
+// leaf page is re-rendered before the section/home pages that list it.
+//
+// The sort is stable: among pages with no dependency relationship, the
+// input order is preserved. Paths not present in the graph are appended
+// at the end in input order.
+func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
+	dg.mu.RLock()
+	defer dg.mu.RUnlock()
 
-import (
-    "fmt"
-    "image"
-    _ "image/gif"
-    _ "image/jpeg"
-    _ "image/png"
-    "os"
-    "path/filepath"
-    "strings"
-)
+	// Build the subgraph induced by pagePaths.
+	inSet := make(map[string]bool, len(pagePaths))
+	for _, p := range pagePaths {
+		inSet[p] = true
+	}
 
-// ImageAsset represents a single image found in the output directory.
-type ImageAsset struct {
-    SrcPath string // absolute path to the source file
-    RelPath string // path relative to output directory
-    Width   int    // image width in pixels
-    Height  int    // image height in pixels
-    Size    int64  // file size in bytes
-    Format  string // image format (jpeg, png, gif)
-}
+	// For each node, collect its forward dependencies that are also in the set.
+	// We render a node only after all its in-set dependencies are rendered.
+	deps := make(map[string][]string, len(pagePaths))
+	for _, p := range pagePaths {
+		node, ok := dg.nodes[p]
+		if !ok {
+			deps[p] = nil
+			continue
+		}
+		for _, dep := range node.DependsOn {
+			if inSet[dep] {
+				deps[p] = append(deps[p], dep)
+			}
+		}
+	}
 
-// Scan walks the output directory and collects all image files.
-// Returns the list of images found, or an error if the directory can't be read.
-func Scan(outputDir string) ([]ImageAsset, error) {
-    info, err := os.Stat(outputDir)
-    if err != nil {
-        return nil, fmt.Errorf("image_pipeline: scan %s: %w", outputDir, err)
-    }
-    if !info.IsDir() {
-        return nil, fmt.Errorf("image_pipeline: %s is not a directory", outputDir)
-    }
-
-    var assets []ImageAsset
-    err = filepath.Walk(outputDir, func(path string, fi os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-        if fi.IsDir() {
-            return nil
-        }
-        ext := strings.ToLower(filepath.Ext(path))
-        if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" {
-            return nil
-        }
-        // Skip already-processed variants (e.g. photo-480w.jpg)
-        base := filepath.Base(path)
-        if strings.Contains(base, "-") {
-            return nil
-        }
-
-        relPath, err := filepath.Rel(outputDir, path)
-        if err != nil {
-            return err
-        }
-
-        f, err := os.Open(path)
-        if err != nil {
-            return nil // skip unreadable files
-        }
-        defer f.Close()
-
-        cfg, _, err := image.DecodeConfig(f)
-        if err != nil {
-            return nil // skip if not a valid image
-        }
-
-        assets = append(assets, ImageAsset{
-            SrcPath: path,
-            RelPath: filepath.ToSlash(relPath),
-            Width:   cfg.Width,
-            Height:  cfg.Height,
-            Size:    fi.Size(),
-            Format:  ext[1:], // strip leading "."
-        })
-        return nil
-    })
-    if err != nil {
-        return nil, err
-    }
-    return assets, nil
+	// Kahn's algorithm with stable ordering (process in input order).
+	rendered := make(map[string]bool)
+	var result []string
+	// Iterate multiple passes until no progress; this keeps input-order stability.
+	for len(result) < len(pagePaths) {
+		progress := false
+		for _, p := range pagePaths {
+			if rendered[p] {
+				continue
+			}
+			ready := true
+			for _, dep := range deps[p] {
+				if !rendered[dep] {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				result = append(result, p)
+				rendered[p] = true
+				progress = true
+			}
+		}
+		if !progress {
+			// Cycle or unknown deps: append remaining in input order.
+			for _, p := range pagePaths {
+				if !rendered[p] {
+					result = append(result, p)
+					rendered[p] = true
+				}
+			}
+		}
+	}
+	return result
 }
 ```
 
-- [ ] **Step 3: 运行测试**
+- [ ] **Step 4: 运行测试验证通过**
 
 ```bash
-cd plugins/image-pipeline && go test -v -run "TestScan" .
+go test ./internal/daemon/dag/ -run "TestOrderByDependency" -v
 ```
+Expected: ALL PASS
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 5: 运行 DAG 全部测试确保无回归**
 
 ```bash
-git add plugins/image-pipeline/scanner.go plugins/image-pipeline/scanner_test.go
-git commit -m "feat(image-pipeline): implement image scanner for output directory"
+go test ./internal/daemon/dag/... -v
+```
+Expected: ALL PASS
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add internal/daemon/dag/graph.go internal/daemon/dag/graph_test.go
+git commit -m "feat(dag): add OrderByDependency for incremental build ordering"
 ```
 
 ---

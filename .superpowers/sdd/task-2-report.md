@@ -1,45 +1,39 @@
-# Task 2 Report: 创建图片管线插件仓库骨架
+# Task 2 Report: build.go — 支持 PipelineCache 填充
 
 ## 状态：已完成
 
 ## 提交
 
-- **Commit:** `cb7d1e2` feat(image-pipeline): create plugin skeleton with InitPlugin export
+- **Commit:** `40f04a9` feat(build): populate PipelineCache after full build
 - **分支:** master
 
-## 文件清单
+## 变更内容
 
-| 文件 | 说明 |
-|------|------|
-| `plugins/image-pipeline/go.mod` | 独立模块 `github.com/iannil/huan-plugin-image-pipeline`，依赖 `gopkg.in/yaml.v3` |
-| `plugins/image-pipeline/plugin/plugin.go` | 自包含 Plugin 接口（Name() string） |
-| `plugins/image-pipeline/plugin.go` | ImagePipelinePlugin 结构体，含 stub Process() |
-| `plugins/image-pipeline/plugin_main.go` | InitPlugin 导出函数 |
-| `plugins/image-pipeline/config.go` | Config 结构体 + ParseConfig（含默认值：Quality=80, Enabled=true） |
-| `plugins/image-pipeline/config_test.go` | 4 个测试用例 |
+- `internal/build/build.go`
+  - 在 `Options` 结构体中（`AfterBuildSite` 之后）新增 `PipelineCache *PipelineCache` 字段，注释标注为 experimental。
+  - `BuildSite` 中，在 `AfterBuildSite` 回调之后、`return` 之前，新增 `p.populateCache(opts.PipelineCache)` 调用，带 nil 守卫。
+- `internal/build/pipeline.go`
+  - 新增 `(*pipeline).populateCache(cache *PipelineCache)` 方法，填充 `Templates / I18nBundle / SCRegistry / MDRenderer / SiteCfg / Writer`，并盖上 `BuiltAt = time.Now()`。
+  - `time` 包已在 pipeline.go 顶部 import，无需新增。
+
+## 验证
+
+- `go build ./internal/build/...` → BUILD SUCCESS
+- `go build ./...` → 整模块编译通过（新 Options 字段未破坏下游）
+- `go vet ./internal/build/...` → clean
+- `go test ./internal/build/...` → `ok github.com/iannil/huan/internal/build 0.657s`（全部既有测试通过，无回归）
 
 ## 测试结果
 
-```
-ok  	github.com/iannil/huan-plugin-image-pipeline	0.683s
-?   	github.com/iannil/huan-plugin-image-pipeline/plugin	[no test files]
-```
+本任务为纯接线（pure wiring），未新增单元测试。理由：
 
-- **TestParseConfig_Defaults** — nil 输入返回 Quality=80, Enabled=true
-- **TestParseConfig_FromMap** — map 输入正确解析 Quality/Formats/Sizes/Enabled
-- **TestImagePipelinePlugin_Name** — Name() 返回 "image_pipeline"
-- **TestImagePipelinePlugin_Process_Stub** — Process() 空调用不报错
+- 核心行为是 nil 守卫 + 结构体字段拷贝，自身没有值得单独覆盖的分支逻辑。
+- 默认路径（`PipelineCache == nil`）已被既有测试套件覆盖，确保无回归。
+- 真正消费该缓存的路径（增量构建 / daemon）将在后续 Task 中实现，届时会有端到端测试一并覆盖 populateCache 的产出。
 
-## 编译验证
+## 注意事项 / 遗留
 
-```
-cd plugins/image-pipeline && go build -buildmode=plugin -o ../image_pipeline.so .
-```
-
-编译成功，生成 `plugins/image_pipeline.so`（约 5MB，已被 .gitignore 排除）。
-
-## 注意事项
-
-- 与 cloudflare 和 qwen3 插件一致的模块模式：无 `replace` 指令指向 huan 主项目
-- 为满足编译需要，额外创建了 `config.go`（含 Config 结构体和 ParseConfig），这是 cloudflare 插件的标准模式——plugin_main.go 的 InitPlugin 调用了 ParseConfig
-- .so 文件被 .gitignore 忽略，不纳入版本控制
+- populateCache 仅在 `BuildSite` 调用，`RenderPage` / `RenderPageToBytes`（单页入口）不填充缓存——与 brief 一致。
+- 字段填充顺序与 `cache.go` 的 `PipelineCache` 结构体声明顺序一致，`BuiltAt` 最后赋值（每次全量构建覆盖，符合设计）。
+- 本次 commit 仅包含 `internal/build/build.go` 和 `internal/build/pipeline.go` 两个源文件（按 brief 要求）。
+- 工作区未提交的内容（不属于本 Task 范围，保持原样）：`.superpowers/sdd/task-{1,2}-{brief,report}.md` 的修改，以及 `docs/superpowers/plans/2026-07-21-incremental-build-plan.md`（SDD/process 产物）。

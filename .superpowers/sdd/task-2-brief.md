@@ -1,96 +1,78 @@
-### Task 2: 创建图片管线插件仓库骨架
+### Task 2: build.go — 支持 PipelineCache 填充
 
 **Files:**
-- Create: `plugins/image-pipeline/` — 目录结构
-- Create: `plugins/image-pipeline/go.mod`
-- Create: `plugins/image-pipeline/plugin.go` — ImagePipelinePlugin 结构体
-- Create: `plugins/image-pipeline/plugin/plugin.go` — 自包含 Plugin 接口
-- Create: `plugins/image-pipeline/plugin_main.go` — InitPlugin 导出
+- Modify: `internal/build/build.go` — Options 新增 PipelineCache 字段，BuildSite 末尾填充
+- Modify: `internal/build/pipeline.go` — 新增 pipeline.populateCache 方法
 
-- [ ] **Step 1: 创建目录和 go.mod**
+**Interfaces:**
+- Consumes: `build.PipelineCache` (Task 1)
+- Produces: `Options.PipelineCache` 字段, `BuildSite` 自动填充 cache
+
+- [ ] **Step 1: 在 Options 中添加 PipelineCache 字段**
+
+修改 `internal/build/build.go`，在 `Options` 结构体中（`AfterBuildSite` 字段之后）添加：
+
+```go
+	// PipelineCache, if non-nil, is populated with reusable build state
+	// after BuildSite completes successfully. Used by daemon for
+	// incremental builds. Pass a cache created by NewPipelineCache().
+	// Experimental: API may change in future versions.
+	PipelineCache *PipelineCache
+```
+
+- [ ] **Step 2: 在 pipeline 中添加 populateCache 方法**
+
+在 `internal/build/pipeline.go` 末尾添加：
+
+```go
+// populateCache fills the PipelineCache with reusable rendering state
+// after a successful full build. Called by BuildSite when opts.PipelineCache
+// is non-nil.
+func (p *pipeline) populateCache(cache *PipelineCache) {
+	cache.Templates = p.tmpls
+	cache.I18nBundle = p.i18nBundle
+	cache.SCRegistry = p.scRegistry
+	cache.MDRenderer = p.md
+	cache.SiteCfg = p.cfg
+	cache.Writer = p.writer
+	cache.BuiltAt = time.Now()
+}
+```
+
+注意：`pipeline.go` 顶部已 import `time`，无需新增。
+
+- [ ] **Step 3: 在 BuildSite 中调用 populateCache**
+
+修改 `internal/build/build.go` 的 `BuildSite` 函数，在 `AfterBuildSite` 回调之后、`return` 之前添加：
+
+```go
+	// Populate the pipeline cache if requested (for daemon incremental builds).
+	if opts.PipelineCache != nil {
+		p.populateCache(opts.PipelineCache)
+	}
+
+	return p.result, nil
+```
+
+- [ ] **Step 4: 编译验证**
 
 ```bash
-mkdir -p /Users/rong.zhu/Code/zhurong/huan/plugins/image-pipeline/plugin
+go build ./internal/build/...
 ```
+Expected: BUILD SUCCESS
 
-`plugins/image-pipeline/go.mod`：
-
-```
-module github.com/iannil/huan-plugin-image-pipeline
-
-go 1.26.2
-```
-
-- [ ] **Step 2: 创建自包含 Plugin 接口**
-
-`plugins/image-pipeline/plugin/plugin.go`：
-
-```go
-// Package plugin provides the minimal Plugin interface for .so plugins.
-// This is a self-contained copy of huan's internal/plugin/plugin.go.
-package plugin
-
-// Plugin is the base interface every plugin satisfies.
-type Plugin interface {
-    Name() string
-}
-```
-
-- [ ] **Step 3: 创建主插件文件**
-
-`plugins/image-pipeline/plugin.go`：
-
-```go
-package main
-
-import "github.com/iannil/huan-plugin-image-pipeline/plugin"
-
-// ImagePipelinePlugin processes images during build: compress, convert
-// formats, generate multi-size variants, and inject srcset/picture in HTML.
-type ImagePipelinePlugin struct {
-    cfg Config
-}
-
-// Name returns the plugin identifier.
-func (p *ImagePipelinePlugin) Name() string { return "image_pipeline" }
-
-// Process runs the full image pipeline: scan → process → inject.
-func (p *ImagePipelinePlugin) Process(outputDir, sourceDir string) error {
-    // TODO: implement in subsequent tasks
-    return nil
-}
-```
-
-- [ ] **Step 4: 创建 InitPlugin 导出**
-
-`plugins/image-pipeline/plugin_main.go`：
-
-```go
-package main
-
-import "github.com/iannil/huan-plugin-image-pipeline/plugin"
-
-// InitPlugin is the exported symbol for .so plugin loading.
-func InitPlugin(cfg map[string]any) (plugin.Plugin, error) {
-    parsedCfg, err := ParseConfig(cfg)
-    if err != nil {
-        return nil, err
-    }
-    return &ImagePipelinePlugin{cfg: parsedCfg}, nil
-}
-```
-
-- [ ] **Step 5: 编译验证**
+- [ ] **Step 5: 运行现有测试确保无回归**
 
 ```bash
-cd plugins/image-pipeline && go build -buildmode=plugin -o ../image_pipeline.so .
+go test ./internal/build/... -v
 ```
+Expected: ALL PASS
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add plugins/image-pipeline/
-git commit -m "feat(image-pipeline): create plugin skeleton with InitPlugin export"
+git add internal/build/build.go internal/build/pipeline.go
+git commit -m "feat(build): populate PipelineCache after full build"
 ```
 
 ---

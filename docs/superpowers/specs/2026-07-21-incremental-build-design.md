@@ -1,7 +1,7 @@
 # 设计文档：增量构建（Incremental Build）
 
 - **日期**：2026-07-21
-- **状态**：Draft
+- **状态**：Implemented
 - **关联**：[ADR 0001](docs/adr/0001-redefine-equivalence.md)、DAG（`internal/daemon/dag/`）
 - **实现阶段**：v0.9.0
 
@@ -92,6 +92,11 @@ type PipelineCache struct {
 
 func NewPipelineCache() *PipelineCache
 ```
+
+> **实现说明**：PipelineCache 只缓存渲染基础设施（模板/i18n/markdown/writer），
+> 不缓存 PageLookup/ContextLookup。因为内容变更时 context 引用的 page 指针
+> 会失效，缓存它们会导致列表页输出过期。增量构建时重建内容+context（开销小），
+> 但只渲染受 DAG 影响的页面（跳过 ~95% 的模板渲染）。
 
 ### 4.2 模板变更检测
 
