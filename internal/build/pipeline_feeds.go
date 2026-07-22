@@ -177,8 +177,14 @@ func (p *pipeline) renderAIOutputs() {
 		}
 	}
 	if p.cfg.AI.ContentAPI {
+		// The public/AI content API ALWAYS excludes drafts, regardless of
+		// the build's IncludeDrafts flag. Serving a draft via the
+		// unauthenticated /api/{section}.json endpoint (and thus /api/v1/*)
+		// would leak unpublished content to the public and to AI crawlers.
+		// IncludeFuture / IncludeExpired are schedule-based filters, not
+		// dev-preview flags, so they are honored as configured.
 		if err := output.GenerateContentAPI(p.opts.OutputDir, p.site, p.cfg,
-			p.opts.IncludeDrafts, p.opts.IncludeFuture, p.opts.IncludeExpired, p.now); err != nil {
+			false, p.opts.IncludeFuture, p.opts.IncludeExpired, p.now); err != nil {
 			p.logf("  WARN: content api: %v\n", err)
 		}
 	}

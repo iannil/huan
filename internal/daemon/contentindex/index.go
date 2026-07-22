@@ -153,6 +153,13 @@ func (ci *ContentIndex) Query(f Filter) Result {
 	if f.Page < 1 {
 		f.Page = 1
 	}
+	// Cap page to a sane upper bound. Without this, a huge page (e.g.
+	// math.MaxInt64) overflows (page-1)*limit below, yielding a negative start
+	// that bypasses the start>total guard and panics on matched[start:end].
+	// Public, unauthenticated endpoint — this is a DoS surface.
+	if f.Page > 100000 {
+		f.Page = 100000
+	}
 	if f.Limit < 1 {
 		f.Limit = 10
 	}
@@ -183,12 +190,15 @@ func (ci *ContentIndex) Query(f Filter) Result {
 	sortItemsByDateDesc(matched)
 
 	total := len(matched)
+	// Guard against integer overflow on huge page values (public endpoint).
+	// Even with the 100000 page cap, defend against any negative start/end
+	// that could slip through future changes to the cap or limit math.
 	start := (f.Page - 1) * f.Limit
-	end := start + f.Limit
-	if start > total {
+	if start < 0 || start > total {
 		start = total
 	}
-	if end > total {
+	end := start + f.Limit
+	if end < 0 || end > total {
 		end = total
 	}
 	var data []Item

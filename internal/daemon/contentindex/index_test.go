@@ -2,6 +2,7 @@ package contentindex
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -188,6 +189,22 @@ func TestQuery_NoMatch(t *testing.T) {
 	r := ci.Query(Filter{Query: "zzznomatchzzz"})
 	if r.Total != 0 || len(r.Data) != 0 {
 		t.Errorf("expected empty result, got total=%d", r.Total)
+	}
+}
+
+// TestQuery_HugePageNoPanic guards against integer overflow on the public
+// endpoint. A page of math.MaxInt64 used to compute a negative start index
+// that bypassed the bounds guard and panicked on matched[start:end].
+func TestQuery_HugePageNoPanic(t *testing.T) {
+	ci := loadTestIndex(t)
+
+	// Must not panic and must return empty data.
+	r := ci.Query(Filter{Page: math.MaxInt64, Limit: 10})
+	if len(r.Data) != 0 {
+		t.Errorf("expected empty data for huge page, got %d items", len(r.Data))
+	}
+	if r.Page != 100000 {
+		t.Errorf("Page = %d, want 100000 (capped)", r.Page)
 	}
 }
 

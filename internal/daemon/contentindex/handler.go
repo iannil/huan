@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Handler exposes the read-only content query API at /api/v1/*.
@@ -46,8 +47,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handlePagesList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	// Cap query length to avoid expensive substring scans over all items.
+	// Count RUNES, not bytes: the project targets Chinese content, where a
+	// 67-char query is ~201 UTF-8 bytes and would be wrongly rejected by a
+	// byte-based cap.
 	const maxQueryLen = 200
-	if query := q.Get("q"); len(query) > maxQueryLen {
+	if query := q.Get("q"); utf8.RuneCountInString(query) > maxQueryLen {
 		writeJSON(w, http.StatusBadRequest, errBody("query too long"))
 		return
 	}

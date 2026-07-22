@@ -125,6 +125,30 @@ func TestHandler_IndexNotReady(t *testing.T) {
 	}
 }
 
+// TestHandler_CJKQueryNotRejected verifies the rune-based length cap does
+// not reject reasonable Chinese queries. The project targets Chinese content:
+// a 100-char Chinese query is 300 UTF-8 bytes but only 100 runes, well under
+// the 200-rune cap.
+func TestHandler_CJKQueryNotRejected(t *testing.T) {
+	h := NewHandler(loadTestIndex(t))
+	cjkQ := "/api/v1/pages?q=" + strings.Repeat("中", 100) // 100 runes, 300 bytes
+	rec := serveHandler(t, h, "GET", cjkQ, "")
+	if rec.Code != 200 {
+		t.Errorf("CJK query (100 runes / 300 bytes) rejected: code = %d, want 200", rec.Code)
+	}
+}
+
+// TestHandler_CJKQueryOverRuneCapRejected verifies the rune-based cap still
+// rejects genuinely-too-long CJK queries: 201 Chinese runes must 400.
+func TestHandler_CJKQueryOverRuneCapRejected(t *testing.T) {
+	h := NewHandler(loadTestIndex(t))
+	cjkQ := "/api/v1/pages?q=" + strings.Repeat("中", 201) // 201 runes, 603 bytes
+	rec := serveHandler(t, h, "GET", cjkQ, "")
+	if rec.Code != 400 {
+		t.Errorf("CJK query (201 runes) accepted: code = %d, want 400", rec.Code)
+	}
+}
+
 func serveHandler(t *testing.T, h *Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)

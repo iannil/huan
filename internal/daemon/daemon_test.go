@@ -1759,6 +1759,46 @@ func TestDaemon_ContentAPI_ExcludesDraft(t *testing.T) {
 	}
 }
 
+// TestDaemon_ContentAPI_ExcludesDraftEvenWithBuildDrafts verifies that the
+// public /api/{section}.json (and thus /api/v1/*) NEVER serves drafts, even
+// when the operator runs the build with BuildDrafts=true (e.g. `huan serve -D`
+// or BuildDrafts in config). Drafts are a dev-preview concept; the public
+// content API must always serve published content only.
+func TestDaemon_ContentAPI_ExcludesDraftEvenWithBuildDrafts(t *testing.T) {
+	tmpDir := setupContentAPISite(t)
+	contentIdx := contentindex.NewContentIndex("https://example.com/")
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:    tmpDir,
+		OutputDir:    tmpDir,
+		Bus:          eventbus.NewChannelBus(),
+		DAG:          dag.NewDependencyGraph(),
+		JITCache:     cache.NewJITCache(100, 5*time.Minute),
+		Logf:         t.Logf,
+		ContentIndex: contentIdx,
+		BuildDrafts:  true, // operator asked for drafts in the dev preview
+	})
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	handler := contentindex.NewHandler(contentIdx)
+	rec := httptestNewRequest(t, handler, "GET", "/api/v1/pages?q=secret", "")
+	var r contentindex.Result
+	jsonNewDecoder(rec.Body).Decode(&r)
+	if r.Total != 0 {
+		t.Errorf("draft leaked into public API even with BuildDrafts=true: total=%d", r.Total)
+	}
+
+	// Sanity: published content is still present (the fix must not nuke the
+	// entire API, only the drafts).
+	recPub := httptestNewRequest(t, handler, "GET", "/api/v1/pages?section=posts", "")
+	var rPub contentindex.Result
+	jsonNewDecoder(recPub.Body).Decode(&rPub)
+	if rPub.Total == 0 {
+		t.Error("published posts missing from API (fix over-excluded)")
+	}
+}
+
 // setupContentAPISite creates a site scaffold with ai.contentAPI enabled so
 // the build emits /api/{section}.json for the ContentIndex to load.
 func setupContentAPISite(t *testing.T) string {
