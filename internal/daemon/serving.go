@@ -10,6 +10,7 @@ import (
 
 	"github.com/iannil/huan/internal/daemon/cache"
 	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/daemon/sse"
 )
 
 // ServingOptions configures the Serving layer.
@@ -31,6 +32,9 @@ type ServingOptions struct {
 	// queries. When non-nil, it is registered before the / catch-all so
 	// exact-prefix matches win over the static file fallback.
 	ContentAPI http.Handler
+
+	// SSEHub, if non-nil, enables the /api/v1/events real-time push endpoint.
+	SSEHub *sse.SSEHub
 }
 
 // Serving manages the HTTP server, static file serving, JIT rendering, and admin API.
@@ -73,6 +77,11 @@ func (s *Serving) Start(ctx context.Context) error {
 	// Registered before the / catch-all so the exact prefix wins.
 	if s.opts.ContentAPI != nil {
 		mux.Handle("/api/v1/", s.opts.ContentAPI)
+	}
+
+	// SSE real-time push — /api/v1/events
+	if s.opts.SSEHub != nil {
+		mux.HandleFunc("/api/v1/events", s.opts.SSEHub.HandleSubscribe)
 	}
 
 	// Static file server with JIT fallback

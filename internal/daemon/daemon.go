@@ -16,6 +16,7 @@ import (
 	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/daemon/sse"
 	"github.com/iannil/huan/internal/plugin"
 )
 
@@ -29,10 +30,10 @@ type Options struct {
 	TLSKey         string
 	Systemd        bool
 	BuildDrafts    bool
-	DisableWatch   bool          // disable file watching (default false)
-	BuildInterval  time.Duration // periodic full rebuild interval (0 = disabled)
-	PluginDir      string        // plugin directory (default: <sourceDir>/plugins)
-	DisablePlugin  bool          // disable plugin loading
+	DisableWatch   bool             // disable file watching (default false)
+	BuildInterval  time.Duration    // periodic full rebuild interval (0 = disabled)
+	PluginDir      string           // plugin directory (default: <sourceDir>/plugins)
+	DisablePlugin  bool             // disable plugin loading
 	PluginRegistry *plugin.Registry // compiled plugins registry (optional)
 }
 
@@ -110,14 +111,14 @@ func Run(opts Options) error {
 	// the initial full build. Subsequent incremental builds reuse it.
 	pipelineCache := build.NewPipelineCache()
 	d.builder = NewBuilder(BuilderOptions{
-		SourceDir:   opts.SourceDir,
-		OutputDir:   tmpDir,
-		Bus:         d.bus,
-		DAG:         d.dag,
-		JITCache:    d.jitCache,
-		Metrics:     d.metrics,
-		BuildDrafts: opts.BuildDrafts,
-		Logf:        log.Printf,
+		SourceDir:     opts.SourceDir,
+		OutputDir:     tmpDir,
+		Bus:           d.bus,
+		DAG:           d.dag,
+		JITCache:      d.jitCache,
+		Metrics:       d.metrics,
+		BuildDrafts:   opts.BuildDrafts,
+		Logf:          log.Printf,
 		PipelineCache: pipelineCache,
 		ContentIndex:  contentIdx,
 		OnAfterBuild: func(r *build.Result) error {
@@ -165,6 +166,14 @@ func Run(opts Options) error {
 		PluginManager: d.pluginManager,
 	})
 
+	// Init SSEHub (real-time push via /api/v1/events)
+	sseHub := sse.NewSSEHub(log.Printf)
+	sseHub.SubscribeBus(d.bus)
+	sseWatchCtx, sseWatchCancel := context.WithCancel(context.Background())
+	defer sseWatchCancel()
+	sseHub.Start(sseWatchCtx)
+	log.Println("daemon: SSE push enabled (/api/v1/events)")
+
 	d.serving = NewServing(ServingOptions{
 		OutputDir:    tmpDir,
 		Bind:         opts.Bind,
@@ -178,6 +187,7 @@ func Run(opts Options) error {
 		Health:       d.health,
 		Metrics:      d.metrics,
 		ContentAPI:   contentAPI,
+		SSEHub:       sseHub,
 		Logf:         log.Printf,
 	})
 

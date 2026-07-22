@@ -20,6 +20,7 @@ import (
 	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/daemon/sse"
 )
 
 // TestDaemonStartupHealthCheck verifies that daemon starts, initial build
@@ -373,7 +374,7 @@ func TestWatcher_IsIgnored(t *testing.T) {
 		path    string
 		ignored bool
 	}{
-		{"/tmp/test/.DS_Store", true},      // dotfile
+		{"/tmp/test/.DS_Store", true},            // dotfile
 		{"/tmp/test/content/test.md.swp", true},  // vim swap
 		{"/tmp/test/content/test.md~", true},     // backup
 		{"/tmp/test/content/test.md", false},     // normal file
@@ -650,15 +651,15 @@ Hello, world.
 	}
 
 	builder := NewBuilder(BuilderOptions{
-		SourceDir:      tmpDir,
-		OutputDir:      tmpDir,
-		Bus:            bus,
-		DAG:            dag.NewDependencyGraph(),
-		JITCache:       cache.NewJITCache(100, 5*time.Minute),
-		Metrics:        NewMetricsCollector(),
-		BuildDrafts:    true,
-		Logf:           t.Logf,
-		PipelineCache:  pipelineCache,
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dag.NewDependencyGraph(),
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
 	})
 
 	if err := builder.FullBuild(context.Background()); err != nil {
@@ -695,11 +696,11 @@ func TestServing_jitFallback(t *testing.T) {
 	metrics := NewMetricsCollector()
 	health := NewHealthChecker()
 	builder := NewBuilder(BuilderOptions{
-		Bus:     bus,
-		DAG:     dag.NewDependencyGraph(),
+		Bus:      bus,
+		DAG:      dag.NewDependencyGraph(),
 		JITCache: jitCache,
-		Metrics: metrics,
-		Logf:    t.Logf,
+		Metrics:  metrics,
+		Logf:     t.Logf,
 	})
 
 	srv := NewServing(ServingOptions{
@@ -1436,10 +1437,10 @@ func TestServing_ContentAPI_RoutesV1(t *testing.T) {
 	ln.Close()
 
 	srv := NewServing(ServingOptions{
-		OutputDir:  fixture,
-		Bind:       host,
-		Port:       port,
-		JITCache:   cache.NewJITCache(10, 5*time.Minute),
+		OutputDir: fixture,
+		Bind:      host,
+		Port:      port,
+		JITCache:  cache.NewJITCache(10, 5*time.Minute),
 		Builder: NewBuilder(BuilderOptions{
 			DAG:  dag.NewDependencyGraph(),
 			Logf: t.Logf,
@@ -1828,3 +1829,135 @@ func httptestNewRequest(t *testing.T, h http.Handler, method, path, body string)
 
 // jsonNewDecoder is json.NewDecoder (aliased to avoid import clashes if any).
 var jsonNewDecoder = json.NewDecoder
+
+// TestServing_SSEHub_RoutesEvents verifies the Task 4 wiring contract: when
+// ServingOptions.SSEHub is set, Serving.Start() registers the hub's
+// HandleSubscribe under /api/v1/events. A GET request to that path must reach
+// the hub (not fall through to the static file server) and return the SSE
+// wire headers. We assert the route is live and dispatches to the hub, not
+// the full streaming behaviour (that is covered by sse/handler_test.go).
+func TestServing_SSEHub_RoutesEvents(t *testing.T) {
+	hub := sse.NewSSEHub(t.Logf)
+
+	// Bind to an OS-assigned port, then release it so Serving.Start() can
+	// rebind to the same port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("split host/port: %v", err)
+	}
+	ln.Close()
+
+	fixture := t.TempDir()
+	srv := NewServing(ServingOptions{
+		OutputDir: fixture,
+		Bind:      host,
+		Port:      port,
+		JITCache:  cache.NewJITCache(10, 5*time.Minute),
+		Builder: NewBuilder(BuilderOptions{
+			DAG:  dag.NewDependencyGraph(),
+			Logf: t.Logf,
+		}),
+		SSEHub: hub,
+		Logf:   t.Logf,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- srv.Start(ctx)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.httpSrv != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if srv.httpSrv == nil {
+		t.Fatal("serving.Start did not initialize httpSrv within timeout")
+	}
+
+	// Hit /api/v1/events with the default http client. The handler blocks
+	// on the streaming loop, so we drive it from a goroutine with a short
+	// timeout and read just enough to prove the SSE headers were written.
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://%s/api/v1/events", addr))
+	if err != nil {
+		t.Fatalf("GET /api/v1/events: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/v1/events: status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Errorf("GET /api/v1/events: Content-Type = %q, want text/event-stream*", ct)
+	}
+	// The hub must have one connected client while the stream is open.
+	if hub.ClientCount() != 1 {
+		t.Errorf("client count = %d, want 1 (handler did not register with hub)", hub.ClientCount())
+	}
+}
+
+// TestServing_SSEHub_NilSkipsRegistration verifies the nil-safe contract: when
+// SSEHub is nil the /api/v1/events route is simply absent and does not panic.
+func TestServing_SSEHub_NilSkipsRegistration(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("split host/port: %v", err)
+	}
+	ln.Close()
+
+	fixture := t.TempDir()
+	srv := NewServing(ServingOptions{
+		OutputDir: fixture,
+		Bind:      host,
+		Port:      port,
+		JITCache:  cache.NewJITCache(10, 5*time.Minute),
+		Builder: NewBuilder(BuilderOptions{
+			DAG:  dag.NewDependencyGraph(),
+			Logf: t.Logf,
+		}),
+		SSEHub: nil, // explicitly nil
+		Logf:   t.Logf,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Start(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.httpSrv != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if srv.httpSrv == nil {
+		t.Fatal("serving.Start did not initialize httpSrv within timeout")
+	}
+
+	// /api/v1/events falls through to the static file server / JIT fallback,
+	// which returns 404 for a missing file. The key contract is no panic and
+	// no SSE headers.
+	resp, err := http.Get(fmt.Sprintf("http://%s/api/v1/events", addr))
+	if err != nil {
+		t.Fatalf("GET /api/v1/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
+		t.Errorf("nil SSEHub still routed to SSE handler; Content-Type = %q", ct)
+	}
+}
