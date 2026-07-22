@@ -1456,18 +1456,10 @@ func TestServing_ContentAPI_RoutesV1(t *testing.T) {
 	go func() {
 		startErr <- srv.Start(ctx)
 	}()
-	// Wait until httpSrv is populated (Start sets it synchronously before
-	// ListenAndServe blocks).
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if srv.httpSrv != nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if srv.httpSrv == nil {
-		t.Fatal("serving.Start did not initialize httpSrv within timeout")
-	}
+	// Wait until Start has bound its listener. Polling srv.httpSrv directly
+	// would race with the unsynchronized write in Serving.Start.
+	_ = startErr
+	waitForServeReady(t, addr)
 
 	base := fmt.Sprintf("http://%s", addr)
 
@@ -1828,6 +1820,31 @@ func httptestNewRequest(t *testing.T, h http.Handler, method, path, body string)
 	return rec
 }
 
+// waitForServeReady polls the /health endpoint until it returns a response or
+// the deadline elapses. This replaces direct reads of the unexported
+// Serving.httpSrv field (which Start assigns without synchronization and so
+// cannot be polled from another goroutine without triggering a data race).
+//
+// The listener bind happens inside Serving.Start via ListenAndServe, so the
+// only race-free signal that the server is up is "it accepted a connection".
+// /health is registered unconditionally (Serving.Start falls back to a default
+// 200 handler when ServingOptions.Health is nil), making it a stable probe.
+func waitForServeReady(t *testing.T, addr string) {
+	t.Helper()
+	client := &http.Client{Timeout: 100 * time.Millisecond}
+	url := "http://" + addr + "/health"
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("serving did not become ready at %s within timeout", addr)
+}
+
 // jsonNewDecoder is json.NewDecoder (aliased to avoid import clashes if any).
 var jsonNewDecoder = json.NewDecoder
 
@@ -1874,16 +1891,8 @@ func TestServing_SSEHub_RoutesEvents(t *testing.T) {
 	go func() {
 		startErr <- srv.Start(ctx)
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if srv.httpSrv != nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if srv.httpSrv == nil {
-		t.Fatal("serving.Start did not initialize httpSrv within timeout")
-	}
+	_ = startErr
+	waitForServeReady(t, addr)
 
 	// Hit /api/v1/events with the default http client. The handler blocks
 	// on the streaming loop, so we drive it from a goroutine with a short
@@ -1939,16 +1948,7 @@ func TestServing_SSEHub_NilSkipsRegistration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = srv.Start(ctx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if srv.httpSrv != nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if srv.httpSrv == nil {
-		t.Fatal("serving.Start did not initialize httpSrv within timeout")
-	}
+	waitForServeReady(t, addr)
 
 	// /api/v1/events falls through to the static file server / JIT fallback,
 	// which returns 404 for a missing file. The key contract is no panic and
@@ -2021,16 +2021,7 @@ func TestDaemon_SSE_BuildEventPushed(t *testing.T) {
 	serveCtx, serveCancel := context.WithCancel(context.Background())
 	defer serveCancel()
 	go func() { _ = srv.Start(serveCtx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if srv.httpSrv != nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if srv.httpSrv == nil {
-		t.Fatal("serving.Start did not initialize httpSrv within timeout")
-	}
+	waitForServeReady(t, addr)
 
 	// Connect an SSE client with a long read timeout so it doesn't close
 	// before the event arrives. The handler blocks on the stream loop, so
@@ -2134,16 +2125,7 @@ func TestDaemon_SSE_ContentChangedPushed(t *testing.T) {
 	serveCtx, serveCancel := context.WithCancel(context.Background())
 	defer serveCancel()
 	go func() { _ = srv.Start(serveCtx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if srv.httpSrv != nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if srv.httpSrv == nil {
-		t.Fatal("serving.Start did not initialize httpSrv within timeout")
-	}
+	waitForServeReady(t, addr)
 
 	// Connect an SSE client and wait for registration.
 	client := &http.Client{Timeout: 0}
