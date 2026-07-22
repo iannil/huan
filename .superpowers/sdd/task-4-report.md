@@ -1,131 +1,108 @@
-# Task 4 Report — Builder: RenderPageJIT 重写 + resolveSourceFile
+# Task 4 Report — daemon 集成（serving + builder + daemon.go）
 
 **Date:** 2026-07-22
-**Status:** ✅ Complete
-**Commit:** `a122c9e` on `master`
+**Commit:** `556f6a5` — feat(daemon): wire ContentIndex and /api/v1/ query API into daemon
+**Status:** COMPLETE — build green, all daemon tests pass
 
 ## Summary
 
-Replaced the `RenderPageJIT` stub in `internal/daemon/builder.go` with a real
-implementation that calls `build.RenderPageWithCache`. Added a new
-`resolveSourceFile` helper that combines DAG reverse-lookup with URL-based
-derivation. Exported `resolveSourceFromURL` → `ResolveSourceFromURL` so the
-daemon package can compose it.
+Wired the ContentIndex (Task 1) and Handler (Task 2-3) into the daemon so
+`/api/v1/*` queries are served by `huan serve` whenever `ai.contentAPI: true`
+is set in `huan.yaml`, and the index stays fresh after every full and
+incremental build.
 
-## Steps Completed
+## Changes
 
-### Step 1 — Export `resolveSourceFromURL`
+### `internal/daemon/serving.go`
+- Added `ContentAPI http.Handler` field to `ServingOptions` (optional).
+- In `Start()`, registered `mux.Handle("/api/v1/", s.opts.ContentAPI)` **before**
+  the `/` catch-all so the exact-prefix match wins (Go 1.22 ServeMux semantics
+  also ensure `/api/v1/` matches all sub-paths while `/` remains the fallback).
 
-`internal/build/jit.go`:
-- Renamed `func resolveSourceFromURL` → `func ResolveSourceFromURL`.
-- Updated godoc to explain why it is exported (composed by daemon).
+### `internal/daemon/builder.go`
+- Added import `github.com/iannil/huan/internal/daemon/contentindex`.
+- Added `ContentIndex *contentindex.ContentIndex` field to `BuilderOptions`.
+- Added a `LoadFromDir(b.opts.OutputDir)` reload hook:
+  - in `executeFullBuild` right after `JITCache.Clear()` (full rebuild path),
+  - in `IncrementalBuild` right after the `JITCache.Remove` loop (incremental
+    path).
+- Errors from `LoadFromDir` are logged via `b.opts.Logf` and swallowed — a
+  failed index reload must never fail the build. `LoadFromDir` already treats
+  a missing `api/` dir as a no-op (empty index), so the hook is safe during
+  the initial build when `tmpDir` is empty.
 
-`internal/build/jit_test.go`:
-- Updated both call sites (`resolveSourceFromURL(` → `ResolveSourceFromURL(`).
+### `internal/daemon/daemon.go`
+- Added import `github.com/iannil/huan/internal/daemon/contentindex`.
+- In `Run()` step 6.5 (between DAG init and Builder init), when
+  `cfg.AI.ContentAPI` is true:
+  - create `contentIdx := contentindex.NewContentIndex(cfg.BaseURL)`,
+  - best-effort `contentIdx.LoadFromDir(tmpDir)` (logs on error, empty index
+    is fine pre-build),
+  - wrap with `contentindex.NewHandler(contentIdx)` → `contentAPI`.
+- Injected `ContentIndex: contentIdx` into `BuilderOptions`.
+- Injected `ContentAPI: contentAPI` into `ServingOptions`.
+- When `ai.contentAPI` is false, both stay `nil` and the relevant log line
+  says `daemon: content query API disabled (ai.contentAPI not set)`.
 
-### Step 2 — Verify export test
+## Tests added (`internal/daemon/daemon_test.go`)
 
-```
-go test ./internal/build/ -run TestResolveSourceFromURL -v
-```
-Result: PASS (all 8 sub-tests).
+TDD-driven tests covering the wiring contract:
 
-### Step 3 — `resolveSourceFile` + `RenderPageJIT` rewrite
+1. **`TestServing_ContentAPI_RoutesV1`** — boots `Serving.Start()` on an
+   OS-assigned port, populates a `ContentIndex` from a fixture, and asserts:
+   - `GET /api/v1/pages` returns `200` JSON with `"total":1`,
+   - `GET /api/v1/tags` returns `200` JSON with `"go":1`,
+   - a non-`/api/v1/` path falls through to the static file / JIT fallback
+     (not the content handler).
 
-`internal/daemon/builder.go`:
-- Replaced the stub (which returned "not yet implemented") with the brief's
-  exact implementation.
-- `RenderPageJIT(ctx, pageURL)` flow:
-  1. `resolveSourceFile(b.opts.DAG, pageURL)` → source rel path
-  2. `os.Stat(SourceDir/content/<rel>)` verifies the file exists on disk
-  3. `build.RenderPageWithCache(opts, cache, pageURL)` with `IncludeDrafts:true`
-- New `resolveSourceFile(dg, pageURL)`:
-  1. If `dg != nil`, try `dg.SourceFromPagePath(pageURL)` (built pages)
-  2. Fall back to `build.ResolveSourceFromURL(pageURL)` (unbuilt drafts)
+2. **`TestBuilder_ContentIndex_ReloadAfterFullBuild`** — full build with
+   `ContentIndex` wired in. Asserts:
+   - `api/posts.json` is written by the build,
+   - `idx.Len()` transitions from 0 → 1 after the build,
+   - `GetByURL("/posts/hello/")` returns the expected item.
 
-### Step 4 — Imports
+3. **`TestBuilder_ContentIndex_ReloadAfterIncrementalBuild`** — full build
+   then an incremental edit of a page title. Asserts the index reflects the
+   new title after `IncrementalBuild` returns (i.e. the incremental reload
+   hook fires).
 
-No new imports needed; `fmt`, `os`, `path/filepath`, `build`, `dag` already
-present in `builder.go`.
-
-### Step 5 — Build
-
-```
-go build ./...
-```
-Result: SUCCESS (no output).
-
-### Step 6 — Daemon regression tests
-
-```
-go test ./internal/daemon/... -run "TestBuilder|TestServing_jit" -v
-```
-Result: ALL PASS.
-
-`TestServing_jitFallback` still returns 404 for `/nonexistent` because the
-URL-derivation resolves to `nonexistent/_index.md` which does not exist on
-disk → the new "source not found" error → 404 in `serving.jitFallback`.
-
-### Step 7 — Stale stub assertion
-
-Searched daemon tests for `"not yet implemented"` / `"JIT rendering"`:
-- No test asserted the literal stub error string.
-- One stale **comment** in `TestServing_jitFallback` (line 717) said
-  "Should return 404 since JIT render is not implemented" — updated to
-  "Should return 404: source file for /nonexistent cannot be resolved or
-  found on disk".
-
-### Step 8 — Commit
+## Verification
 
 ```
-feat(daemon): implement RenderPageJIT with DAG+URL source resolution
+$ go build ./...
+(no output — success)
+
+$ go test ./internal/daemon/...
+ok  github.com/iannil/huan/internal/daemon            0.761s
+ok  github.com/iannil/huan/internal/daemon/cache      (cached)
+ok  github.com/iannil/huan/internal/daemon/contentindex 0.787s
+ok  github.com/iannil/huan/internal/daemon/dag        (cached)
+ok  github.com/iannil/huan/internal/daemon/eventbus   (cached)
+
+$ go test ./...
+(all packages pass, no regressions)
 ```
-Files in commit:
-- `internal/build/jit.go` (export)
-- `internal/build/jit_test.go` (caller updates)
-- `internal/daemon/builder.go` (rewrite + new helper)
-- `internal/daemon/daemon_test.go` (stale comment fix)
-- `internal/daemon/builder_jit_test.go` (**new** — TDD coverage)
 
-## New Tests (`internal/daemon/builder_jit_test.go`)
+## Commits
 
-- `TestResolveSourceFile_URLFallback` — empty DAG → URL derivation for
-  home / section / page / nested URLs.
-- `TestResolveSourceFile_NilDAG` — nil DAG does not panic, falls back.
-- `TestResolveSourceFile_DAGHit` — DAG miss falls back to URL derivation.
-- `TestRenderPageJIT_RendersBuiltPage` — end-to-end: full build populates
-  cache, then `RenderPageJIT` reuses it for an existing page.
-- `TestRenderPageJIT_RendersDraftPage` — draft excluded from full build
-  (`BuildDrafts:false`) still renders via JIT (forces `IncludeDrafts:true`).
-- `TestRenderPageJIT_SourceNotFound` — unresolved/missing source returns
-  an error containing "source not found".
-
-## Full Test Results
-
-```
-go build ./...                         → SUCCESS
-go test ./...                          → ALL PASS (all packages)
-go test ./internal/daemon/...          → PASS
-go test ./internal/build/...           → PASS
-```
+- `556f6a5` — feat(daemon): wire ContentIndex and /api/v1/ query API into daemon
+  - Files: `internal/daemon/serving.go`, `internal/daemon/builder.go`,
+    `internal/daemon/daemon.go`, `internal/daemon/daemon_test.go`
+  - Stat: 4 files changed, 341 insertions(+), 12 deletions(-)
 
 ## Concerns / Notes
 
-1. **`renderPageFn` field is now dead in the JIT path.** The Builder still
-   captures `renderPageFn` from `AfterBuild` into `b.renderPageFn`
-   (`builder.go:45,71,80,101`), but the new `RenderPageJIT` uses
-   `build.RenderPageWithCache` instead. The field/assignment are kept
-   because (a) the brief did not ask to remove them, (b) removing them is
-   out of scope and may affect future tasks, and (c) the compiler accepts
-   them as "used" because they are assigned to a struct field. A future
-   cleanup task could remove this dead capture.
-
-2. **`TestServing_jitFallback`** in `daemon_test.go` constructs a Builder
-   with no `SourceDir`. Its `/nonexistent` request still returns 404
-   (because `os.Stat` on a path under an empty `SourceDir` fails), so the
-   test continues to pass with the new implementation. The stale comment
-   was the only update needed there.
-
-3. **Unrelated dirty files in working tree** (brief/report `.md` rewrites,
-   `docs/superpowers/plans/2026-07-22-jit-rendering-plan.md`) were left
-   unstaged — they are not part of this task and were not touched.
+- The pre-existing unstaged changes to `.superpowers/sdd/task-{1,2,3}-{brief,report}.md`
+  and `task-4-brief.md` were already present in the working tree before this
+  task started (scaffolding from earlier task setup); they are not part of
+  this commit.
+- The initial `LoadFromDir` in `daemon.Run` runs against an empty `tmpDir`
+  (initial build hasn't happened yet). This is intentional and safe —
+  `LoadFromDir` returns `nil` for a missing `api/` directory. The first
+  meaningful reload happens inside the post-build hook.
+- The reload hook swallows errors (logs only). This matches the contract
+  that a content-index problem must not fail a successful build; the
+  previous (possibly stale) index simply remains until the next build.
+- `cfg.AI.ContentAPI` is the gate; `cfg.BaseURL` is used to convert absolute
+  URLs in the source JSON to relative paths inside the index. Both exist
+  in `internal/config/config.go` (lines 122 and 10 respectively).

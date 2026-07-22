@@ -1,122 +1,122 @@
-### Task 4: Builder — RenderPageJIT 重写 + resolveSourceFile
+### Task 4: daemon 集成（serving + builder + daemon.go）
 
 **Files:**
-- Modify: `internal/daemon/builder.go` — 重写 RenderPageJIT（去 stub），新增 resolveSourceFile
+- Modify: `internal/daemon/serving.go` — 注册 /api/v1/ handler，ServingOptions 新增 ContentAPI
+- Modify: `internal/daemon/builder.go` — ContentIndex 刷新钩子，BuilderOptions 新增 ContentIndex
+- Modify: `internal/daemon/daemon.go` — 创建 ContentIndex + Handler，注入
 
 **Interfaces:**
-- Consumes: `build.RenderPageWithCache`, `build.PipelineCache`, `dag.DependencyGraph.SourceFromPagePath`, `build.resolveSourceFromURL`（需导出或复制）
-- Produces: 重写后的 `Builder.RenderPageJIT(ctx, pageURL) (string, error)`，`resolveSourceFile(dg, pageURL) (string, bool)`
+- Consumes: ContentIndex, Handler (Task 1-3)
+- Produces: ServingOptions.ContentAPI, BuilderOptions.ContentIndex, daemon wiring
 
-**重要：** `resolveSourceFromURL` 在 build 包是小写（未导出）。daemon 包无法调用。两种方案：
-1. 导出为 `ResolveSourceFromURL`（改 build/jit.go）
-2. 在 daemon 包内复制一份
+- [ ] **Step 1: ServingOptions 新增 ContentAPI 字段**
 
-方案 1 更清晰（DRY）。先导出 resolveSourceFromURL → ResolveSourceFromURL，更新 jit_test.go 的调用。
-
-- [ ] **Step 1: 导出 resolveSourceFromURL**
-
-修改 `internal/build/jit.go`，把 `func resolveSourceFromURL` 改为 `func ResolveSourceFromURL`，更新 godoc。
-
-修改 `internal/build/jit_test.go` 中所有 `resolveSourceFromURL(` → `ResolveSourceFromURL(`。
-
-- [ ] **Step 2: 验证导出后测试仍通过**
-
-```bash
-go test ./internal/build/ -run "TestResolveSourceFromURL" -v
-```
-Expected: ALL PASS
-
-- [ ] **Step 3: 新增 resolveSourceFile 并重写 RenderPageJIT**
-
-替换 `internal/daemon/builder.go` 中的 `RenderPageJIT` stub（当前返回 "not yet implemented"）：
+在 `internal/daemon/serving.go` 的 `ServingOptions` 结构体中添加字段：
 
 ```go
-// RenderPageJIT renders a single page on demand for JIT fallback.
-// Reuses the cached pipeline state for speed. Returns the HTML (not written
-// to disk); the caller (serving.jitFallback) caches it in JITCache.
-//
-// Returns an error (→ 404 in serving layer) when the source file cannot
-// be resolved or does not exist on disk.
-func (b *Builder) RenderPageJIT(ctx context.Context, pageURL string) (string, error) {
-	cache := b.opts.PipelineCache
-
-	// 1. pageURL → source file (relative to content/).
-	sourceRel, ok := resolveSourceFile(b.opts.DAG, pageURL)
-	if !ok {
-		return "", fmt.Errorf("JIT: cannot resolve source for %s", pageURL)
-	}
-
-	// 2. Verify the source file exists on disk.
-	sourcePath := filepath.Join(b.opts.SourceDir, "content", sourceRel)
-	if _, err := os.Stat(sourcePath); err != nil {
-		return "", fmt.Errorf("JIT: source not found: %s", sourcePath)
-	}
-
-	// 3. Render with cached pipeline (forces IncludeDrafts=true).
-	html, err := build.RenderPageWithCache(build.Options{
-		SourceDir:     b.opts.SourceDir,
-		OutputDir:     b.opts.OutputDir,
-		IncludeDrafts: true,
-		Logf:          b.opts.Logf,
-		PipelineCache: cache,
-	}, cache, pageURL)
-	if err != nil {
-		return "", fmt.Errorf("JIT render %s: %w", pageURL, err)
-	}
-
-	return html, nil
-}
-
-// resolveSourceFile maps a page URL to its source file path (relative to
-// content/). Tries the DAG first (pages present in the last full build),
-// then falls back to URL-based derivation for pages not yet built (drafts,
-// new pages).
-func resolveSourceFile(dg *dag.DependencyGraph, pageURL string) (string, bool) {
-	// 1. DAG reverse lookup (exact, for built pages).
-	if dg != nil {
-		if src, ok := dg.SourceFromPagePath(pageURL); ok {
-			return src, true
-		}
-	}
-	// 2. URL derivation (fallback, for unbuilt pages).
-	if src := build.ResolveSourceFromURL(pageURL); src != "" {
-		return src, true
-	}
-	return "", false
-}
+	ContentAPI    http.Handler              // optional /api/v1/* content query handler
 ```
 
-- [ ] **Step 4: 确认 builder.go import**
+- [ ] **Step 2: serving.go Start() 注册 /api/v1/**
 
-`internal/daemon/builder.go` 已 import：`fmt`、`os`、`path/filepath`、`build`、`dag`、`context`。确认无需新增。`build` 和 `dag` 已在 import 列表（builder.go 使用 build.BuildSite、dag.DependencyGraph）。
+在 `internal/daemon/serving.go` 的 `Start()` 方法中，注册 admin handler 之前（或 health 之后），添加：
 
-- [ ] **Step 5: 编译验证**
+```go
+	// Content query API (public, read-only) — /api/v1/*
+	if s.opts.ContentAPI != nil {
+		mux.Handle("/api/v1/", s.opts.ContentAPI)
+	}
+```
+
+放置位置：在 metrics handler 之后、admin handler 之前（确保 `/api/v1/` 精确匹配优先于 `/` catch-all）。
+
+- [ ] **Step 3: BuilderOptions 新增 ContentIndex 字段**
+
+在 `internal/daemon/builder.go` 的 `BuilderOptions` 结构体中添加：
+
+```go
+	// ContentIndex is reloaded from /api/*.json after each build so the
+	// query API serves fresh data.
+	ContentIndex *contentindex.ContentIndex
+```
+
+并在 builder.go 顶部添加 import（若不存在）：
+
+```go
+	"github.com/iannil/huan/internal/daemon/contentindex"
+```
+
+- [ ] **Step 4: builder.go 添加 ContentIndex 刷新钩子**
+
+在 `executeFullBuild` 成功日志后（JITCache.Clear 附近）添加：
+
+```go
+	if b.opts.ContentIndex != nil {
+		if err := b.opts.ContentIndex.LoadFromDir(b.opts.OutputDir); err != nil {
+			b.opts.Logf("builder: content index reload: %v", err)
+		}
+	}
+```
+
+在 `IncrementalBuild` 的 JITCache.Remove 循环之后添加同样代码：
+
+```go
+	if b.opts.ContentIndex != nil {
+		if err := b.opts.ContentIndex.LoadFromDir(b.opts.OutputDir); err != nil {
+			b.opts.Logf("builder: content index reload: %v", err)
+		}
+	}
+```
+
+- [ ] **Step 5: daemon.go 创建并注入 ContentIndex + Handler**
+
+在 `internal/daemon/daemon.go` 的 `Run()` 中，创建 Builder 之前，添加：
+
+```go
+	// 7.5 Init ContentIndex (for /api/v1/* query API)
+	var contentAPI http.Handler
+	var contentIdx *contentindex.ContentIndex
+	if cfg.AI.ContentAPI {
+		contentIdx = contentindex.NewContentIndex(cfg.BaseURL)
+		if err := contentIdx.LoadFromDir(tmpDir); err != nil {
+			log.Printf("daemon: content index load: %v", err)
+		}
+		contentAPI = contentindex.NewHandler(contentIdx)
+		log.Println("daemon: content query API enabled (/api/v1/*)")
+	} else {
+		log.Println("daemon: content query API disabled (ai.contentAPI not set)")
+	}
+```
+
+在 Builder 创建时注入 `ContentIndex: contentIdx`。
+
+在 Serving 创建时注入 `ContentAPI: contentAPI`。
+
+在 daemon.go 顶部添加 import：
+
+```go
+	"github.com/iannil/huan/internal/daemon/contentindex"
+```
+
+- [ ] **Step 6: 编译验证**
 
 ```bash
 go build ./...
 ```
 Expected: BUILD SUCCESS
 
-- [ ] **Step 6: 运行现有 daemon 测试确保无回归**
+- [ ] **Step 7: 运行 daemon 测试确保无回归**
 
 ```bash
-go test ./internal/daemon/... -run "TestBuilder" -v
+go test ./internal/daemon/... -v
 ```
-Expected: ALL PASS（注意：如有测试断言 RenderPageJIT 返回 "not yet implemented"，需更新）
-
-- [ ] **Step 7: 更新依赖旧 stub 错误信息的测试（如有）**
-
-搜索 daemon_test.go 中是否有测试断言 RenderPageJIT 返回 "not yet implemented"。如果有，更新为断言成功渲染或新的错误格式。
-
-```bash
-grep -rn "not yet implemented\|JIT rendering" internal/daemon/*_test.go
-```
+Expected: ALL PASS
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add internal/build/jit.go internal/build/jit_test.go internal/daemon/builder.go
-git commit -m "feat(daemon): implement RenderPageJIT with DAG+URL source resolution"
+git add internal/daemon/serving.go internal/daemon/builder.go internal/daemon/daemon.go
+git commit -m "feat(daemon): wire ContentIndex and /api/v1/ query API into daemon"
 ```
 
 ---

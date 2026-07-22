@@ -1663,3 +1663,128 @@ Updated body.
 		t.Errorf("index not reloaded after incremental build; title = %q, want %q", item.Title, "Updated")
 	}
 }
+
+// TestDaemon_ContentAPI_AfterBuild verifies the query API returns content
+// after a full build (which generates /api/{section}.json).
+func TestDaemon_ContentAPI_AfterBuild(t *testing.T) {
+	tmpDir := setupContentAPISite(t)
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	contentIdx := contentindex.NewContentIndex("https://example.com/")
+	handler := contentindex.NewHandler(contentIdx)
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:    tmpDir,
+		OutputDir:    tmpDir,
+		Bus:          bus,
+		DAG:          dag.NewDependencyGraph(),
+		JITCache:     cache.NewJITCache(100, 5*time.Minute),
+		Logf:         t.Logf,
+		ContentIndex: contentIdx,
+	})
+
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Query via the handler.
+	rec := httptestNewRequest(t, handler, "GET", "/api/v1/pages?section=posts", "")
+	if rec.Code != 200 {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	var r contentindex.Result
+	jsonNewDecoder(rec.Body).Decode(&r)
+	if r.Total == 0 {
+		t.Error("expected posts in API after build")
+	}
+}
+
+// TestDaemon_ContentAPI_RefreshOnBuild verifies the index reloads after a
+// content change + rebuild.
+func TestDaemon_ContentAPI_RefreshOnBuild(t *testing.T) {
+	tmpDir := setupContentAPISite(t)
+	contentIdx := contentindex.NewContentIndex("https://example.com/")
+	handler := contentindex.NewHandler(contentIdx)
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:    tmpDir,
+		OutputDir:    tmpDir,
+		Bus:          eventbus.NewChannelBus(),
+		DAG:          dag.NewDependencyGraph(),
+		JITCache:     cache.NewJITCache(100, 5*time.Minute),
+		Logf:         t.Logf,
+		ContentIndex: contentIdx,
+	})
+	builder.FullBuild(context.Background())
+
+	// Initial count.
+	rec1 := httptestNewRequest(t, handler, "GET", "/api/v1/pages", "")
+	var r1 contentindex.Result
+	jsonNewDecoder(rec1.Body).Decode(&r1)
+	initial := r1.Total
+
+	// Add a new page + rebuild.
+	mustWriteIncFile(t, tmpDir, "content/posts/new.md", []byte("---\ntitle: \"New\"\ndate: \"2026-03-01\"\n---\nNew body.\n"))
+	builder.FullBuild(context.Background())
+
+	rec2 := httptestNewRequest(t, handler, "GET", "/api/v1/pages", "")
+	var r2 contentindex.Result
+	jsonNewDecoder(rec2.Body).Decode(&r2)
+	if r2.Total <= initial {
+		t.Errorf("total not refreshed: %d → %d", initial, r2.Total)
+	}
+}
+
+// TestDaemon_ContentAPI_ExcludesDraft verifies drafts don't appear.
+func TestDaemon_ContentAPI_ExcludesDraft(t *testing.T) {
+	tmpDir := setupContentAPISite(t)
+	contentIdx := contentindex.NewContentIndex("https://example.com/")
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:    tmpDir,
+		OutputDir:    tmpDir,
+		Bus:          eventbus.NewChannelBus(),
+		DAG:          dag.NewDependencyGraph(),
+		JITCache:     cache.NewJITCache(100, 5*time.Minute),
+		Logf:         t.Logf,
+		ContentIndex: contentIdx,
+	})
+	// BuildDrafts=false → draft excluded from /api/*.json
+	builder.FullBuild(context.Background())
+
+	// The setupContentAPISite includes a draft page "secret"; it should NOT appear.
+	handler := contentindex.NewHandler(contentIdx)
+	rec := httptestNewRequest(t, handler, "GET", "/api/v1/pages?q=secret", "")
+	var r contentindex.Result
+	jsonNewDecoder(rec.Body).Decode(&r)
+	if r.Total != 0 {
+		t.Errorf("draft leaked into API: total=%d", r.Total)
+	}
+}
+
+// setupContentAPISite creates a site scaffold with ai.contentAPI enabled so
+// the build emits /api/{section}.json for the ContentIndex to load.
+func setupContentAPISite(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	// ai.contentAPI must be true for GenerateContentAPI to emit /api/*.json
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte("baseURL: \"https://example.com/\"\ntitle: \"API\"\npublishDir: \"docs\"\nai:\n  contentAPI: true\n"))
+	mustWriteIncFile(t, tmpDir, "content/posts/p1.md", []byte("---\ntitle: \"Post One\"\ndate: \"2026-01-01\"\n---\nHello world.\n"))
+	mustWriteIncFile(t, tmpDir, "content/posts/secret.md", []byte("---\ntitle: \"secret\"\ndate: \"2026-01-02\"\ndraft: true\n---\nDraft secret.\n"))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html", []byte("<html><body>{{ .Content }}</body></html>"))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html", []byte("<html><body>{{ range .Pages }}{{ .Title }}{{ end }}</body></html>"))
+	return tmpDir
+}
+
+// httptestNewRequest issues a request to a handler and returns the recorder.
+func httptestNewRequest(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, r)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// jsonNewDecoder is json.NewDecoder (aliased to avoid import clashes if any).
+var jsonNewDecoder = json.NewDecoder

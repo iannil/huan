@@ -1,7 +1,7 @@
 # 设计文档：内容查询 REST API
 
 - **日期**：2026-07-22
-- **状态**：Draft
+- **状态**：Implemented
 - **关联**：[JIT 渲染](2026-07-22-jit-rendering-design.md)、[增量构建](2026-07-21-incremental-build-design.md)、contentapi.go（`internal/output/contentapi.go`）
 - **实现阶段**：v0.11.0
 
