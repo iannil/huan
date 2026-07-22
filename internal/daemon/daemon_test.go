@@ -714,7 +714,7 @@ func TestServing_jitFallback(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.jitFallback(rec, req)
 
-	// Should return 404 since JIT render is not implemented
+	// Should return 404: source file for /nonexistent cannot be resolved or found on disk
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
 	}

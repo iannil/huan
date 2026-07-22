@@ -303,19 +303,55 @@ func (b *Builder) TriggerRebuild() {
 }
 
 // RenderPageJIT renders a single page on demand for JIT fallback.
-// Uses the RenderPageFunc captured from AfterBuild during the last full build.
-// If no full build has completed yet, returns an error.
+// Reuses the cached pipeline state for speed. Returns the HTML (not written
+// to disk); the caller (serving.jitFallback) caches it in JITCache.
 //
-// Phase 1 limitation: The page lookup from DAG is not yet fully implemented.
-// This method requires additional work to properly load page content from
-// the source file path stored in the DAG.
-func (b *Builder) RenderPageJIT(ctx context.Context, pagePath string) (string, error) {
-	if b.renderPageFn == nil {
-		return "", fmt.Errorf("JIT rendering: no RenderPageFunc available (full build not yet completed)")
+// Returns an error (→ 404 in serving layer) when the source file cannot
+// be resolved or does not exist on disk.
+func (b *Builder) RenderPageJIT(ctx context.Context, pageURL string) (string, error) {
+	cache := b.opts.PipelineCache
+
+	// 1. pageURL → source file (relative to content/).
+	sourceRel, ok := resolveSourceFile(b.opts.DAG, pageURL)
+	if !ok {
+		return "", fmt.Errorf("JIT: cannot resolve source for %s", pageURL)
 	}
-	// Phase 1 limitation: Page lookup from DAG requires loading content files
-	// and finding the corresponding *content.Page. The current DAG stores
-	// source paths but does not maintain loaded Page objects.
-	// This is a Phase 2 enhancement.
-	return "", fmt.Errorf("JIT rendering: page lookup from DAG not yet implemented — use full build for now")
+
+	// 2. Verify the source file exists on disk.
+	sourcePath := filepath.Join(b.opts.SourceDir, "content", sourceRel)
+	if _, err := os.Stat(sourcePath); err != nil {
+		return "", fmt.Errorf("JIT: source not found: %s", sourcePath)
+	}
+
+	// 3. Render with cached pipeline (forces IncludeDrafts=true).
+	html, err := build.RenderPageWithCache(build.Options{
+		SourceDir:     b.opts.SourceDir,
+		OutputDir:     b.opts.OutputDir,
+		IncludeDrafts: true,
+		Logf:          b.opts.Logf,
+		PipelineCache: cache,
+	}, cache, pageURL)
+	if err != nil {
+		return "", fmt.Errorf("JIT render %s: %w", pageURL, err)
+	}
+
+	return html, nil
+}
+
+// resolveSourceFile maps a page URL to its source file path (relative to
+// content/). Tries the DAG first (pages present in the last full build),
+// then falls back to URL-based derivation for pages not yet built (drafts,
+// new pages).
+func resolveSourceFile(dg *dag.DependencyGraph, pageURL string) (string, bool) {
+	// 1. DAG reverse lookup (exact, for built pages).
+	if dg != nil {
+		if src, ok := dg.SourceFromPagePath(pageURL); ok {
+			return src, true
+		}
+	}
+	// 2. URL derivation (fallback, for unbuilt pages).
+	if src := build.ResolveSourceFromURL(pageURL); src != "" {
+		return src, true
+	}
+	return "", false
 }

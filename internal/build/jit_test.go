@@ -22,9 +22,9 @@ func TestResolveSourceFromURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolveSourceFromURL(tc.url)
+			got := ResolveSourceFromURL(tc.url)
 			if got != tc.want {
-				t.Errorf("resolveSourceFromURL(%q) = %q, want %q", tc.url, got, tc.want)
+				t.Errorf("ResolveSourceFromURL(%q) = %q, want %q", tc.url, got, tc.want)
 			}
 		})
 	}

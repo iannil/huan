@@ -8,7 +8,7 @@ import (
 	tmpl "github.com/iannil/huan/internal/template"
 )
 
-// resolveSourceFromURL derives the source file path (relative to content/)
+// ResolveSourceFromURL derives the source file path (relative to content/)
 // from a page URL. Used by JIT rendering when the URL is not in the DAG
 // (e.g., a newly-created draft not yet captured by a full build).
 //
@@ -19,9 +19,12 @@ import (
 //   /posts/2026/new-year/      → posts/2026/new-year.md
 //   /posts/_index/             → posts/_index.md      (explicit)
 //
+// Exported so the daemon package can compose it with DAG reverse lookup
+// to map a page URL to its source file (see daemon.resolveSourceFile).
+//
 // Returns "" only if the input cannot be parsed (effectively never for a
 // normalized URL); callers should still verify the file exists on disk.
-func resolveSourceFromURL(pageURL string) string {
+func ResolveSourceFromURL(pageURL string) string {
 	u := strings.Trim(pageURL, "/")
 	if u == "" {
 		return "_index.md" // home
