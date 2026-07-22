@@ -110,3 +110,129 @@ func mustJSON(v any) []byte {
 	}
 	return b
 }
+
+func TestQuery_SectionFilter(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{Section: "posts"})
+	for _, it := range r.Data {
+		if it.Section != "posts" {
+			t.Errorf("section filter leaked %q", it.Section)
+		}
+	}
+	if r.Total == 0 {
+		t.Error("expected posts results")
+	}
+}
+
+func TestQuery_TagFilter(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{Tag: "go"})
+	for _, it := range r.Data {
+		if !contains(it.Tags, "go") {
+			t.Errorf("tag filter leaked item without 'go': %v", it.Tags)
+		}
+	}
+}
+
+func TestQuery_FullTextSearch(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{Query: "GOLANG"})
+	if r.Total == 0 {
+		t.Error("expected matches for 'GOLANG' (case-insensitive)")
+	}
+}
+
+func TestQuery_Pagination(t *testing.T) {
+	ci := loadTestIndex(t)
+	r1 := ci.Query(Filter{Limit: 1, Page: 1})
+	r2 := ci.Query(Filter{Limit: 1, Page: 2})
+	if len(r1.Data) != 1 || len(r2.Data) != 1 {
+		t.Fatalf("page sizes: %d, %d", len(r1.Data), len(r2.Data))
+	}
+	if r1.Data[0].URL == r2.Data[0].URL {
+		t.Error("page 1 and 2 returned same item")
+	}
+}
+
+func TestQuery_LimitCapped(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{Limit: 999})
+	if r.Limit != 50 {
+		t.Errorf("Limit = %d, want 50 (capped)", r.Limit)
+	}
+}
+
+func TestQuery_Defaults(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{})
+	if r.Page != 1 {
+		t.Errorf("default Page = %d, want 1", r.Page)
+	}
+	if r.Limit != 10 {
+		t.Errorf("default Limit = %d, want 10", r.Limit)
+	}
+}
+
+func TestQuery_SortByDateDesc(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{Sort: "date"})
+	for i := 1; i < len(r.Data); i++ {
+		if r.Data[i-1].Date < r.Data[i].Date {
+			t.Errorf("not desc: %q before %q", r.Data[i-1].Date, r.Data[i].Date)
+		}
+	}
+}
+
+func TestQuery_NoMatch(t *testing.T) {
+	ci := loadTestIndex(t)
+	r := ci.Query(Filter{Query: "zzznomatchzzz"})
+	if r.Total != 0 || len(r.Data) != 0 {
+		t.Errorf("expected empty result, got total=%d", r.Total)
+	}
+}
+
+func TestGetByURL_NotFound(t *testing.T) {
+	ci := loadTestIndex(t)
+	if _, ok := ci.GetByURL("/nope/"); ok {
+		t.Error("expected not found")
+	}
+}
+
+func TestTags(t *testing.T) {
+	ci := loadTestIndex(t)
+	tags := ci.Tags()
+	if tags["go"] == 0 {
+		t.Errorf("expected 'go' tag count > 0, got %v", tags)
+	}
+}
+
+func TestSections(t *testing.T) {
+	ci := loadTestIndex(t)
+	secs := ci.Sections()
+	if secs["posts"] == 0 {
+		t.Errorf("expected 'posts' section count > 0, got %v", secs)
+	}
+}
+
+// loadTestIndex builds an in-memory index from hardcoded items for query tests.
+func loadTestIndex(t *testing.T) *ContentIndex {
+	t.Helper()
+	ci := NewContentIndex(baseURL)
+	ci.mu.Lock()
+	ci.items = []Item{
+		{Title: "Go Post", URL: "/posts/go/", Section: "posts", Date: "2026-02-01", Summary: "About GOLANG", Tags: []string{"go"}},
+		{Title: "Rust Post", URL: "/posts/rust/", Section: "posts", Date: "2026-01-15", Summary: "About rust", Tags: []string{"rust"}},
+		{Title: "Book One", URL: "/books/b1/", Section: "books", Date: "2026-01-01", Summary: "A book", Tags: []string{"go"}},
+	}
+	ci.mu.Unlock()
+	return ci
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}

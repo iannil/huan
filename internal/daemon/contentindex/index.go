@@ -129,3 +129,122 @@ func (ci *ContentIndex) toRelative(absURL string) string {
 	}
 	return rel
 }
+
+// Filter controls a Query invocation.
+type Filter struct {
+	Section string // section filter
+	Tag     string // tag filter
+	Query   string // full-text (Title/Summary/Description, case-insensitive)
+	Page    int    // 1-based page
+	Limit   int    // page size, default 10, capped at 50
+	Sort    string // "date" (default, desc); other values fall back to date desc
+}
+
+// Result is a paginated query response.
+type Result struct {
+	Data  []Item `json:"data"`
+	Total int    `json:"total"`
+	Page  int    `json:"page"`
+	Limit int    `json:"limit"`
+}
+
+// Query returns a paginated, filtered, sorted slice of items.
+func (ci *ContentIndex) Query(f Filter) Result {
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.Limit < 1 {
+		f.Limit = 10
+	}
+	if f.Limit > 50 {
+		f.Limit = 50
+	}
+
+	ci.mu.RLock()
+	defer ci.mu.RUnlock()
+
+	// Filter
+	var matched []Item
+	q := strings.ToLower(f.Query)
+	for _, it := range ci.items {
+		if f.Section != "" && it.Section != f.Section {
+			continue
+		}
+		if f.Tag != "" && !containsString(it.Tags, f.Tag) {
+			continue
+		}
+		if q != "" && !containsLower(it.Title, q) && !containsLower(it.Summary, q) && !containsLower(it.Description, q) {
+			continue
+		}
+		matched = append(matched, it)
+	}
+
+	// Sort by date desc (stable)
+	sortItemsByDateDesc(matched)
+
+	total := len(matched)
+	start := (f.Page - 1) * f.Limit
+	end := start + f.Limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	var data []Item
+	if start < end {
+		data = matched[start:end]
+	}
+	if data == nil {
+		data = []Item{}
+	}
+
+	return Result{Data: data, Total: total, Page: f.Page, Limit: f.Limit}
+}
+
+// Tags returns a map of tag → page count.
+func (ci *ContentIndex) Tags() map[string]int {
+	ci.mu.RLock()
+	defer ci.mu.RUnlock()
+	out := map[string]int{}
+	for _, it := range ci.items {
+		for _, tag := range it.Tags {
+			out[tag]++
+		}
+	}
+	return out
+}
+
+// Sections returns a map of section → page count.
+func (ci *ContentIndex) Sections() map[string]int {
+	ci.mu.RLock()
+	defer ci.mu.RUnlock()
+	out := map[string]int{}
+	for _, it := range ci.items {
+		out[it.Section]++
+	}
+	return out
+}
+
+// --- helpers ---
+
+func containsString(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLower(s, lower string) bool {
+	return strings.Contains(strings.ToLower(s), lower)
+}
+
+func sortItemsByDateDesc(items []Item) {
+	for i := 1; i < len(items); i++ {
+		for j := i; j > 0 && items[j-1].Date < items[j].Date; j-- {
+			items[j-1], items[j] = items[j], items[j-1]
+		}
+	}
+}
