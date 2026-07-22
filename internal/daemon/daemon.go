@@ -13,6 +13,7 @@ import (
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/daemon/cache"
+	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
 	"github.com/iannil/huan/internal/plugin"
@@ -85,6 +86,25 @@ func Run(opts Options) error {
 	// 6. Initialize DAG (loaded from disk if exists)
 	d.dag = dag.NewDependencyGraph()
 
+	// 6.5 Init ContentIndex + /api/v1/* query API (when ai.contentAPI is on).
+	// The index is reloaded by the Builder after every successful build so
+	// the query API always reflects the latest output.
+	var contentAPI http.Handler
+	var contentIdx *contentindex.ContentIndex
+	if cfg.AI.ContentAPI {
+		contentIdx = contentindex.NewContentIndex(cfg.BaseURL)
+		// Initial load is best-effort — tmpDir may be empty before the
+		// first build (LoadFromDir treats a missing api/ dir as "empty
+		// index", not an error). The Builder reload hook will refresh it.
+		if err := contentIdx.LoadFromDir(tmpDir); err != nil {
+			log.Printf("daemon: content index load: %v", err)
+		}
+		contentAPI = contentindex.NewHandler(contentIdx)
+		log.Println("daemon: content query API enabled (/api/v1/*)")
+	} else {
+		log.Println("daemon: content query API disabled (ai.contentAPI not set)")
+	}
+
 	// 7. Initialize Builder
 	// Create the PipelineCache up-front so BuildSite can populate it during
 	// the initial full build. Subsequent incremental builds reuse it.
@@ -99,6 +119,7 @@ func Run(opts Options) error {
 		BuildDrafts: opts.BuildDrafts,
 		Logf:        log.Printf,
 		PipelineCache: pipelineCache,
+		ContentIndex:  contentIdx,
 		OnAfterBuild: func(r *build.Result) error {
 			// PipelineCache is populated by BuildSite via build.Options.PipelineCache.
 			return nil
@@ -156,6 +177,7 @@ func Run(opts Options) error {
 		Bus:          d.bus,
 		Health:       d.health,
 		Metrics:      d.metrics,
+		ContentAPI:   contentAPI,
 		Logf:         log.Printf,
 	})
 

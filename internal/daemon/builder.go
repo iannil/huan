@@ -12,6 +12,7 @@ import (
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/daemon/cache"
+	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
 )
@@ -35,6 +36,11 @@ type BuilderOptions struct {
 	// Populated after the first full build (via build.Options.PipelineCache).
 	// When nil, IncrementalBuild falls back to a full build.
 	PipelineCache *build.PipelineCache
+
+	// ContentIndex is reloaded from <OutputDir>/api/*.json after each build
+	// so the /api/v1/* query API serves fresh data. Optional: when nil, the
+	// reload hook is skipped.
+	ContentIndex *contentindex.ContentIndex
 }
 
 // Builder manages the full build and incremental update pipeline.
@@ -111,6 +117,14 @@ func (b *Builder) executeFullBuild(ctx context.Context) error {
 	// Invalidate JIT cache — full rebuild means all cached HTML is stale.
 	if b.opts.JITCache != nil {
 		b.opts.JITCache.Clear()
+	}
+
+	// Reload the content query index from <OutputDir>/api/*.json so the
+	// /api/v1/* handler serves fresh data after a full build.
+	if b.opts.ContentIndex != nil {
+		if err := b.opts.ContentIndex.LoadFromDir(b.opts.OutputDir); err != nil {
+			b.opts.Logf("builder: content index reload: %v", err)
+		}
 	}
 
 	_ = b.opts.Bus.Publish(ctx, eventbus.Event{
@@ -251,6 +265,14 @@ func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) e
 	if b.opts.JITCache != nil {
 		for _, url := range ordered {
 			b.opts.JITCache.Remove(url)
+		}
+	}
+
+	// Reload the content query index from <OutputDir>/api/*.json so the
+	// /api/v1/* handler serves fresh data after an incremental build.
+	if b.opts.ContentIndex != nil {
+		if err := b.opts.ContentIndex.LoadFromDir(b.opts.OutputDir); err != nil {
+			b.opts.Logf("builder: content index reload: %v", err)
 		}
 	}
 

@@ -14,18 +14,23 @@ import (
 
 // ServingOptions configures the Serving layer.
 type ServingOptions struct {
-	OutputDir      string
-	Bind           string
-	Port           string
-	TLSCert        string
-	TLSKey         string
-	AdminHandler   http.Handler
-	JITCache       *cache.JITCache
-	Builder        *Builder
-	Bus            eventbus.EventBus
-	Logf           func(format string, args ...any)
-	Health         *HealthChecker
-	Metrics        *MetricsCollector
+	OutputDir    string
+	Bind         string
+	Port         string
+	TLSCert      string
+	TLSKey       string
+	AdminHandler http.Handler
+	JITCache     *cache.JITCache
+	Builder      *Builder
+	Bus          eventbus.EventBus
+	Logf         func(format string, args ...any)
+	Health       *HealthChecker
+	Metrics      *MetricsCollector
+
+	// ContentAPI is an optional read-only handler for /api/v1/* content
+	// queries. When non-nil, it is registered before the / catch-all so
+	// exact-prefix matches win over the static file fallback.
+	ContentAPI http.Handler
 }
 
 // Serving manages the HTTP server, static file serving, JIT rendering, and admin API.
@@ -62,6 +67,12 @@ func (s *Serving) Start(ctx context.Context) error {
 	// Admin
 	if s.opts.AdminHandler != nil {
 		mux.Handle("/admin/", s.opts.AdminHandler)
+	}
+
+	// Content query API (public, read-only) — /api/v1/*
+	// Registered before the / catch-all so the exact prefix wins.
+	if s.opts.ContentAPI != nil {
+		mux.Handle("/api/v1/", s.opts.ContentAPI)
 	}
 
 	// Static file server with JIT fallback

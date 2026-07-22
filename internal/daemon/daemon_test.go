@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/daemon/cache"
+	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
 )
@@ -1387,5 +1390,276 @@ Alpha updated body.
 	}
 	if strings.Contains(string(newTagBytes), "Alpha Original") {
 		t.Errorf("tag listing still shows stale title after incremental build:\n%s", newTagBytes)
+	}
+}
+
+// TestServing_ContentAPI_RoutesV1 verifies that when ServingOptions.ContentAPI
+// is set, /api/v1/* requests are dispatched to the provided handler (the
+// contentindex.Handler created by daemon.Run). This locks in the Task 4
+// wiring contract: daemon creates the handler and passes it via ContentAPI,
+// and Serving.Start() must register it under /api/v1/ before the / catch-all.
+func TestServing_ContentAPI_RoutesV1(t *testing.T) {
+	idx := contentindex.NewContentIndex("https://example.com/")
+	fixture := t.TempDir()
+	apiDir := filepath.Join(fixture, "api")
+	if err := os.MkdirAll(apiDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	apiJSON := []byte(`[{"title":"Hello","url":"https://example.com/posts/hello/","date":"2026-01-01","description":"","summary":"First","tags":["go"]}]`)
+	if err := os.WriteFile(filepath.Join(apiDir, "posts.json"), apiJSON, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.LoadFromDir(fixture); err != nil {
+		t.Fatalf("LoadFromDir: %v", err)
+	}
+	if idx.Len() != 1 {
+		t.Fatalf("index len = %d, want 1", idx.Len())
+	}
+
+	// Grab an OS-assigned port by opening a TCP listener ourselves, then
+	// hand it to the server. Serving.Start() builds its own *http.Server
+	// bound to Bind:Port, so we pass our port number and Start() rebinds
+	// to it. To avoid a race on the same port, we instead let Start bind
+	// to port "0" and read the actual address out of the *http.Server
+	// via the package-private httpSrv field once Start() has begun.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("split host/port: %v", err)
+	}
+	// Release the listener so Serving.Start() can rebind to the same port.
+	ln.Close()
+
+	srv := NewServing(ServingOptions{
+		OutputDir:  fixture,
+		Bind:       host,
+		Port:       port,
+		JITCache:   cache.NewJITCache(10, 5*time.Minute),
+		Builder: NewBuilder(BuilderOptions{
+			DAG:  dag.NewDependencyGraph(),
+			Logf: t.Logf,
+		}),
+		ContentAPI: contentindex.NewHandler(idx),
+		Logf:       t.Logf,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- srv.Start(ctx)
+	}()
+	// Wait until httpSrv is populated (Start sets it synchronously before
+	// ListenAndServe blocks).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.httpSrv != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if srv.httpSrv == nil {
+		t.Fatal("serving.Start did not initialize httpSrv within timeout")
+	}
+
+	base := fmt.Sprintf("http://%s", addr)
+
+	// 1. /api/v1/pages must reach ContentAPI and return JSON 200.
+	listResp, err := http.Get(base + "/api/v1/pages")
+	if err != nil {
+		t.Fatalf("GET /api/v1/pages: %v", err)
+	}
+	body, _ := io.ReadAll(listResp.Body)
+	listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/v1/pages: status = %d, want 200; body: %s", listResp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"total":1`) {
+		t.Errorf("/api/v1/pages body missing total=1; got: %s", body)
+	}
+
+	// 2. /api/v1/tags must also route to ContentAPI.
+	tagsResp, err := http.Get(base + "/api/v1/tags")
+	if err != nil {
+		t.Fatalf("GET /api/v1/tags: %v", err)
+	}
+	tagsBody, _ := io.ReadAll(tagsResp.Body)
+	tagsResp.Body.Close()
+	if tagsResp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/v1/tags: status = %d, want 200; body: %s", tagsResp.StatusCode, tagsBody)
+	}
+	if !strings.Contains(string(tagsBody), `"go":1`) {
+		t.Errorf("/api/v1/tags body missing go tag count; got: %s", tagsBody)
+	}
+
+	// 3. A path outside /api/v1/ must not hit ContentAPI (it falls through
+	// to the static file server, which returns 404 for an unknown path).
+	otherResp, err := http.Get(base + "/some/other/path")
+	if err != nil {
+		t.Fatalf("GET /some/other/path: %v", err)
+	}
+	otherResp.Body.Close()
+	if otherResp.StatusCode == http.StatusOK && strings.Contains(otherResp.Header.Get("Content-Type"), "application/json") {
+		t.Errorf("GET /some/other/path unexpectedly routed to ContentAPI; status=%d", otherResp.StatusCode)
+	}
+}
+
+// TestBuilder_ContentIndex_ReloadAfterFullBuild verifies the Task 4 wiring
+// contract: after a successful full build, the Builder reloads the
+// ContentIndex from <OutputDir>/api/*.json so the query API reflects fresh
+// data without manual intervention.
+func TestBuilder_ContentIndex_ReloadAfterFullBuild(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-contentidx-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Minimal site scaffold.
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte(`baseURL: "https://example.com/"
+title: "Content Index Test"
+publishDir: "docs"
+ai:
+  contentAPI: true
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte(`---
+title: "Hello"
+date: "2026-01-01"
+tags: ["go"]
+---
+Hello body.
+`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html",
+		[]byte(`<!doctype html><html><body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html",
+		[]byte(`<!doctype html><html><body>{{ range .Pages }}<a href="{{ .URL }}">{{ .Title }}</a>{{ end }}</body></html>`))
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	idx := contentindex.NewContentIndex("https://example.com/")
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dag.NewDependencyGraph(),
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: build.NewPipelineCache(),
+		ContentIndex:  idx,
+	})
+
+	// Before build, index is empty.
+	if idx.Len() != 0 {
+		t.Fatalf("index len before build = %d, want 0", idx.Len())
+	}
+
+	// Run a full build — the post-build reload hook must populate the index.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Verify api/posts.json was actually written by the build (so the test
+	// is meaningful: the hook reloads from this file).
+	apiPath := filepath.Join(tmpDir, "api", "posts.json")
+	if _, err := os.Stat(apiPath); err != nil {
+		t.Fatalf("build did not write %s: %v", apiPath, err)
+	}
+
+	// Index must now contain at least one item (the hello page).
+	if idx.Len() == 0 {
+		t.Fatal("ContentIndex not reloaded after full build (expected non-empty)")
+	}
+	item, ok := idx.GetByURL("/posts/hello/")
+	if !ok {
+		t.Errorf("expected /posts/hello/ in index after reload; index has %d items", idx.Len())
+	} else if item.Title != "Hello" {
+		t.Errorf("reloaded item title = %q, want %q", item.Title, "Hello")
+	}
+}
+
+// TestBuilder_ContentIndex_ReloadAfterIncrementalBuild verifies the same
+// contract for the incremental path: after an incremental render, the
+// Builder reloads the ContentIndex so stale entries are refreshed.
+func TestBuilder_ContentIndex_ReloadAfterIncrementalBuild(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "huan-contentidx-incr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte(`baseURL: "https://example.com/"
+title: "Content Index Incr Test"
+publishDir: "docs"
+ai:
+  contentAPI: true
+`))
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte(`---
+title: "Original"
+date: "2026-01-01"
+tags: ["go"]
+---
+Original body.
+`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html",
+		[]byte(`<!doctype html><html><body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>`))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html",
+		[]byte(`<!doctype html><html><body>{{ range .Pages }}{{ .Title }}{{ end }}</body></html>`))
+
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	idx := contentindex.NewContentIndex("https://example.com/")
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dag.NewDependencyGraph(),
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   true,
+		Logf:          t.Logf,
+		PipelineCache: build.NewPipelineCache(),
+		ContentIndex:  idx,
+	})
+
+	// Full build to seed the index + DAG + PipelineCache.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+	if idx.Len() == 0 {
+		t.Fatal("index empty after full build")
+	}
+
+	// Edit the page's title.
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte(`---
+title: "Updated"
+date: "2026-01-01"
+tags: ["go"]
+---
+Updated body.
+`))
+
+	// Trigger an incremental build.
+	changedFile := filepath.Join(tmpDir, "content", "posts", "hello.md")
+	if err := builder.IncrementalBuild(context.Background(), []string{changedFile}); err != nil {
+		t.Fatalf("IncrementalBuild: %v", err)
+	}
+
+	// The reload hook must have refreshed the index — the title should
+	// now reflect the update.
+	item, ok := idx.GetByURL("/posts/hello/")
+	if !ok {
+		t.Fatal("/posts/hello/ missing from index after incremental build")
+	}
+	if item.Title != "Updated" {
+		t.Errorf("index not reloaded after incremental build; title = %q, want %q", item.Title, "Updated")
 	}
 }
