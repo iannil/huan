@@ -40,7 +40,7 @@
 - **开箱即用的双语能力**：一套 i18n 构建系统将 `.zh-cn`/`.en` 边车文件渲染为完整的本地化站点，并内置一个翻译插件用本地 LLM 补齐缺口
 - **统一插件系统**（[ADR 0003](docs/adr/0003-unified-plugin-system.md)）：基于能力（capability）的扩展——`Deployer`（Cloudflare）和 `Translator`（Qwen3）内置并共享同一个注册表
 - **自包含的发布与部署**：`huan release` 跨平台打包，`huan deploy` 通过直连 API 发布到 Cloudflare，并支持 tag 推送触发 GitHub Actions 自动发版
-- **`huan daemon` 生产级常驻服务**：长期运行的后端服务——全量预渲染 + 增量更新 + JIT 按需回退 + REST API + 管理后台，支持 TLS、systemd notify、健康检查、Prometheus 指标、优雅关闭
+- **`huan daemon` 生产级常驻服务**：长期运行的后端服务——全量预渲染 + 增量更新 + JIT 按需渲染 + 公开内容查询 REST API（`/api/v1/*`）+ 实时 SSE 推送（`/api/v1/events`）+ 热插拔 `.so` 插件 + 管理后台，支持 TLS、systemd notify、健康检查、Prometheus 指标、优雅关闭
 - **等同 `hugo serve` 的开发体验**：HTTP 服务器 + fsnotify 文件监听 + LiveReload WebSocket，亚秒级浏览器刷新
 - **可对 Hugo 验证**：一条 diff 流水线将 huan 输出与 Hugo 逐字节对比，并在三个维度（肉眼 / SEO / AI）上拦截回归
 
@@ -113,7 +113,10 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 
 - **静态文件服务器** — 直接服务预渲染的 HTML，零延迟
 - **增量更新** — 内容变更（通过文件监听或 Admin API）触发基于 DAG 的增量构建，仅重建受影响页面
-- **JIT 按需回退** — 未渲染的页面按需实时渲染并缓存（LRU + TTL）
+- **JIT 按需渲染** — 未预渲染的页面（草稿、构建时跳过的）按需实时渲染并缓存（LRU + TTL），复用缓存的 pipeline 状态
+- **内容查询 REST API** — 公开只读端点 `/api/v1/pages`、`/api/v1/pages/{url}`、`/api/v1/tags`、`/api/v1/sections`（按 section/tag/全文过滤，分页，排序）
+- **实时 SSE 推送** — `/api/v1/events` 通过 Server-Sent Events 向浏览器实时推送 daemon 事件（构建完成、内容变更、插件加载）
+- **热插拔插件** — 运行时通过 Admin API 或 CLI 加载/卸载/重载 `.so` 插件
 - **Admin API** — 完整的 `/admin/` 内容管理
 - **健康检查** — `/health` 端点，初始构建期间返回 503 not-ready
 - **Prometheus 指标** — `/metrics` 端点，含构建耗时、请求计数、缓存命中/未命中
@@ -132,6 +135,8 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 | `--tls-cert` | `""` | TLS 证书路径 |
 | `--tls-key` | `""` | TLS 私钥路径 |
 | `--systemd` | `false` | 启用 systemd notify 集成 |
+| `--plugin-dir` | `<sourceDir>/plugins` | `.so` 插件目录 |
+| `--disable-plugin` | `false` | 禁用插件加载 |
 | `-D` / `--buildDrafts` | `false` | 包含草稿内容 |
 
 ### 开发服务器 (`huan dev`)

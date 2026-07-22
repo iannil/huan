@@ -40,7 +40,7 @@ Key characteristics:
 - **Bilingual out of the box**: an i18n build system that renders `.zh-cn`/`.en` sidecars into a fully localized site, plus a built-in translator plugin that fills the gaps with a local LLM
 - **Unified plugin system** ([ADR 0003](docs/adr/0003-unified-plugin-system.md)): capability-based extensions — `Deployer` (Cloudflare) and `Translator` (Qwen3) ship built-in and share one registry
 - **Self-contained release & deploy**: `huan release` for cross-platform packaging, `huan deploy` for direct-API Cloudflare publishing, plus GitHub Actions auto-release on tag push
-- **`huan daemon` for production serving**: a long-running daemon that serves the site as a backend service — full pre-render + incremental updates + JIT fallback + REST API + admin panel, with TLS, systemd notify, health checks, Prometheus metrics, and graceful shutdown
+- **`huan daemon` for production serving**: a long-running daemon that serves the site as a backend service — full pre-render + incremental updates + JIT on-demand rendering + a public content-query REST API (`/api/v1/*`) + real-time SSE push (`/api/v1/events`) + hot-pluggable `.so` plugins + admin panel, with TLS, systemd notify, health checks, Prometheus metrics, and graceful shutdown
 - **`huan serve`-equivalent dev experience**: HTTP server + fsnotify watcher + LiveReload WebSocket, sub-second browser refresh
 - **Verifiable against Hugo**: a diff pipeline byte-compares huan's output against Hugo and gates regressions on three dimensions (visual / SEO / AI)
 
@@ -117,7 +117,10 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 
 - **Static file server** — serves pre-rendered HTML from the initial build with zero latency
 - **Incremental rebuild** — content changes (via file watcher or Admin API) trigger a DAG-based incremental build that only rebuilds affected pages
-- **JIT fallback** — pages not yet rendered are rendered on-demand and cached (LRU + TTL)
+- **JIT on-demand rendering** — pages not yet pre-rendered (drafts, build-skipped) are rendered on-demand and cached (LRU + TTL), reusing the cached pipeline state
+- **Content query REST API** — public read-only endpoints at `/api/v1/pages`, `/api/v1/pages/{url}`, `/api/v1/tags`, `/api/v1/sections` (filter by section/tag/full-text, paginate, sort)
+- **Real-time SSE push** — `/api/v1/events` streams daemon events (build completed, content changed, plugin loaded) to browsers via Server-Sent Events
+- **Hot-pluggable plugins** — load/unload/reload `.so` plugins at runtime via Admin API or CLI
 - **Admin API** — full content management at `/admin/`
 - **Health check** — `/health` endpoint with 503 not-ready signal during initial build
 - **Prometheus metrics** — `/metrics` endpoint with build duration, request count, cache hit/miss
@@ -136,6 +139,8 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 | `--tls-cert` | `""` | TLS certificate path |
 | `--tls-key` | `""` | TLS private key path |
 | `--systemd` | `false` | Enable systemd notify integration |
+| `--plugin-dir` | `<sourceDir>/plugins` | Directory for `.so` plugins |
+| `--disable-plugin` | `false` | Disable plugin loading |
 | `-D` / `--buildDrafts` | `false` | Include draft content |
 
 ### Dev server (`huan dev`)

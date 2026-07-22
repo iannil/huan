@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-07-22（**daemon 运行时能力补齐**：JIT 按需渲染 + 面向终端用户的内容查询 REST API `/api/v1/*`）
+> 最近更新：2026-07-22（**daemon 四大运行时能力全部就绪**：JIT 按需渲染 + 内容查询 REST API + SSE 实时推送；静态服务 + 按需渲染 + 查询 + 推送）
 
 ## 用户偏好
 
@@ -44,6 +44,11 @@
 - **JIT 渲染**：`build.RenderPageWithCache`（复用 PipelineCache 渲染单页返回 HTML，不写文件）；`DAG.SourceFromPagePath` + `ResolveSourceFromURL`（URL→源文件双层查找）；`Builder.RenderPageJIT` stub 替换为真实实现（强制 IncludeDrafts=true）；JITCache 全量 Clear / 增量 Remove 失效
 - **内容查询 REST API**：`/api/v1/pages`、`/pages/{url}`、`/tags`、`/sections`（公开只读，无 token）；`internal/daemon/contentindex/` 的 `ContentIndex`（从预构建 `/api/{section}.json` 加载内存索引）+ `Handler`；构建后自动刷新索引
 - daemon 面向终端用户的能力从零到有（之前只有运维/管理 API）
+
+### 2026-07-22 新增（续）：SSE 实时推送
+
+- **SSE 实时推送**：`GET /api/v1/events`（text/event-stream，公开只读）；`internal/daemon/sse/` 的 `SSEHub`（非阻塞广播 + 15s 心跳 + maxClients 上限）+ `SubscribeBus`（桥接 EventBus 5 类事件：build/content/plugin）；浏览器 EventSource 原生支持 + 自动重连
+- daemon 持久化进程的四大核心运行时能力全部就绪：静态服务 + JIT 按需渲染 + 内容查询 + 实时推送
 
 ## 关键决策
 
