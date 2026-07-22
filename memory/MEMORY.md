@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-07-21（**插件化架构 + 增量构建交付**：热插拔插件系统、cloudflare/qwen3 解耦为独立 .so、图片管线插件、DAG 驱动的增量构建）
+> 最近更新：2026-07-22（**daemon 运行时能力补齐**：JIT 按需渲染 + 面向终端用户的内容查询 REST API `/api/v1/*`）
 
 ## 用户偏好
 
@@ -39,6 +39,12 @@
 - **图片管线插件**：构建时自动压缩/多尺寸/HTML srcset 注入；`internal/image/processor.go` 的 `ImageProcessor` capability 接口
 - **增量构建**：`internal/build/cache.go` 的 `PipelineCache`（缓存渲染基础设施）；`IncrementalRender`（DAG 驱动部分重渲染）；`HasTemplateChanges`（模板变更检测 → 全量回退）；`dag.OrderByDependency`（拓扑排序）。daemon 文件变更走增量路径
 
+### 2026-07-22 新增：JIT 渲染 + 内容查询 REST API
+
+- **JIT 渲染**：`build.RenderPageWithCache`（复用 PipelineCache 渲染单页返回 HTML，不写文件）；`DAG.SourceFromPagePath` + `ResolveSourceFromURL`（URL→源文件双层查找）；`Builder.RenderPageJIT` stub 替换为真实实现（强制 IncludeDrafts=true）；JITCache 全量 Clear / 增量 Remove 失效
+- **内容查询 REST API**：`/api/v1/pages`、`/pages/{url}`、`/tags`、`/sections`（公开只读，无 token）；`internal/daemon/contentindex/` 的 `ContentIndex`（从预构建 `/api/{section}.json` 加载内存索引）+ `Handler`；构建后自动刷新索引
+- daemon 面向终端用户的能力从零到有（之前只有运维/管理 API）
+
 ## 关键决策
 
 - 模板引擎用 `html/template`，阶段二可插件替换
@@ -50,6 +56,9 @@
 - **PipelineCache 只缓存渲染基础设施**（2026-07-21）：缓存模板/i18n/markdown/writer，不缓存 page/context（引用失效会导致列表页过期）；增量构建重建内容+context，只渲染受 DAG 影响的页面
 - **DAG 依赖方向：聚合页 DependsOn 文章**（2026-07-21）：section/home/tag 显示文章内容所以依赖文章；编辑文章时沿 DependedBy BFS 正确到达所有聚合页
 - **增量构建自动降级**（2026-07-21）：模板/i18n/config/themes 变更时回退全量构建（HasTemplateChanges 检测），保证正确性优先
+- **JIT 复用 PipelineCache**（2026-07-22）：JIT 与增量构建共享 PipelineCache（重建内容+context，复用缓存模板），职责分离（IncrementalRender 写文件 vs RenderPageWithCache 返回 HTML）
+- **公开 API 契约独立于开发标志**（2026-07-22）：`GenerateContentAPI` 强制 `includeDrafts=false`，公开内容 API 永不泄露 draft，即使 daemon 用 `--buildDrafts` 启动
+- **预构建数据源 + 运行时查询层**（2026-07-22）：内容查询 API 复用 `/api/{section}.json` 数据源，daemon 只做查询层（过滤/分页/聚合），与增量构建天然协同，无引用失效问题
 
 ## 经验教训
 
@@ -59,6 +68,13 @@
 - **DAG 依赖方向易搞反**：必须明确"谁依赖谁"。聚合页（section/tag/home）显示文章 → 聚合页 DependsOn 文章。final review 通过端到端测试（编辑文章 → 检查列表页输出）才发现初版方向反了。
 - **Watcher 与 DAG 路径格式不匹配是隐蔽 bug**：fsnotify 给绝对路径，DAG 存相对路径，AffectedBy 查表返回空 → 增量构建静默 no-op。需要路径归一化层（builder.go 的 normalizeChangedFiles）。
 - **Subagent-driven development 有效**：每个 task 独立 subagent + review，Critical 缺陷在 final review 被独立 subagent 实际复现，不依赖实现者自检。
+
+### 2026-07-22 新增
+
+- **公开 API 安全边界独立于开发标志**：`GenerateContentAPI` 原用 `p.opts.IncludeDrafts`，导致 daemon `--buildDrafts` 时 draft 泄露到公开 API。公开 API 契约必须独立于开发模式标志。final review 通过 `BuildDrafts=true` 的回归测试才发现。
+- **中文站点的长度限制按 rune 计数**：`utf8.RuneCountInString` 而非字节计数，否则 67 个中文字符（201 字节）被误杀。
+- **公开端点的整数溢出是 DoS**：`page=MaxInt64` 导致 `(page-1)*limit` 溢出为负值，绕过 `> total` 守卫，slice panic。公开端点的数值参数都要做溢出/负值守卫（`< 0 || > total`）。
+- **JIT 与增量共享缓存的设计**：多个消费者（增量构建写文件 + JIT 返回 HTML）共享同一 PipelineCache，职责分离但底层一致。
 
 ### 已归档
 
