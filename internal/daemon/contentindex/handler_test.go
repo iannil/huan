@@ -3,6 +3,7 @@ package contentindex
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,34 @@ func TestHandler_NoAuthRequired(t *testing.T) {
 	rec := serveHandler(t, h, "GET", "/api/v1/pages", "")
 	if rec.Code != 200 {
 		t.Errorf("public endpoint returned %d", rec.Code)
+	}
+}
+
+func TestHandler_QueryTooLong(t *testing.T) {
+	// Resource-exhaustion guard: a `q` param longer than 200 chars must be
+	// rejected with 400 Bad Request before any substring scan runs.
+	h := NewHandler(loadTestIndex(t))
+	longQ := "/api/v1/pages?q=" + strings.Repeat("a", 201)
+	rec := serveHandler(t, h, "GET", longQ, "")
+	if rec.Code != 400 {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+	var m map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if m["error"] != "query too long" {
+		t.Errorf("error = %q, want \"query too long\"", m["error"])
+	}
+}
+
+func TestHandler_QueryAtMaxLengthOK(t *testing.T) {
+	// Boundary: 200 chars exactly is still allowed (200 is inclusive).
+	h := NewHandler(loadTestIndex(t))
+	okQ := "/api/v1/pages?q=" + strings.Repeat("a", 200)
+	rec := serveHandler(t, h, "GET", okQ, "")
+	if rec.Code != 200 {
+		t.Errorf("code = %d, want 200 (boundary)", rec.Code)
 	}
 }
 

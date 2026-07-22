@@ -45,6 +45,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handlePagesList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	// Cap query length to avoid expensive substring scans over all items.
+	const maxQueryLen = 200
+	if query := q.Get("q"); len(query) > maxQueryLen {
+		writeJSON(w, http.StatusBadRequest, errBody("query too long"))
+		return
+	}
 	f := Filter{
 		Section: q.Get("section"),
 		Tag:     q.Get("tag"),
@@ -82,6 +88,7 @@ func (h *Handler) handleSections(w http.ResponseWriter, _ *http.Request) {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
