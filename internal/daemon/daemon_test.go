@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1959,5 +1960,242 @@ func TestServing_SSEHub_NilSkipsRegistration(t *testing.T) {
 	defer resp.Body.Close()
 	if ct := resp.Header.Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
 		t.Errorf("nil SSEHub still routed to SSE handler; Content-Type = %q", ct)
+	}
+}
+
+// TestDaemon_SSE_BuildEventPushed verifies that a builder.FullBuild triggers a
+// build_completed SSE event that is broadcast over the HTTP /api/v1/events
+// stream to a connected client.
+//
+// We drive the real integration path (Builder → EventBus → SubscribeBus →
+// SSEHub → HTTP SSE stream) rather than touching the unexported registerClient
+// helper, because the daemon's contract is that a connected client observes
+// the event on the wire.
+func TestDaemon_SSE_BuildEventPushed(t *testing.T) {
+	tmpDir := setupContentAPISite(t)
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	contentIdx := contentindex.NewContentIndex("https://example.com/")
+
+	// SSEHub wired to the same bus the Builder publishes on.
+	sseHub := sse.NewSSEHub(t.Logf)
+	sseHub.SubscribeBus(bus)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sseHub.Start(ctx)
+
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:    tmpDir,
+		OutputDir:    tmpDir,
+		Bus:          bus,
+		DAG:          dag.NewDependencyGraph(),
+		JITCache:     cache.NewJITCache(100, 5*time.Minute),
+		Logf:         t.Logf,
+		ContentIndex: contentIdx,
+	})
+
+	// Bind a Serving instance to an OS-assigned port so we can drive the
+	// real HTTP stream endpoint.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("split host/port: %v", err)
+	}
+	ln.Close()
+
+	srv := NewServing(ServingOptions{
+		OutputDir: tmpDir,
+		Bind:      host,
+		Port:      port,
+		JITCache:  cache.NewJITCache(10, 5*time.Minute),
+		Builder:   builder,
+		Bus:       bus,
+		SSEHub:    sseHub,
+		Logf:      t.Logf,
+	})
+	serveCtx, serveCancel := context.WithCancel(context.Background())
+	defer serveCancel()
+	go func() { _ = srv.Start(serveCtx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.httpSrv != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if srv.httpSrv == nil {
+		t.Fatal("serving.Start did not initialize httpSrv within timeout")
+	}
+
+	// Connect an SSE client with a long read timeout so it doesn't close
+	// before the event arrives. The handler blocks on the stream loop, so
+	// this must run in a goroutine; we collect the received event bytes
+	// through a pipe.
+	client := &http.Client{Timeout: 0} // no overall timeout; we read incrementally
+	resp, err := client.Get(fmt.Sprintf("http://%s/api/v1/events", addr))
+	if err != nil {
+		t.Fatalf("GET /api/v1/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	// Wait until the hub registers the client so the build event is not
+	// delivered before subscription.
+	waitDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(waitDeadline) {
+		if sseHub.ClientCount() == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if sseHub.ClientCount() != 1 {
+		t.Fatalf("client count = %d, want 1 (handler did not register)", sseHub.ClientCount())
+	}
+
+	// Trigger a full build, which publishes EventBuildCompleted on the bus.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Read the SSE stream until we see an "event: build_completed" line.
+	// The build_completed event is JSON-encoded on the wire.
+	br := bufio.NewReader(resp.Body)
+	gotEvent := make(chan string, 1)
+	go func() {
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				gotEvent <- ""
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if strings.HasPrefix(line, "event: ") {
+				gotEvent <- strings.TrimPrefix(line, "event: ")
+				return
+			}
+		}
+	}()
+
+	select {
+	case ev := <-gotEvent:
+		if ev != "build_completed" {
+			t.Errorf("SSE event Type = %q, want build_completed", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive build_completed SSE event within 2s")
+	}
+}
+
+// TestDaemon_SSE_ContentChangedPushed verifies that publishing an
+// EventContentChanged on the daemon EventBus broadcasts a content_changed SSE
+// event over the HTTP /api/v1/events stream to a connected client.
+func TestDaemon_SSE_ContentChangedPushed(t *testing.T) {
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	sseHub := sse.NewSSEHub(t.Logf)
+	sseHub.SubscribeBus(bus)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sseHub.Start(ctx)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("split host/port: %v", err)
+	}
+	ln.Close()
+
+	srv := NewServing(ServingOptions{
+		OutputDir: t.TempDir(),
+		Bind:      host,
+		Port:      port,
+		JITCache:  cache.NewJITCache(10, 5*time.Minute),
+		Builder: NewBuilder(BuilderOptions{
+			DAG:  dag.NewDependencyGraph(),
+			Logf: t.Logf,
+		}),
+		Bus:    bus,
+		SSEHub: sseHub,
+		Logf:   t.Logf,
+	})
+	serveCtx, serveCancel := context.WithCancel(context.Background())
+	defer serveCancel()
+	go func() { _ = srv.Start(serveCtx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.httpSrv != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if srv.httpSrv == nil {
+		t.Fatal("serving.Start did not initialize httpSrv within timeout")
+	}
+
+	// Connect an SSE client and wait for registration.
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Get(fmt.Sprintf("http://%s/api/v1/events", addr))
+	if err != nil {
+		t.Fatalf("GET /api/v1/events: %v", err)
+	}
+	defer resp.Body.Close()
+	waitDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(waitDeadline) {
+		if sseHub.ClientCount() == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if sseHub.ClientCount() != 1 {
+		t.Fatalf("client count = %d, want 1", sseHub.ClientCount())
+	}
+
+	// Publish a content_changed event directly on the bus.
+	if err := bus.Publish(context.Background(), eventbus.Event{
+		Type:      eventbus.EventContentChanged,
+		Timestamp: time.Now(),
+		Payload:   map[string]interface{}{"changed_files": []string{"content/posts/x.md"}},
+	}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	// Read the stream until an event: line arrives.
+	br := bufio.NewReader(resp.Body)
+	gotEvent := make(chan string, 1)
+	go func() {
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				gotEvent <- ""
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if strings.HasPrefix(line, "event: ") {
+				gotEvent <- strings.TrimPrefix(line, "event: ")
+				return
+			}
+		}
+	}()
+
+	select {
+	case ev := <-gotEvent:
+		if ev != "content_changed" {
+			t.Errorf("SSE event Type = %q, want content_changed", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive content_changed SSE event within 2s")
 	}
 }

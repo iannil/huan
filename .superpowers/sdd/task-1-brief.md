@@ -1,295 +1,274 @@
-### Task 1: ContentIndex — 加载与类型
+### Task 1: SSEHub 核心 + Broadcast + 心跳
 
 **Files:**
-- Create: `internal/daemon/contentindex/index.go` — Item/ContentIndex 类型 + LoadFromDir
-- Create: `internal/daemon/contentindex/index_test.go` — 加载测试
+- Create: `internal/daemon/sse/hub.go` — Event, SSEHub, NewSSEHub, Broadcast, broadcastRaw, startHeartbeat, register/unregister, ClientCount
+- Create: `internal/daemon/sse/hub_test.go` — 单元测试
 
 **Interfaces:**
-- Produces: `Item`, `ContentIndex`, `NewContentIndex(baseURL string) *ContentIndex`, `LoadFromDir(outputDir string) error`, `Len() int`
+- Produces: `Event`, `SSEHub`, `NewSSEHub(logf)`, `Broadcast(Event)`, `broadcastRaw(string)`, `registerClient/unregisterClient`, `ClientCount() int`
 
 - [ ] **Step 1: 编写测试**
 
-`internal/daemon/contentindex/index_test.go`：
+`internal/daemon/sse/hub_test.go`：
 
 ```go
-package contentindex
+package sse
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+	"time"
 )
 
-func TestLoadFromDir_LoadsAllSections(t *testing.T) {
-	dir := t.TempDir()
-	writeAPITestFile(t, dir, "posts.json", baseURL, []map[string]any{
-		{"title": "P1", "url": baseURL + "posts/p1/", "date": "2026-01-01", "tags": []string{"go"}},
-	})
-	writeAPITestFile(t, dir, "books.json", baseURL, []map[string]any{
-		{"title": "B1", "url": baseURL + "books/b1/", "date": "2026-01-02"},
-	})
+func TestBroadcast_DeliversToClient(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	ch := h.registerClient()
 
-	ci := NewContentIndex(baseURL)
-	if err := ci.LoadFromDir(dir); err != nil {
-		t.Fatalf("LoadFromDir: %v", err)
-	}
-	if ci.Len() != 2 {
-		t.Errorf("Len = %d, want 2", ci.Len())
+	h.Broadcast(Event{Type: "build_completed", Data: map[string]int{"pages": 10}})
+
+	select {
+	case ev := <-ch:
+		if ev.Type != "build_completed" {
+			t.Errorf("Type = %q, want build_completed", ev.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("client did not receive event")
 	}
 }
 
-func TestLoadFromDir_RelativeURL(t *testing.T) {
-	dir := t.TempDir()
-	writeAPITestFile(t, dir, "posts.json", baseURL, []map[string]any{
-		{"title": "P1", "url": baseURL + "posts/p1/", "date": "2026-01-01"},
-	})
+func TestBroadcast_MultipleClients(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	ch1 := h.registerClient()
+	ch2 := h.registerClient()
 
-	ci := NewContentIndex(baseURL)
-	if err := ci.LoadFromDir(dir); err != nil {
-		t.Fatalf("LoadFromDir: %v", err)
-	}
+	h.Broadcast(Event{Type: "content_changed", Data: nil})
 
-	item, ok := ci.GetByURL("/posts/p1/")
-	if !ok {
-		t.Fatal("GetByURL not found")
-	}
-	if item.URL != "/posts/p1/" {
-		t.Errorf("URL = %q, want /posts/p1/ (relative)", item.URL)
-	}
-	if item.Section != "posts" {
-		t.Errorf("Section = %q, want posts", item.Section)
+	for i, ch := range []chan Event{ch1, ch2} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("client %d did not receive event", i)
+		}
 	}
 }
 
-func TestLoadFromDir_MalformedJSON(t *testing.T) {
-	dir := t.TempDir()
-	// Good file
-	writeAPITestFile(t, dir, "posts.json", baseURL, []map[string]any{
-		{"title": "P1", "url": baseURL + "posts/p1/", "date": "2026-01-01"},
-	})
-	// Bad file
-	os.WriteFile(filepath.Join(dir, "api", "broken.json"), []byte("{not json"), 0644)
-
-	ci := NewContentIndex(baseURL)
-	if err := ci.LoadFromDir(dir); err != nil {
-		t.Fatalf("LoadFromDir should skip bad files, got: %v", err)
+func TestBroadcast_SlowClientDrops(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	ch := h.registerClient()
+	// Fill the buffer (clientBufferSize events).
+	for i := 0; i < clientBufferSize; i++ {
+		h.Broadcast(Event{Type: "build_completed"})
 	}
-	if ci.Len() != 1 {
-		t.Errorf("Len = %d, want 1 (bad file skipped)", ci.Len())
+	// One more should be dropped (non-blocking) — client never reads.
+	h.Broadcast(Event{Type: "build_completed"})
+	// Drain to verify buffer not exceeded.
+	count := 0
+	draining := true
+	for draining {
+		select {
+		case <-ch:
+			count++
+		default:
+			draining = false
+		}
 	}
-}
-
-func TestLoadFromDir_EmptyDir(t *testing.T) {
-	dir := t.TempDir()
-	ci := NewContentIndex(baseURL)
-	if err := ci.LoadFromDir(dir); err != nil {
-		t.Fatalf("LoadFromDir empty dir: %v", err)
-	}
-	if ci.Len() != 0 {
-		t.Errorf("Len = %d, want 0", ci.Len())
+	if count != clientBufferSize {
+		t.Errorf("received %d, want %d (overflow dropped)", count, clientBufferSize)
 	}
 }
 
-func TestLoadFromDir_NoAPIDir(t *testing.T) {
-	// outputDir without api/ subdir should not error.
-	dir := t.TempDir()
-	ci := NewContentIndex(baseURL)
-	if err := ci.LoadFromDir(dir); err != nil {
-		t.Fatalf("LoadFromDir no api dir: %v", err)
+func TestClientCount(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	if h.ClientCount() != 0 {
+		t.Fatalf("initial count = %d, want 0", h.ClientCount())
+	}
+	ch := h.registerClient()
+	if h.ClientCount() != 1 {
+		t.Errorf("after register = %d, want 1", h.ClientCount())
+	}
+	h.unregisterClient(ch)
+	if h.ClientCount() != 0 {
+		t.Errorf("after unregister = %d, want 0", h.ClientCount())
 	}
 }
 
-const baseURL = "https://example.com/"
+func TestBroadcastRaw_HeartbeatComment(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	ch := h.registerClient()
+	h.broadcastRaw(":heartbeat\n\n")
+	select {
+	case ev := <-ch:
+		// Raw broadcast is delivered as an Event with empty Type and the raw line in Data.
+		if ev.Type != "" {
+			t.Errorf("raw event Type = %q, want empty", ev.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("client did not receive raw broadcast")
+	}
+}
 
-// writeAPITestFile writes a section JSON array to <dir>/api/<name>.
-func writeAPITestFile(t *testing.T, dir, name, base string, items []map[string]any) {
+func testLogf(t *testing.T) func(string, ...any) {
 	t.Helper()
-	apiDir := filepath.Join(dir, "api")
-	if err := os.MkdirAll(apiDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	data := mustJSON(items)
-	if err := os.WriteFile(filepath.Join(apiDir, name), data, 0644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustJSON(v any) []byte {
-	b, err := jsonMarshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
-}
-```
-
-Add the jsonMarshal helper usage — actually just use encoding/json directly. Replace `mustJSON` body:
-
-```go
-import "encoding/json"
-
-func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
-	return b
+	return func(format string, args ...any) { t.Logf(format, args...) }
 }
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
 
 ```bash
-go test ./internal/daemon/contentindex/ -run "TestLoadFromDir" -v
+go test ./internal/daemon/sse/ -run "TestBroadcast|TestClientCount" -v
 ```
-Expected: COMPILATION ERROR (no index.go)
+Expected: COMPILATION ERROR (no hub.go)
 
-- [ ] **Step 3: 实现 index.go**
+- [ ] **Step 3: 实现 hub.go**
 
-`internal/daemon/contentindex/index.go`：
+`internal/daemon/sse/hub.go`：
 
 ```go
-// Package contentindex provides an in-memory query index over the
-// pre-built /api/{section}.json files. The daemon loads it at startup and
-// after each build, then serves read-only content queries via /api/v1/*.
-package contentindex
+// Package sse provides Server-Sent Events (SSE) push for the daemon.
+// SSEHub subscribes to daemon EventBus events and broadcasts them to all
+// connected browser clients via the /api/v1/events endpoint.
+package sse
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
+	"time"
 )
 
-// Item is a single content entry returned by the query API. The Plain
-// (full-text body) field from the source JSON is intentionally dropped —
-// the API returns metadata + summary only; full content is served via the
-// pre-built page or JIT rendering.
-type Item struct {
-	Title       string   `json:"title"`
-	URL         string   `json:"url"`      // relative, e.g. /posts/hello/
-	Section     string   `json:"section"`  // derived from source filename
-	Date        string   `json:"date"`
-	Description string   `json:"description,omitempty"`
-	Summary     string   `json:"summary,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+const (
+	// clientBufferSize is the per-client event buffer. A slow client that
+	// falls behind this many events has new events dropped (non-blocking).
+	clientBufferSize = 16
+	// maxClients caps concurrent SSE connections to prevent resource exhaustion.
+	maxClients = 1000
+	// heartbeatInterval is how often a keep-alive comment line is sent.
+	heartbeatInterval = 15 * time.Second
+)
+
+// Event is a single SSE message sent to clients.
+type Event struct {
+	// Type is the SSE event name (e.g. "build_completed"). Empty for raw
+	// comment lines (heartbeats) — see broadcastRaw.
+	Type string
+	// Data is the event payload (JSON-marshaled on the wire). For raw
+	// broadcasts this holds the literal wire text.
+	Data any
+	// raw, when true, means Data is already-formatted wire text written
+	// verbatim (used by heartbeats).
+	raw bool
 }
 
-// rawItem matches the source JSON (output.ContentItem) shape. Used only for
-// decoding; URL is absolute, Section is filled from the filename.
-type rawItem struct {
-	Title       string   `json:"title"`
-	URL         string   `json:"url"`
-	Date        string   `json:"date"`
-	Description string   `json:"description"`
-	Summary     string   `json:"summary"`
-	Tags        []string `json:"tags"`
-}
-
-// ContentIndex is the daemon's in-memory content query index.
-// Thread-safe; callers reload via LoadFromDir after a build.
-type ContentIndex struct {
+// SSEHub manages SSE client connections and broadcasts daemon events.
+// Thread-safe. Slow clients do not block fast clients.
+type SSEHub struct {
 	mu      sync.RWMutex
-	items   []Item
-	baseURL string
+	clients map[chan Event]struct{}
+	logf    func(format string, args ...any)
 }
 
-// NewContentIndex creates an empty index. baseURL is used to convert the
-// absolute URLs in the source JSON back to relative paths.
-func NewContentIndex(baseURL string) *ContentIndex {
-	return &ContentIndex{baseURL: baseURL}
+// NewSSEHub creates an empty hub.
+func NewSSEHub(logf func(string, ...any)) *SSEHub {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	return &SSEHub{
+		clients: map[chan Event]struct{}{},
+		logf:    logf,
+	}
 }
 
-// LoadFromDir loads (or reloads) all section JSON files from
-// <outputDir>/api/*.json. Malformed files are skipped with a warning.
-// Missing api/ directory is not an error (yields an empty index).
-func (ci *ContentIndex) LoadFromDir(outputDir string) error {
-	apiDir := filepath.Join(outputDir, "api")
-	entries, err := os.ReadDir(apiDir)
+// registerClient adds a new buffered client channel and returns it.
+// The caller must eventually call unregisterClient to avoid leaks.
+func (h *SSEHub) registerClient() chan Event {
+	ch := make(chan Event, clientBufferSize)
+	h.mu.Lock()
+	h.clients[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch
+}
+
+// unregisterClient removes a client channel and drains it.
+func (h *SSEHub) unregisterClient(ch chan Event) {
+	h.mu.Lock()
+	delete(h.clients, ch)
+	h.mu.Unlock()
+}
+
+// ClientCount returns the number of connected clients.
+func (h *SSEHub) ClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
+}
+
+// Broadcast sends an event to all clients. A client whose buffer is full
+// (slow consumer) has the event dropped — it never blocks other clients.
+func (h *SSEHub) Broadcast(event Event) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for ch := range h.clients {
+		select {
+		case ch <- event:
+		default:
+			h.logf("sse: client buffer full, dropping event %q", event.Type)
+		}
+	}
+}
+
+// broadcastRaw sends already-formatted wire text (e.g. a heartbeat comment
+// line) to all clients as a raw Event.
+func (h *SSEHub) broadcastRaw(line string) {
+	h.Broadcast(Event{Data: line, raw: true})
+}
+
+// startHeartbeat periodically broadcasts an SSE comment line to keep
+// connections alive through proxies. Runs until ctx is cancelled.
+func (h *SSEHub) startHeartbeat(ctx context.Context) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.broadcastRaw(":heartbeat\n\n")
+		}
+	}
+}
+
+// encodeEvent formats an Event as SSE wire text. Structured events become
+// "event: <type>\ndata: <json>\n\n"; raw events are written verbatim.
+func encodeEvent(ev Event) (string, error) {
+	if ev.raw {
+		if s, ok := ev.Data.(string); ok {
+			return s, nil
+		}
+	}
+	data, err := json.Marshal(ev.Data)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // no api dir → empty index
-		}
-		return fmt.Errorf("contentindex: read %s: %w", apiDir, err)
+		return "", fmt.Errorf("sse: marshal event data: %w", err)
 	}
-
-	var items []Item
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		section := strings.TrimSuffix(entry.Name(), ".json")
-		path := filepath.Join(apiDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "huan: contentindex: read %s: %v\n", entry.Name(), err)
-			continue
-		}
-		var raw []rawItem
-		if err := json.Unmarshal(data, &raw); err != nil {
-			fmt.Fprintf(os.Stderr, "huan: contentindex: parse %s: %v\n", entry.Name(), err)
-			continue
-		}
-		for _, r := range raw {
-			items = append(items, Item{
-				Title:       r.Title,
-				URL:         ci.toRelative(r.URL),
-				Section:     section,
-				Date:        r.Date,
-				Description: r.Description,
-				Summary:     r.Summary,
-				Tags:        r.Tags,
-			})
-		}
+	if ev.Type == "" {
+		return fmt.Sprintf("data: %s\n\n", data), nil
 	}
-
-	ci.mu.Lock()
-	ci.items = items
-	ci.mu.Unlock()
-	return nil
-}
-
-// Len returns the number of indexed items.
-func (ci *ContentIndex) Len() int {
-	ci.mu.RLock()
-	defer ci.mu.RUnlock()
-	return len(ci.items)
-}
-
-// GetByURL returns the item with the given relative URL.
-func (ci *ContentIndex) GetByURL(url string) (Item, bool) {
-	ci.mu.RLock()
-	defer ci.mu.RUnlock()
-	for _, it := range ci.items {
-		if it.URL == url {
-			return it, true
-		}
-	}
-	return Item{}, false
-}
-
-// toRelative strips the configured baseURL prefix from an absolute URL,
-// ensuring the result starts with "/".
-func (ci *ContentIndex) toRelative(absURL string) string {
-	rel := strings.TrimPrefix(absURL, ci.baseURL)
-	if !strings.HasPrefix(rel, "/") {
-		rel = "/" + rel
-	}
-	return rel
+	return fmt.Sprintf("event: %s\ndata: %s\n\n", ev.Type, data), nil
 }
 ```
 
 - [ ] **Step 4: 运行测试验证通过**
 
 ```bash
-go test ./internal/daemon/contentindex/ -run "TestLoadFromDir" -v
+go test ./internal/daemon/sse/ -run "TestBroadcast|TestClientCount" -v
 ```
 Expected: ALL PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add internal/daemon/contentindex/index.go internal/daemon/contentindex/index_test.go
-git commit -m "feat(contentindex): add ContentIndex with LoadFromDir"
+git add internal/daemon/sse/hub.go internal/daemon/sse/hub_test.go
+git commit -m "feat(sse): add SSEHub with broadcast and heartbeat"
 ```
 
 ---

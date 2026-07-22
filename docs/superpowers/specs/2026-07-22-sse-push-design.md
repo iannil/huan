@@ -1,7 +1,7 @@
 # 设计文档：SSE 实时推送（Server-Sent Events）
 
 - **日期**：2026-07-22
-- **状态**：Draft
+- **状态**：Implemented
 - **关联**：[内容查询 REST API](2026-07-22-content-query-api-design.md)、[增量构建](2026-07-21-incremental-build-design.md)、EventBus（`internal/daemon/eventbus/`）
 - **实现阶段**：v0.12.0
 

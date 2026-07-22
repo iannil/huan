@@ -1,243 +1,250 @@
-### Task 3: HTTP Handler
+### Task 3: HandleSubscribe — SSE HTTP handler
 
 **Files:**
-- Create: `internal/daemon/contentindex/handler.go` — /api/v1/* 路由
-- Create: `internal/daemon/contentindex/handler_test.go` — Handler 测试
+- Create: `internal/daemon/sse/handler.go` — HandleSubscribe HTTP handler
+- Create: `internal/daemon/sse/handler_test.go` — handler 测试
 
 **Interfaces:**
-- Consumes: ContentIndex (Task 1-2)
-- Produces: `Handler`, `NewHandler(index *ContentIndex) *Handler`, `ServeHTTP`
+- Consumes: SSEHub（Task 1-2）, encodeEvent
+- Produces: `SSEHub.HandleSubscribe(w, r)`, `SSEHub.Start(ctx)`（启动心跳）
+
+**说明：** SSE 流式 handler：设置 headers → 注册客户端 → 循环读通道写响应 + flush → 断开清理。maxClients 检查。心跳在 ServeHTTP 入口启动（或由 daemon 启动）。为简化，提供 Start(ctx) 启动心跳，daemon 调用一次。
 
 - [ ] **Step 1: 编写测试**
 
-`internal/daemon/contentindex/handler_test.go`：
+`internal/daemon/sse/handler_test.go`：
 
 ```go
-package contentindex
+package sse
 
 import (
-	"encoding/json"
-	"net/http"
+	"bufio"
+	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
-func TestHandler_PagesList(t *testing.T) {
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/pages", "")
-	if rec.Code != 200 {
-		t.Fatalf("code = %d, want 200", rec.Code)
+func TestHandleSubscribe_SSEHeaders(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	req := httptest.NewRequest("GET", "/api/v1/events", nil)
+	rec := httptest.NewRecorder()
+
+	// Run handler in background; it blocks until client disconnect.
+	done := make(chan struct{})
+	go func() {
+		h.HandleSubscribe(rec, req)
+		close(done)
+	}()
+
+	// Give it a moment to set headers, then cancel the request to end the handler.
+	time.Sleep(50 * time.Millisecond)
+	// httptest.ResponseRecorder doesn't support context cancellation the way
+	// a real server does; we simulate disconnect by closing via the hub.
+	// Instead, verify headers by reading after a short delay.
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
-	var r Result
-	json.Unmarshal(rec.Body.Bytes(), &r)
-	if r.Total == 0 {
-		t.Error("expected non-empty list")
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", cc)
 	}
-	if r.Limit != 10 {
-		t.Errorf("default limit = %d, want 10", r.Limit)
+
+	// Force handler exit by unregistering all clients (simulates shutdown).
+	h.mu.Lock()
+	for ch := range h.clients {
+		close(ch)
+		delete(h.clients, ch)
+	}
+	h.mu.Unlock()
+	<-done
+}
+
+func TestHandleSubscribe_EventFormat(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	req := httptest.NewRequest("GET", "/api/v1/events", nil)
+	rec := httptest.NewRecorder()
+
+	go h.HandleSubscribe(rec, req)
+
+	// Wait for registration, then broadcast.
+	time.Sleep(50 * time.Millisecond)
+	h.Broadcast(Event{Type: "build_completed", Data: map[string]int{"pages": 3}})
+
+	time.Sleep(50 * time.Millisecond)
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: build_completed") {
+		t.Errorf("body missing event line:\n%s", body)
+	}
+	if !strings.Contains(body, `"pages":3`) {
+		t.Errorf("body missing data:\n%s", body)
+	}
+
+	h.mu.Lock()
+	for ch := range h.clients {
+		close(ch)
+		delete(h.clients, ch)
+	}
+	h.mu.Unlock()
+}
+
+func TestHandleSubscribe_MaxClientsRejected(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	// Artificially fill to maxClients.
+	for i := 0; i < maxClients; i++ {
+		h.registerClient()
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/events", nil)
+	rec := httptest.NewRecorder()
+	h.HandleSubscribe(rec, req)
+
+	if rec.Code != 503 {
+		t.Errorf("Code = %d, want 503 (max clients)", rec.Code)
 	}
 }
 
-func TestHandler_PagesFilter(t *testing.T) {
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/pages?section=books", "")
-	var r Result
-	json.Unmarshal(rec.Body.Bytes(), &r)
-	for _, it := range r.Data {
-		if it.Section != "books" {
-			t.Errorf("filter leaked section %q", it.Section)
+func TestHandleSubscribe_ReadsStream(t *testing.T) {
+	// End-to-end: real httptest.Server, read SSE stream via bufio.Scanner.
+	h := NewSSEHub(testLogf(t))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go h.Start(ctx)
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Broadcast an event.
+	time.Sleep(50 * time.Millisecond) // let client register
+	h.Broadcast(Event{Type: "content_changed", Data: "hello"})
+
+	scanner := bufio.NewScanner(resp.Body)
+	got := false
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for SSE event")
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
+		if strings.Contains(scanner.Text(), "content_changed") {
+			got = true
+		}
+		if got && scanner.Text() == "" {
+			break // end of event block (blank line)
 		}
 	}
-}
-
-func TestHandler_PageDetail(t *testing.T) {
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/pages/posts/go/", "")
-	if rec.Code != 200 {
-		t.Fatalf("code = %d, want 200", rec.Code)
+	if !got {
+		t.Error("did not see content_changed in stream")
 	}
-	var it Item
-	json.Unmarshal(rec.Body.Bytes(), &it)
-	if it.URL != "/posts/go/" {
-		t.Errorf("URL = %q", it.URL)
-	}
-}
-
-func TestHandler_PageDetail404(t *testing.T) {
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/pages/nope/", "")
-	if rec.Code != 404 {
-		t.Errorf("code = %d, want 404", rec.Code)
-	}
-}
-
-func TestHandler_Tags(t *testing.T) {
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/tags", "")
-	if rec.Code != 200 {
-		t.Fatalf("code = %d", rec.Code)
-	}
-	var m map[string]int
-	json.Unmarshal(rec.Body.Bytes(), &m)
-	if m["go"] == 0 {
-		t.Errorf("expected go tag, got %v", m)
-	}
-}
-
-func TestHandler_Sections(t *testing.T) {
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/sections", "")
-	var m map[string]int
-	json.Unmarshal(rec.Body.Bytes(), &m)
-	if m["posts"] == 0 {
-		t.Errorf("expected posts section, got %v", m)
-	}
-}
-
-func TestHandler_NoAuthRequired(t *testing.T) {
-	// Public endpoint: no Authorization header, no token → still 200.
-	h := NewHandler(loadTestIndex(t))
-	rec := serveHandler(t, h, "GET", "/api/v1/pages", "")
-	if rec.Code != 200 {
-		t.Errorf("public endpoint returned %d", rec.Code)
-	}
-}
-
-func TestHandler_IndexNotReady(t *testing.T) {
-	// Empty index (Len 0) should still serve 200 with empty data, not 503.
-	h := NewHandler(NewContentIndex(baseURL))
-	rec := serveHandler(t, h, "GET", "/api/v1/pages", "")
-	if rec.Code != 200 {
-		t.Errorf("empty index code = %d, want 200", rec.Code)
-	}
-}
-
-func serveHandler(t *testing.T, h *Handler, method, path, body string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
 }
 ```
+
+需要 `net/http` import（http.Get）。在 handler_test.go 顶部 import 块加 `"net/http"`。
 
 - [ ] **Step 2: 运行测试验证失败**
 
 ```bash
-go test ./internal/daemon/contentindex/ -run "TestHandler" -v
+go test ./internal/daemon/sse/ -run "TestHandleSubscribe" -v
 ```
-Expected: COMPILATION ERROR (no Handler)
+Expected: COMPILATION ERROR (no HandleSubscribe/Start)
 
 - [ ] **Step 3: 实现 handler.go**
 
-`internal/daemon/contentindex/handler.go`：
+`internal/daemon/sse/handler.go`：
 
 ```go
-package contentindex
+package sse
 
 import (
-	"encoding/json"
+	"context"
+	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 )
 
-// Handler exposes the read-only content query API at /api/v1/*.
-// No authentication — these endpoints are public.
-type Handler struct {
-	index *ContentIndex
+// Start launches the heartbeat goroutine. Call once at daemon startup
+// (or per request — it's safe but redundant). Cancelling ctx stops it.
+func (h *SSEHub) Start(ctx context.Context) {
+	go h.startHeartbeat(ctx)
 }
 
-// NewHandler creates a Handler backed by the given ContentIndex.
-func NewHandler(index *ContentIndex) *Handler {
-	return &Handler{index: index}
-}
-
-// ServeHTTP routes /api/v1/pages, /api/v1/pages/{url}, /api/v1/tags,
-// /api/v1/sections.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// HandleSubscribe is the HTTP handler for GET /api/v1/events.
+// It registers the client, streams events until disconnect, then cleans up.
+func (h *SSEHub) HandleSubscribe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, errBody("method not allowed"))
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.ClientCount() >= maxClients {
+		http.Error(w, "too many connections", http.StatusServiceUnavailable)
 		return
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1")
-	path = strings.TrimPrefix(path, "/")
-
-	switch {
-	case path == "pages":
-		h.handlePagesList(w, r)
-	case strings.HasPrefix(path, "pages/"):
-		h.handlePageDetail(w, strings.TrimPrefix(path, "pages/"))
-	case path == "tags":
-		h.handleTags(w, r)
-	case path == "sections":
-		h.handleSections(w, r)
-	default:
-		writeJSON(w, http.StatusNotFound, errBody("not found"))
-	}
-}
-
-func (h *Handler) handlePagesList(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	f := Filter{
-		Section: q.Get("section"),
-		Tag:     q.Get("tag"),
-		Query:   q.Get("q"),
-		Sort:    q.Get("sort"),
-	}
-	if v, err := strconv.Atoi(q.Get("page")); err == nil {
-		f.Page = v
-	}
-	if v, err := strconv.Atoi(q.Get("limit")); err == nil {
-		f.Limit = v
-	}
-	res := h.index.Query(f)
-	writeJSON(w, http.StatusOK, res)
-}
-
-func (h *Handler) handlePageDetail(w http.ResponseWriter, rest string) {
-	// rest is like "posts/go/" → normalize to "/posts/go/"
-	url := "/" + strings.TrimPrefix(rest, "/")
-	item, ok := h.index.GetByURL(url)
+	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, item)
-}
 
-func (h *Handler) handleTags(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, h.index.Tags())
-}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
 
-func (h *Handler) handleSections(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, h.index.Sections())
-}
+	ch := h.registerClient()
+	defer h.unregisterClient(ch)
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
-}
-
-func errBody(msg string) map[string]string {
-	return map[string]string{"error": msg}
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected.
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				// Channel closed (e.g. shutdown).
+				return
+			}
+			line, err := encodeEvent(ev)
+			if err != nil {
+				h.logf("sse: encode error: %v", err)
+				continue
+			}
+			if _, err := fmt.Fprint(w, line); err != nil {
+				// Write failed (client gone).
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 ```
 
 - [ ] **Step 4: 运行测试验证通过**
 
 ```bash
-go test ./internal/daemon/contentindex/ -v
+go test ./internal/daemon/sse/ -v
 ```
 Expected: ALL PASS
+
+Note: 测试中模拟断开用 close(ch) + unregister。如果 TestHandleSubscribe_SSEHeaders/EventFormat 因时序 flaky，调整 sleep 或用 channel 同步。若 httptest.ResponseRecorder 不支持 Flusher，TestHandleSubscribe_ReadsStream 用真实 httptest.NewServer（支持 Flusher）验证流。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add internal/daemon/contentindex/handler.go internal/daemon/contentindex/handler_test.go
-git commit -m "feat(contentindex): add HTTP handler for /api/v1/* query endpoints"
+git add internal/daemon/sse/handler.go internal/daemon/sse/handler_test.go
+git commit -m "feat(sse): add HandleSubscribe handler with stream + heartbeat start"
 ```
 
 ---
