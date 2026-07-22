@@ -1,7 +1,7 @@
 # 设计文档：JIT 渲染（Just-In-Time Page Rendering）
 
 - **日期**：2026-07-22
-- **状态**：Draft
+- **状态**：Implemented
 - **关联**：[增量构建](2026-07-21-incremental-build-design.md)、[热插拔插件系统](2026-07-20-daemon-hotplug-plugin-design.md)
 - **实现阶段**：v0.10.0
 

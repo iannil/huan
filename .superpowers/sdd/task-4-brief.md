@@ -1,192 +1,122 @@
-### Task 4: DAG — OrderByDependency 方法
+### Task 4: Builder — RenderPageJIT 重写 + resolveSourceFile
 
 **Files:**
-- Modify: `internal/daemon/dag/graph.go` — 新增 OrderByDependency
-- Modify: `internal/daemon/dag/graph_test.go` — 测试
+- Modify: `internal/daemon/builder.go` — 重写 RenderPageJIT（去 stub），新增 resolveSourceFile
 
 **Interfaces:**
-- Produces: `DependencyGraph.OrderByDependency(pagePaths []string) []string`
+- Consumes: `build.RenderPageWithCache`, `build.PipelineCache`, `dag.DependencyGraph.SourceFromPagePath`, `build.resolveSourceFromURL`（需导出或复制）
+- Produces: 重写后的 `Builder.RenderPageJIT(ctx, pageURL) (string, error)`，`resolveSourceFile(dg, pageURL) (string, bool)`
 
-**说明：** 返回拓扑排序后的页面路径（被依赖的页面在前，依赖它们的页面在后）。例如：先渲染 `/posts/hello/`，再渲染引用它的 `/posts/`（section）和 `/`（home）。
+**重要：** `resolveSourceFromURL` 在 build 包是小写（未导出）。daemon 包无法调用。两种方案：
+1. 导出为 `ResolveSourceFromURL`（改 build/jit.go）
+2. 在 daemon 包内复制一份
 
-- [ ] **Step 1: 编写测试**
+方案 1 更清晰（DRY）。先导出 resolveSourceFromURL → ResolveSourceFromURL，更新 jit_test.go 的调用。
 
-在 `internal/daemon/dag/graph_test.go` 末尾添加：
+- [ ] **Step 1: 导出 resolveSourceFromURL**
 
-```go
-func TestOrderByDependency_LeafBeforeParent(t *testing.T) {
-	dg := NewDependencyGraph()
-	// Build a minimal graph: /posts/hello/ depends on /posts/ and /
-	// (so /posts/ and / are "depended by" /posts/hello/ in reverse edges).
-	dg.nodes["/posts/hello/"] = &Node{
-		PagePath:   "/posts/hello/",
-		DependsOn:  []string{"/posts/", "/"},
-		DependedBy: []string{},
-	}
-	dg.nodes["/posts/"] = &Node{
-		PagePath:   "/posts/",
-		DependsOn:  []string{"/"},
-		DependedBy: []string{"/posts/hello/"},
-	}
-	dg.nodes["/"] = &Node{
-		PagePath:   "/",
-		DependsOn:  []string{},
-		DependedBy: []string{"/posts/hello/", "/posts/"},
-	}
+修改 `internal/build/jit.go`，把 `func resolveSourceFromURL` 改为 `func ResolveSourceFromURL`，更新 godoc。
 
-	affected := []string{"/posts/hello/", "/posts/", "/"}
-	ordered := dg.OrderByDependency(affected)
+修改 `internal/build/jit_test.go` 中所有 `resolveSourceFromURL(` → `ResolveSourceFromURL(`。
 
-	// The leaf (/posts/hello/) must come before pages that depend on it.
-	helloIdx := indexOf(ordered, "/posts/hello/")
-	postsIdx := indexOf(ordered, "/posts/")
-	homeIdx := indexOf(ordered, "/")
-	if helloIdx > postsIdx {
-		t.Errorf("leaf /posts/hello/ (idx %d) must come before /posts/ (idx %d)", helloIdx, postsIdx)
-	}
-	if helloIdx > homeIdx {
-		t.Errorf("leaf /posts/hello/ (idx %d) must come before / (idx %d)", helloIdx, homeIdx)
-	}
-}
-
-func TestOrderByDependency_SinglePage(t *testing.T) {
-	dg := NewDependencyGraph()
-	dg.nodes["/only/"] = &Node{PagePath: "/only/"}
-	ordered := dg.OrderByDependency([]string{"/only/"})
-	if len(ordered) != 1 || ordered[0] != "/only/" {
-		t.Errorf("OrderByDependency single = %v, want [/only/]", ordered)
-	}
-}
-
-func TestOrderByDependency_Empty(t *testing.T) {
-	dg := NewDependencyGraph()
-	ordered := dg.OrderByDependency([]string{})
-	if len(ordered) != 0 {
-		t.Errorf("OrderByDependency empty = %v, want []", ordered)
-	}
-}
-
-func TestOrderByDependency_UnknownPathsPreserved(t *testing.T) {
-	dg := NewDependencyGraph()
-	// Path not in graph should still appear in output.
-	ordered := dg.OrderByDependency([]string{"/unknown/"})
-	if len(ordered) != 1 || ordered[0] != "/unknown/" {
-		t.Errorf("unknown path = %v, want [/unknown/]", ordered)
-	}
-}
-
-func indexOf(slice []string, s string) int {
-	for i, v := range slice {
-		if v == s {
-			return i
-		}
-	}
-	return -1
-}
-```
-
-- [ ] **Step 2: 运行测试验证失败**
+- [ ] **Step 2: 验证导出后测试仍通过**
 
 ```bash
-go test ./internal/daemon/dag/ -run "TestOrderByDependency" -v
+go test ./internal/build/ -run "TestResolveSourceFromURL" -v
 ```
-Expected: COMPILATION ERROR (no OrderByDependency method)
+Expected: ALL PASS
 
-- [ ] **Step 3: 实现 OrderByDependency**
+- [ ] **Step 3: 新增 resolveSourceFile 并重写 RenderPageJIT**
 
-在 `internal/daemon/dag/graph.go` 的 `PagePathFromSource` 方法之后添加：
+替换 `internal/daemon/builder.go` 中的 `RenderPageJIT` stub（当前返回 "not yet implemented"）：
 
 ```go
-// OrderByDependency returns the given page paths in topological order:
-// pages that are depended-upon come first, pages that depend on them come
-// later. This is the correct rendering order for incremental builds — a
-// leaf page is re-rendered before the section/home pages that list it.
+// RenderPageJIT renders a single page on demand for JIT fallback.
+// Reuses the cached pipeline state for speed. Returns the HTML (not written
+// to disk); the caller (serving.jitFallback) caches it in JITCache.
 //
-// The sort is stable: among pages with no dependency relationship, the
-// input order is preserved. Paths not present in the graph are appended
-// at the end in input order.
-func (dg *DependencyGraph) OrderByDependency(pagePaths []string) []string {
-	dg.mu.RLock()
-	defer dg.mu.RUnlock()
+// Returns an error (→ 404 in serving layer) when the source file cannot
+// be resolved or does not exist on disk.
+func (b *Builder) RenderPageJIT(ctx context.Context, pageURL string) (string, error) {
+	cache := b.opts.PipelineCache
 
-	// Build the subgraph induced by pagePaths.
-	inSet := make(map[string]bool, len(pagePaths))
-	for _, p := range pagePaths {
-		inSet[p] = true
+	// 1. pageURL → source file (relative to content/).
+	sourceRel, ok := resolveSourceFile(b.opts.DAG, pageURL)
+	if !ok {
+		return "", fmt.Errorf("JIT: cannot resolve source for %s", pageURL)
 	}
 
-	// For each node, collect its forward dependencies that are also in the set.
-	// We render a node only after all its in-set dependencies are rendered.
-	deps := make(map[string][]string, len(pagePaths))
-	for _, p := range pagePaths {
-		node, ok := dg.nodes[p]
-		if !ok {
-			deps[p] = nil
-			continue
-		}
-		for _, dep := range node.DependsOn {
-			if inSet[dep] {
-				deps[p] = append(deps[p], dep)
-			}
-		}
+	// 2. Verify the source file exists on disk.
+	sourcePath := filepath.Join(b.opts.SourceDir, "content", sourceRel)
+	if _, err := os.Stat(sourcePath); err != nil {
+		return "", fmt.Errorf("JIT: source not found: %s", sourcePath)
 	}
 
-	// Kahn's algorithm with stable ordering (process in input order).
-	rendered := make(map[string]bool)
-	var result []string
-	// Iterate multiple passes until no progress; this keeps input-order stability.
-	for len(result) < len(pagePaths) {
-		progress := false
-		for _, p := range pagePaths {
-			if rendered[p] {
-				continue
-			}
-			ready := true
-			for _, dep := range deps[p] {
-				if !rendered[dep] {
-					ready = false
-					break
-				}
-			}
-			if ready {
-				result = append(result, p)
-				rendered[p] = true
-				progress = true
-			}
-		}
-		if !progress {
-			// Cycle or unknown deps: append remaining in input order.
-			for _, p := range pagePaths {
-				if !rendered[p] {
-					result = append(result, p)
-					rendered[p] = true
-				}
-			}
+	// 3. Render with cached pipeline (forces IncludeDrafts=true).
+	html, err := build.RenderPageWithCache(build.Options{
+		SourceDir:     b.opts.SourceDir,
+		OutputDir:     b.opts.OutputDir,
+		IncludeDrafts: true,
+		Logf:          b.opts.Logf,
+		PipelineCache: cache,
+	}, cache, pageURL)
+	if err != nil {
+		return "", fmt.Errorf("JIT render %s: %w", pageURL, err)
+	}
+
+	return html, nil
+}
+
+// resolveSourceFile maps a page URL to its source file path (relative to
+// content/). Tries the DAG first (pages present in the last full build),
+// then falls back to URL-based derivation for pages not yet built (drafts,
+// new pages).
+func resolveSourceFile(dg *dag.DependencyGraph, pageURL string) (string, bool) {
+	// 1. DAG reverse lookup (exact, for built pages).
+	if dg != nil {
+		if src, ok := dg.SourceFromPagePath(pageURL); ok {
+			return src, true
 		}
 	}
-	return result
+	// 2. URL derivation (fallback, for unbuilt pages).
+	if src := build.ResolveSourceFromURL(pageURL); src != "" {
+		return src, true
+	}
+	return "", false
 }
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [ ] **Step 4: 确认 builder.go import**
+
+`internal/daemon/builder.go` 已 import：`fmt`、`os`、`path/filepath`、`build`、`dag`、`context`。确认无需新增。`build` 和 `dag` 已在 import 列表（builder.go 使用 build.BuildSite、dag.DependencyGraph）。
+
+- [ ] **Step 5: 编译验证**
 
 ```bash
-go test ./internal/daemon/dag/ -run "TestOrderByDependency" -v
+go build ./...
 ```
-Expected: ALL PASS
+Expected: BUILD SUCCESS
 
-- [ ] **Step 5: 运行 DAG 全部测试确保无回归**
+- [ ] **Step 6: 运行现有 daemon 测试确保无回归**
 
 ```bash
-go test ./internal/daemon/dag/... -v
+go test ./internal/daemon/... -run "TestBuilder" -v
 ```
-Expected: ALL PASS
+Expected: ALL PASS（注意：如有测试断言 RenderPageJIT 返回 "not yet implemented"，需更新）
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 7: 更新依赖旧 stub 错误信息的测试（如有）**
+
+搜索 daemon_test.go 中是否有测试断言 RenderPageJIT 返回 "not yet implemented"。如果有，更新为断言成功渲染或新的错误格式。
 
 ```bash
-git add internal/daemon/dag/graph.go internal/daemon/dag/graph_test.go
-git commit -m "feat(dag): add OrderByDependency for incremental build ordering"
+grep -rn "not yet implemented\|JIT rendering" internal/daemon/*_test.go
+```
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add internal/build/jit.go internal/build/jit_test.go internal/daemon/builder.go
+git commit -m "feat(daemon): implement RenderPageJIT with DAG+URL source resolution"
 ```
 
 ---

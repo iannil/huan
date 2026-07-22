@@ -1,78 +1,110 @@
-### Task 2: build.go — 支持 PipelineCache 填充
+### Task 2: build/jit.go — resolveSourceFromURL URL 推导
 
 **Files:**
-- Modify: `internal/build/build.go` — Options 新增 PipelineCache 字段，BuildSite 末尾填充
-- Modify: `internal/build/pipeline.go` — 新增 pipeline.populateCache 方法
+- Create: `internal/build/jit.go` — resolveSourceFromURL 函数
+- Create: `internal/build/jit_test.go` — URL 推导测试
 
 **Interfaces:**
-- Consumes: `build.PipelineCache` (Task 1)
-- Produces: `Options.PipelineCache` 字段, `BuildSite` 自动填充 cache
+- Produces: `resolveSourceFromURL(pageURL string) string` — 纯函数，无 DAG 依赖
 
-- [ ] **Step 1: 在 Options 中添加 PipelineCache 字段**
+**说明：** 当 URL 不在 DAG 中时（新建 draft 等），按 huan URL 规则推导源文件路径。
 
-修改 `internal/build/build.go`，在 `Options` 结构体中（`AfterBuildSite` 字段之后）添加：
+- [ ] **Step 1: 编写测试**
 
-```go
-	// PipelineCache, if non-nil, is populated with reusable build state
-	// after BuildSite completes successfully. Used by daemon for
-	// incremental builds. Pass a cache created by NewPipelineCache().
-	// Experimental: API may change in future versions.
-	PipelineCache *PipelineCache
-```
-
-- [ ] **Step 2: 在 pipeline 中添加 populateCache 方法**
-
-在 `internal/build/pipeline.go` 末尾添加：
+`internal/build/jit_test.go`：
 
 ```go
-// populateCache fills the PipelineCache with reusable rendering state
-// after a successful full build. Called by BuildSite when opts.PipelineCache
-// is non-nil.
-func (p *pipeline) populateCache(cache *PipelineCache) {
-	cache.Templates = p.tmpls
-	cache.I18nBundle = p.i18nBundle
-	cache.SCRegistry = p.scRegistry
-	cache.MDRenderer = p.md
-	cache.SiteCfg = p.cfg
-	cache.Writer = p.writer
-	cache.BuiltAt = time.Now()
+package build
+
+import "testing"
+
+func TestResolveSourceFromURL(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"home", "/", "_index.md"},
+		{"section", "/posts/", "posts/_index.md"},
+		{"simple page", "/posts/hello/", "posts/hello.md"},
+		{"nested page", "/posts/2026/new-year/", "posts/2026/new-year.md"},
+		{"deep page", "/books/v1/ch1/", "books/v1/ch1.md"},
+		{"explicit _index", "/posts/_index/", "posts/_index.md"},
+		{"no trailing slash", "/posts/hello", "posts/hello.md"},
+		{"leading+trailing slash stripped", "/posts/hello/", "posts/hello.md"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveSourceFromURL(tc.url)
+			if got != tc.want {
+				t.Errorf("resolveSourceFromURL(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
 }
 ```
 
-注意：`pipeline.go` 顶部已 import `time`，无需新增。
+- [ ] **Step 2: 运行测试验证失败**
 
-- [ ] **Step 3: 在 BuildSite 中调用 populateCache**
+```bash
+go test ./internal/build/ -run "TestResolveSourceFromURL" -v
+```
+Expected: COMPILATION ERROR (no resolveSourceFromURL)
 
-修改 `internal/build/build.go` 的 `BuildSite` 函数，在 `AfterBuildSite` 回调之后、`return` 之前添加：
+- [ ] **Step 3: 创建 jit.go 并实现 resolveSourceFromURL**
+
+`internal/build/jit.go`：
 
 ```go
-	// Populate the pipeline cache if requested (for daemon incremental builds).
-	if opts.PipelineCache != nil {
-		p.populateCache(opts.PipelineCache)
+package build
+
+import "strings"
+
+// resolveSourceFromURL derives the source file path (relative to content/)
+// from a page URL. Used by JIT rendering when the URL is not in the DAG
+// (e.g., a newly-created draft not yet captured by a full build).
+//
+// URL conventions (match Hugo/huan content layout):
+//   /                          → _index.md            (home)
+//   /posts/                    → posts/_index.md      (section)
+//   /posts/hello/              → posts/hello.md       (regular page)
+//   /posts/2026/new-year/      → posts/2026/new-year.md
+//   /posts/_index/             → posts/_index.md      (explicit)
+//
+// Returns "" only if the input cannot be parsed (effectively never for a
+// normalized URL); callers should still verify the file exists on disk.
+func resolveSourceFromURL(pageURL string) string {
+	u := strings.Trim(pageURL, "/")
+	if u == "" {
+		return "_index.md" // home
 	}
-
-	return p.result, nil
+	parts := strings.Split(u, "/")
+	last := parts[len(parts)-1]
+	if last == "_index" {
+		// /posts/_index/ → posts/_index.md
+		return strings.Join(parts, "/") + ".md"
+	}
+	if len(parts) == 1 {
+		// /posts/ → posts/_index.md (single segment = section index)
+		return parts[0] + "/_index.md"
+	}
+	// /posts/hello/ → posts/hello.md
+	return strings.Join(parts, "/") + ".md"
+}
 ```
 
-- [ ] **Step 4: 编译验证**
+- [ ] **Step 4: 运行测试验证通过**
 
 ```bash
-go build ./internal/build/...
-```
-Expected: BUILD SUCCESS
-
-- [ ] **Step 5: 运行现有测试确保无回归**
-
-```bash
-go test ./internal/build/... -v
+go test ./internal/build/ -run "TestResolveSourceFromURL" -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 5: 提交**
 
 ```bash
-git add internal/build/build.go internal/build/pipeline.go
-git commit -m "feat(build): populate PipelineCache after full build"
+git add internal/build/jit.go internal/build/jit_test.go
+git commit -m "feat(build): add resolveSourceFromURL for JIT URL→source derivation"
 ```
 
 ---

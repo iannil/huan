@@ -1055,6 +1055,195 @@ Content.
 	}
 }
 
+// TestDaemon_JIT_RenderUnbuiltPage verifies the end-to-end JIT rendering
+// path: a draft page (excluded from the full build because BuildDrafts=false)
+// is served via serving.jitFallback, which calls Builder.RenderPageJIT,
+// populates JITCache, and serves the cached HTML on subsequent requests.
+//
+// We drive the request through Serving.jitFallback (the real integration
+// path) rather than calling Builder.RenderPageJIT directly, because the
+// JITCache is populated by the serving layer (not by RenderPageJIT itself),
+// which mirrors how production serves draft pages on demand.
+func TestDaemon_JIT_RenderUnbuiltPage(t *testing.T) {
+	tmpDir := setupJITDaemonSite(t)
+	pipelineCache := build.NewPipelineCache()
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	dagGraph := dag.NewDependencyGraph()
+	jitCache := cache.NewJITCache(100, 5*time.Minute)
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dagGraph,
+		JITCache:      jitCache,
+		Metrics:       NewMetricsCollector(),
+		BuildDrafts:   false, // drafts excluded → need JIT
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+
+	// Full build (excludes the draft).
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Draft output must not exist on disk after the full build.
+	if _, err := os.Stat(filepath.Join(tmpDir, "posts", "draft-page", "index.html")); !os.IsNotExist(err) {
+		t.Fatalf("draft output should not exist after full build; stat err=%v", err)
+	}
+
+	// Serve the draft page via the JIT fallback path.
+	srv := NewServing(ServingOptions{
+		OutputDir: tmpDir,
+		JITCache:  jitCache,
+		Builder:   builder,
+		Bus:       bus,
+		Logf:      t.Logf,
+	})
+
+	req := httptest.NewRequest("GET", "/posts/draft-page/", nil)
+	rec := httptest.NewRecorder()
+	srv.jitFallback(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("jitFallback status = %d, want 200; body:\n%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Draft Content") {
+		t.Errorf("JIT response missing draft content; got:\n%s", rec.Body.String())
+	}
+
+	// JITCache should now hold the entry.
+	if jitCache.Len() != 1 {
+		t.Errorf("JITCache.Len = %d, want 1", jitCache.Len())
+	}
+	entry := jitCache.Get("/posts/draft-page/")
+	if entry == nil {
+		t.Fatal("JITCache.Get returned nil after JIT render")
+	}
+	if !strings.Contains(string(entry.HTML), "Draft Content") {
+		t.Errorf("cached HTML missing content; got:\n%s", string(entry.HTML))
+	}
+
+	// Second hit should be served from cache and tagged accordingly.
+	req2 := httptest.NewRequest("GET", "/posts/draft-page/", nil)
+	rec2 := httptest.NewRecorder()
+	srv.jitFallback(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Errorf("second jitFallback status = %d, want 200", rec2.Code)
+	}
+	if rec2.Header().Get("X-Huan-Cache") != "jit" {
+		t.Errorf("second hit should be served from JIT cache; got X-Huan-Cache=%q",
+			rec2.Header().Get("X-Huan-Cache"))
+	}
+}
+
+// TestDaemon_JIT_PageNotFound verifies that JIT returns an error for a URL
+// with no resolvable source. Driven through Builder.RenderPageJIT directly
+// so the error contract is asserted without going through HTTP.
+func TestDaemon_JIT_PageNotFound(t *testing.T) {
+	tmpDir := setupJITDaemonSite(t)
+	pipelineCache := build.NewPipelineCache()
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dag.NewDependencyGraph(),
+		JITCache:      cache.NewJITCache(100, 5*time.Minute),
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	_, err := builder.RenderPageJIT(context.Background(), "/totally/fake/")
+	if err == nil {
+		t.Fatal("expected error for fake URL")
+	}
+
+	// Also verify the serving layer surfaces this as a 404.
+	srv := NewServing(ServingOptions{
+		OutputDir: tmpDir,
+		JITCache:  cache.NewJITCache(100, 5*time.Minute),
+		Builder:   builder,
+		Bus:       bus,
+		Logf:      t.Logf,
+	})
+	req := httptest.NewRequest("GET", "/totally/fake/", nil)
+	rec := httptest.NewRecorder()
+	srv.jitFallback(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("jitFallback fake URL status = %d, want 404", rec.Code)
+	}
+}
+
+// TestJITCache_InvalidatedOnFullBuild verifies that a JIT cache populated by
+// serving a draft page is cleared by a subsequent full build (so stale HTML
+// is never served after content/templates change).
+func TestJITCache_InvalidatedOnFullBuild(t *testing.T) {
+	tmpDir := setupJITDaemonSite(t)
+	pipelineCache := build.NewPipelineCache()
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+	jitCache := cache.NewJITCache(100, 5*time.Minute)
+	builder := NewBuilder(BuilderOptions{
+		SourceDir:     tmpDir,
+		OutputDir:     tmpDir,
+		Bus:           bus,
+		DAG:           dag.NewDependencyGraph(),
+		JITCache:      jitCache,
+		Logf:          t.Logf,
+		PipelineCache: pipelineCache,
+	})
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("FullBuild: %v", err)
+	}
+
+	// Populate JIT cache by serving the draft page through jitFallback.
+	srv := NewServing(ServingOptions{
+		OutputDir: tmpDir,
+		JITCache:  jitCache,
+		Builder:   builder,
+		Bus:       bus,
+		Logf:      t.Logf,
+	})
+	req := httptest.NewRequest("GET", "/posts/draft-page/", nil)
+	rec := httptest.NewRecorder()
+	srv.jitFallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("jitFallback status = %d, want 200", rec.Code)
+	}
+	if jitCache.Len() != 1 {
+		t.Fatalf("expected 1 JIT entry, got %d", jitCache.Len())
+	}
+
+	// A subsequent full build should clear the JIT cache entirely.
+	if err := builder.FullBuild(context.Background()); err != nil {
+		t.Fatalf("second FullBuild: %v", err)
+	}
+	if jitCache.Len() != 0 {
+		t.Errorf("JITCache.Len after full build = %d, want 0", jitCache.Len())
+	}
+}
+
+// setupJITDaemonSite creates a site with a published page + a draft page.
+// The draft page (draft: true in frontmatter) is excluded from the full
+// build when BuildDrafts=false, which is the precondition for the JIT
+// integration tests above.
+func setupJITDaemonSite(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	mustWriteIncFile(t, tmpDir, "huan.yaml", []byte("baseURL: \"https://example.com/\"\ntitle: \"JIT\"\npublishDir: \"docs\"\n"))
+	mustWriteIncFile(t, tmpDir, "content/posts/hello.md", []byte("---\ntitle: \"Hello\"\ndate: \"2026-01-01\"\n---\nHello body.\n"))
+	mustWriteIncFile(t, tmpDir, "content/posts/draft-page.md", []byte("---\ntitle: \"Draft\"\ndate: \"2026-01-02\"\ndraft: true\n---\nDraft Content.\n"))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/single.html", []byte("<html><body><h1>{{ .Title }}</h1>{{ .Content }}</body></html>"))
+	mustWriteIncFile(t, tmpDir, "layouts/_default/list.html", []byte("<html><body>{{ range .Pages }}{{ .Title }}{{ end }}</body></html>"))
+	return tmpDir
+}
+
 // mustWriteIncFile is a test helper that writes a file, creating parent dirs.
 func mustWriteIncFile(t *testing.T, root, relPath string, data []byte) {
 	t.Helper()

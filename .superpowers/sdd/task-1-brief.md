@@ -1,93 +1,54 @@
-### Task 1: PipelineCache 结构体 + hasTemplateChanges
+### Task 1: DAG — SourceFromPagePath 反向查找
 
 **Files:**
-- Create: `internal/build/cache.go` — PipelineCache 结构体 + NewPipelineCache + hasTemplateChanges
-- Create: `internal/build/cache_test.go` — 测试
+- Modify: `internal/daemon/dag/graph.go` — 新增 SourceFromPagePath 方法
+- Modify: `internal/daemon/dag/graph_test.go` — 测试
 
 **Interfaces:**
-- Produces: `build.PipelineCache` 结构体, `build.NewPipelineCache()`, `build.HasTemplateChanges(changedFiles []string, sourceDir string) bool`
+- Produces: `DependencyGraph.SourceFromPagePath(pagePath string) (string, bool)` — 返回源文件路径（相对 content/）
 
 - [ ] **Step 1: 编写测试**
 
-`internal/build/cache_test.go`：
+在 `internal/daemon/dag/graph_test.go` 末尾添加：
 
 ```go
-package build
-
-import (
-	"testing"
-)
-
-func TestNewPipelineCache_Empty(t *testing.T) {
-	c := NewPipelineCache()
-	if c == nil {
-		t.Fatal("NewPipelineCache returned nil")
+func TestSourceFromPagePath_Found(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/posts/hello/"] = &Node{
+		PagePath:   "/posts/hello/",
+		SourceFile: "posts/hello.md",
 	}
-	if c.Templates != nil {
-		t.Error("Templates should be nil for fresh cache")
+
+	src, ok := dg.SourceFromPagePath("/posts/hello/")
+	if !ok {
+		t.Fatal("SourceFromPagePath: expected ok=true for existing node")
 	}
-	if c.BuiltAt.IsZero() {
-		t.Error("BuiltAt should be set")
+	if src != "posts/hello.md" {
+		t.Errorf("src = %q, want posts/hello.md", src)
 	}
 }
 
-func TestHasTemplateChanges_LayoutsFile(t *testing.T) {
-	changed := []string{"/site/layouts/_default/single.html"}
-	if !HasTemplateChanges(changed, "/site") {
-		t.Error("layouts/ change should trigger full build")
+func TestSourceFromPagePath_NotFound(t *testing.T) {
+	dg := NewDependencyGraph()
+	src, ok := dg.SourceFromPagePath("/nonexistent/")
+	if ok {
+		t.Error("expected ok=false for missing node")
+	}
+	if src != "" {
+		t.Errorf("src = %q, want empty", src)
 	}
 }
 
-func TestHasTemplateChanges_ContentFile(t *testing.T) {
-	changed := []string{"/site/content/posts/hello.md"}
-	if HasTemplateChanges(changed, "/site") {
-		t.Error("content/ change should NOT trigger full build")
+func TestSourceFromPagePath_EmptySourceFile(t *testing.T) {
+	dg := NewDependencyGraph()
+	// Node exists but has no SourceFile (shouldn't normally happen)
+	dg.nodes["/weird/"] = &Node{PagePath: "/weird/", SourceFile: ""}
+	src, ok := dg.SourceFromPagePath("/weird/")
+	if ok {
+		t.Error("expected ok=false when SourceFile is empty")
 	}
-}
-
-func TestHasTemplateChanges_HuanYaml(t *testing.T) {
-	changed := []string{"/site/huan.yaml"}
-	if !HasTemplateChanges(changed, "/site") {
-		t.Error("huan.yaml change should trigger full build")
-	}
-}
-
-func TestHasTemplateChanges_I18nFile(t *testing.T) {
-	changed := []string{"/site/i18n/en.yaml"}
-	if !HasTemplateChanges(changed, "/site") {
-		t.Error("i18n/ change should trigger full build")
-	}
-}
-
-func TestHasTemplateChanges_ThemesFile(t *testing.T) {
-	changed := []string{"/site/themes/zozo/layouts/baseof.html"}
-	if !HasTemplateChanges(changed, "/site") {
-		t.Error("themes/ change should trigger full build")
-	}
-}
-
-func TestHasTemplateChanges_MixedFiles(t *testing.T) {
-	// One content, one template → should trigger (template change wins)
-	changed := []string{
-		"/site/content/posts/hello.md",
-		"/site/layouts/_default/list.html",
-	}
-	if !HasTemplateChanges(changed, "/site") {
-		t.Error("mixed files with one template change should trigger full build")
-	}
-}
-
-func TestHasTemplateChanges_EmptyList(t *testing.T) {
-	if HasTemplateChanges([]string{}, "/site") {
-		t.Error("empty change list should not trigger full build")
-	}
-}
-
-func TestHasTemplateChanges_OutsideSourceDir(t *testing.T) {
-	// File outside sourceDir (Rel fails or gives long path) → not a template change
-	changed := []string{"/other/path/file.html"}
-	if HasTemplateChanges(changed, "/site") {
-		t.Error("file outside sourceDir should not trigger full build")
+	if src != "" {
+		t.Errorf("src = %q, want empty", src)
 	}
 }
 ```
@@ -95,110 +56,51 @@ func TestHasTemplateChanges_OutsideSourceDir(t *testing.T) {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```bash
-go test ./internal/build/ -run "TestNewPipelineCache|TestHasTemplateChanges" -v
+go test ./internal/daemon/dag/ -run "TestSourceFromPagePath" -v
 ```
-Expected: COMPILATION ERROR (no cache.go yet)
+Expected: COMPILATION ERROR (no SourceFromPagePath method)
 
-- [ ] **Step 3: 实现 cache.go**
+- [ ] **Step 3: 实现 SourceFromPagePath**
 
-`internal/build/cache.go`：
+在 `internal/daemon/dag/graph.go` 的 `PagePathFromSource` 方法之后添加：
 
 ```go
-package build
-
-import (
-	"html/template"
-	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/iannil/huan/internal/config"
-	"github.com/iannil/huan/internal/i18n"
-	"github.com/iannil/huan/internal/markdown"
-	"github.com/iannil/huan/internal/output"
-	"github.com/iannil/huan/internal/shortcode"
-)
-
-// PipelineCache holds reusable build state across incremental builds.
-// Populated after a full build completes. Incremental builds reuse this
-// state to avoid re-parsing templates, reloading i18n bundles, and
-// re-initializing the writer.
+// SourceFromPagePath returns the source file path (relative to content/)
+// for the given page URL. This is the reverse lookup of PagePathFromSource.
+// Returns "", false if the URL is not in the graph or has no source file.
 //
-// DESIGN NOTE: This cache intentionally does NOT hold per-page content or
-// template contexts. Those reference page pointers that change on every
-// content edit, so caching them would produce stale output for list pages.
-// Instead, incremental builds reload content + rebuild contexts (cheap)
-// and reuse only the rendering infrastructure here (expensive to rebuild).
-type PipelineCache struct {
-	// Rendering infrastructure (valid until template/i18n/config changes)
-	Templates  *template.Template
-	I18nBundle *i18n.Bundle
-	SCRegistry *shortcode.Registry
-	MDRenderer *markdown.Renderer
-
-	// Site config (valid until huan.yaml changes)
-	SiteCfg *config.Config
-
-	// Output writer (valid across builds; writes to the same OutputDir)
-	Writer *output.Writer
-
-	// BuiltAt records when this cache was populated (the last full build time).
-	BuiltAt time.Time
-}
-
-// NewPipelineCache returns an empty PipelineCache with BuiltAt set to now.
-func NewPipelineCache() *PipelineCache {
-	return &PipelineCache{
-		BuiltAt: time.Now(),
+// Used by daemon's JIT rendering to locate the .md file for a requested URL
+// that was included in the last full build.
+func (dg *DependencyGraph) SourceFromPagePath(pagePath string) (string, bool) {
+	dg.mu.RLock()
+	defer dg.mu.RUnlock()
+	node, ok := dg.nodes[pagePath]
+	if !ok || node.SourceFile == "" {
+		return "", false
 	}
-}
-
-// HasTemplateChanges reports whether any changed file invalidates the
-// pipeline cache. Files under layouts/, i18n/, themes/, or the huan.yaml
-// config itself require a full rebuild because they affect the cached
-// templates/i18n/config.
-//
-// Returns false for content/ and static/ changes (those are handled
-// incrementally).
-func HasTemplateChanges(changedFiles []string, sourceDir string) bool {
-	for _, f := range changedFiles {
-		rel, err := filepath.Rel(sourceDir, f)
-		if err != nil {
-			continue
-		}
-		rel = filepath.ToSlash(rel)
-		// If the file is outside sourceDir, Rel returns a "../" path.
-		// Those are not template changes relative to this site.
-		if strings.HasPrefix(rel, "../") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(rel, "layouts/"):
-			return true
-		case strings.HasPrefix(rel, "i18n/"):
-			return true
-		case rel == "huan.yaml":
-			return true
-		case strings.HasPrefix(rel, "themes/"):
-			return true
-		}
-	}
-	return false
+	return node.SourceFile, true
 }
 ```
 
 - [ ] **Step 4: 运行测试验证通过**
 
 ```bash
-go test ./internal/build/ -run "TestNewPipelineCache|TestHasTemplateChanges" -v
+go test ./internal/daemon/dag/ -run "TestSourceFromPagePath" -v
 ```
 Expected: ALL PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: 运行 DAG 全部测试确保无回归**
 
 ```bash
-git add internal/build/cache.go internal/build/cache_test.go
-git commit -m "feat(build): add PipelineCache and HasTemplateChanges"
+go test ./internal/daemon/dag/... -v
+```
+Expected: ALL PASS
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add internal/daemon/dag/graph.go internal/daemon/dag/graph_test.go
+git commit -m "feat(dag): add SourceFromPagePath reverse lookup for JIT rendering"
 ```
 
 ---
