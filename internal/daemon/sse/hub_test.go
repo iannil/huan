@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/iannil/huan/internal/daemon/eventbus"
 )
 
 func TestBroadcast_DeliversToClient(t *testing.T) {
@@ -161,6 +163,31 @@ func TestNewSSEHub_NilLogf_NoPanic(t *testing.T) {
 	h.unregisterClient(ch)
 	if h.ClientCount() != 0 {
 		t.Errorf("after unregister = %d, want 0", h.ClientCount())
+	}
+}
+
+func TestSubscribeBus_Bridges(t *testing.T) {
+	h := NewSSEHub(testLogf(t))
+	ch := h.registerClient()
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	h.SubscribeBus(bus)
+
+	// Publish a build_completed event.
+	_ = bus.Publish(context.Background(), eventbus.Event{
+		Type:      eventbus.EventBuildCompleted,
+		Timestamp: time.Now(),
+		Payload:   map[string]int{"pages": 5},
+	})
+
+	select {
+	case ev := <-ch:
+		if ev.Type != "build_completed" {
+			t.Errorf("Type = %q, want build_completed", ev.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive bridged event")
 	}
 }
 

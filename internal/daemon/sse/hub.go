@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/iannil/huan/internal/daemon/eventbus"
 )
 
 const (
@@ -138,4 +140,21 @@ func encodeEvent(ev Event) (string, error) {
 		return fmt.Sprintf("data: %s\n\n", data), nil
 	}
 	return fmt.Sprintf("event: %s\ndata: %s\n\n", ev.Type, data), nil
+}
+
+// SubscribeBus wires the hub to the daemon EventBus: every build/content/
+// plugin event is forwarded to all SSE clients. Call once at daemon startup.
+func (h *SSEHub) SubscribeBus(bus eventbus.EventBus) {
+	for _, eventType := range []eventbus.EventType{
+		eventbus.EventBuildCompleted,
+		eventbus.EventBuildFailed,
+		eventbus.EventContentChanged,
+		eventbus.EventPluginLoaded,
+		eventbus.EventPluginUnloaded,
+	} {
+		bus.Subscribe(eventType, func(_ context.Context, ev eventbus.Event) error {
+			h.Broadcast(Event{Type: ev.Type.String(), Data: ev.Payload})
+			return nil
+		})
+	}
 }
