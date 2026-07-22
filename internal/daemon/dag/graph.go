@@ -249,6 +249,22 @@ func (dg *DependencyGraph) PagePathFromSource(sourceFile string) (string, bool) 
 	return path, ok
 }
 
+// SourceFromPagePath returns the source file path (relative to content/)
+// for the given page URL. This is the reverse lookup of PagePathFromSource.
+// Returns "", false if the URL is not in the graph or has no source file.
+//
+// Used by daemon's JIT rendering to locate the .md file for a requested URL
+// that was included in the last full build.
+func (dg *DependencyGraph) SourceFromPagePath(pagePath string) (string, bool) {
+	dg.mu.RLock()
+	defer dg.mu.RUnlock()
+	node, ok := dg.nodes[pagePath]
+	if !ok || node.SourceFile == "" {
+		return "", false
+	}
+	return node.SourceFile, true
+}
+
 // OrderByDependency returns the given page paths in rendering order for an
 // incremental build: dependencies first (e.g. the leaf article), then the
 // aggregators that depend on them (e.g. the section and home pages that list

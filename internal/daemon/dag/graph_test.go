@@ -246,6 +246,46 @@ func TestOrderByDependency_UnknownPathsAtEnd(t *testing.T) {
 	}
 }
 
+func TestSourceFromPagePath_Found(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/posts/hello/"] = &Node{
+		PagePath:   "/posts/hello/",
+		SourceFile: "posts/hello.md",
+	}
+
+	src, ok := dg.SourceFromPagePath("/posts/hello/")
+	if !ok {
+		t.Fatal("SourceFromPagePath: expected ok=true for existing node")
+	}
+	if src != "posts/hello.md" {
+		t.Errorf("src = %q, want posts/hello.md", src)
+	}
+}
+
+func TestSourceFromPagePath_NotFound(t *testing.T) {
+	dg := NewDependencyGraph()
+	src, ok := dg.SourceFromPagePath("/nonexistent/")
+	if ok {
+		t.Error("expected ok=false for missing node")
+	}
+	if src != "" {
+		t.Errorf("src = %q, want empty", src)
+	}
+}
+
+func TestSourceFromPagePath_EmptySourceFile(t *testing.T) {
+	dg := NewDependencyGraph()
+	// Node exists but has no SourceFile (shouldn't normally happen)
+	dg.nodes["/weird/"] = &Node{PagePath: "/weird/", SourceFile: ""}
+	src, ok := dg.SourceFromPagePath("/weird/")
+	if ok {
+		t.Error("expected ok=false when SourceFile is empty")
+	}
+	if src != "" {
+		t.Errorf("src = %q, want empty", src)
+	}
+}
+
 func indexOf(slice []string, s string) int {
 	for i, v := range slice {
 		if v == s {
