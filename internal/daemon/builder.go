@@ -108,6 +108,11 @@ func (b *Builder) executeFullBuild(ctx context.Context) error {
 	b.opts.Logf("builder: full build complete: %d pages, %d files, %d bytes",
 		result.PagesRendered, result.FilesWritten, result.BytesWritten)
 
+	// Invalidate JIT cache — full rebuild means all cached HTML is stale.
+	if b.opts.JITCache != nil {
+		b.opts.JITCache.Clear()
+	}
+
 	_ = b.opts.Bus.Publish(ctx, eventbus.Event{
 		Type:      eventbus.EventBuildCompleted,
 		Timestamp: time.Now(),
@@ -241,6 +246,13 @@ func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) e
 	}
 
 	b.opts.Logf("builder: incremental build complete in %v", time.Since(start))
+
+	// Invalidate JIT cache for affected pages — their content changed.
+	if b.opts.JITCache != nil {
+		for _, url := range ordered {
+			b.opts.JITCache.Remove(url)
+		}
+	}
 
 	// 6. Publish build-completed event with incremental marker.
 	_ = b.opts.Bus.Publish(ctx, eventbus.Event{
