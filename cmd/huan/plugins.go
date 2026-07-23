@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/deploy"
@@ -15,16 +17,41 @@ import (
 // Adding a new plugin = add a case to this switch + import the plugin package.
 // This file is the only place that knows about all available plugins.
 //
-// Unknown plugins declared in yaml fail fast at startup (returns error) rather
-// than silently passing through to a nil pointer dereference later.
+// Unknown plugins declared in yaml are silently skipped at compile time — they
+// will be loaded at runtime by the LifecycleManager's .so scanner. Warnings
+// are printed to stderr for unknown plugins and config validation issues.
+// Validation errors (missing required fields, type mismatches) fail fast.
 func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
 	r := plugin.NewRegistry()
 	for name := range cfg.Plugins {
 		switch name {
+		// ### Compiled-in plugins ###
+		// Add `case "name":` here for plugins compiled into the binary.
+		// Example:
+		//   case "cloudflare":
+		//       cfCfg, err := cloudflare.ParseConfig(raw)
+		//       if err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+		//       if err := r.Register(cloudflare.New(cfCfg)); err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+
+		// ### .so plugins (handled at runtime by LifecycleManager) ###
 		default:
-			return nil, fmt.Errorf("plugin %q: unknown (not compiled in)", name)
+			// .so plugin — will be loaded from the plugins/ directory at
+			// runtime. Silently skip at compile time.
 		}
 	}
+
+	// Validate configs against schemas for compiled-in plugins.
+	// Unknown plugins (declared in yaml but not registered) produce warnings.
+	// Validation errors (missing required, type mismatch) fail fast.
+	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins); len(errs) > 0 || len(warns) > 0 {
+		for _, w := range warns {
+			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
+		}
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("plugin config errors:\n  - %s", strings.Join(errs, "\n  - "))
+		}
+	}
+
 	return r, nil
 }
 

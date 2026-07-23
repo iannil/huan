@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/iannil/huan/internal/config"
@@ -28,34 +27,18 @@ func (s *stubPlainPlugin) Name() string { return s.name }
 var _ plugin.Plugin = (*stubPlainPlugin)(nil)
 var _ deploy.Deployer = (*stubDeployer)(nil)
 
-func TestNewPluginRegistry_UnknownPluginReturnsError(t *testing.T) {
+func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: map[string]map[string]any{
 			"unknown_thing": {"foo": "bar"},
 		},
 	}
-	_, err := newPluginRegistry(cfg)
-	if err == nil {
-		t.Fatal("want error for unknown plugin")
+	r, err := newPluginRegistry(cfg)
+	if err != nil {
+		t.Fatalf("unknown plugin should be silently skipped, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not compiled in") {
-		t.Errorf("err = %q, want contains 'not compiled in'", err.Error())
-	}
-	if !strings.Contains(err.Error(), "unknown_thing") {
-		t.Errorf("err = %q, want mention plugin name", err.Error())
-	}
-}
-
-func TestNewPluginRegistry_MultipleUnknownPlugins_FailsOnFirst(t *testing.T) {
-	cfg := &config.Config{
-		Plugins: map[string]map[string]any{
-			"alpha_unknown": {},
-			"beta_unknown":  {},
-		},
-	}
-	_, err := newPluginRegistry(cfg)
-	if err == nil {
-		t.Fatal("want error")
+	if len(r.All()) != 0 {
+		t.Errorf("got %d plugins, want 0 (unknown should be skipped)", len(r.All()))
 	}
 }
 
