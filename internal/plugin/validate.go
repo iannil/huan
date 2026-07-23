@@ -26,11 +26,16 @@ func ValidateConfig(name string, schema Schema, raw map[string]any) []string {
 		}
 	}
 
-	// Check required fields
+	// Check required fields: must exist and be non-zero
 	for key := range requiredKeys {
 		val, exists := raw[key]
 		if !exists {
 			issues = append(issues, fmt.Sprintf("plugin %q: missing required field %q", name, key))
+			continue
+		}
+		// Check for zero/empty values
+		if val == nil || val == "" || val == 0 || val == false {
+			issues = append(issues, fmt.Sprintf("plugin %q: required field %q is empty", name, key))
 			continue
 		}
 		if fs, ok := knownKeys[key]; ok {
@@ -83,11 +88,6 @@ func checkType(name, key, expectedType string, val any) string {
 		actual = "map"
 	default:
 		actual = reflect.TypeOf(val).String()
-	}
-
-	// Accept float64 as int (yaml unmarshals "42" as int, but nested values may be float64)
-	if expectedType == "int" && actual == "int" {
-		return ""
 	}
 
 	if actual != expectedType {

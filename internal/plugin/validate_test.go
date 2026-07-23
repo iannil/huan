@@ -180,6 +180,30 @@ func TestValidateConfig_Float64AsInt(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_RequiredEmptyString(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "apiKey", Type: "string", Required: true},
+	}}
+	// Empty string for required field should be rejected
+	raw := map[string]any{"apiKey": ""}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for empty required string field")
+	}
+}
+
+func TestValidateConfig_RequiredZeroInt(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "count", Type: "int", Required: true},
+	}}
+	// Zero for required int field should be rejected
+	raw := map[string]any{"count": 0}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for zero required int field")
+	}
+}
+
 func containsStr(slice []string, substr string) bool {
 	for _, s := range slice {
 		if strings.Contains(s, substr) {

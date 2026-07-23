@@ -25,6 +25,7 @@ interface PluginListResponse {
 interface PluginManageResponse {
   status: string
   plugin?: PluginInfo
+  error?: string
 }
 
 export default function Plugins() {
@@ -73,7 +74,7 @@ export default function Plugins() {
       })
       const data: PluginManageResponse = await res.json()
       if (!res.ok) {
-        setActionError(data.status || '加载失败')
+        setActionError(data.error || '加载失败')
         return
       }
       setLoadPath('')
