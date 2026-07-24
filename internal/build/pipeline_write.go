@@ -37,6 +37,9 @@ func (p *pipeline) copyStaticAndFinalize() {
 		p.logf("  Errors:       %d\n", p.result.Errors)
 	}
 	p.logf("Build complete.\n")
+
+	// Invoke OnOutputWritten hooks
+	p.runOnOutputWritten()
 }
 
 // output import placeholder, same pattern as pipeline_feeds.go.

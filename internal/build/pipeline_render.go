@@ -65,6 +65,9 @@ func (p *pipeline) renderPages() {
 
 		p.maybeWriteMarkdownMirror(pg)
 		p.maybeWriteSectionRSS(pg, ctx)
+
+		// Invoke OnPageRendered hooks
+		p.runOnPageRendered(pg)
 	}
 
 	p.result.PagesRendered = renderedCount

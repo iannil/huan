@@ -69,9 +69,10 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("plugin registry: %w", err)
 	}
 
-	p, ok := registry.Get("cloudflare")
-	if !ok {
-		// Try to load from .so plugin
+	// First, try to find a deployer plugin via the unified plugin system
+	deployers := plugin.Find[deploy.Deployer](registry)
+	if len(deployers) == 0 {
+		// No compiled-in deployer — try to load the .so plugin
 		pluginDir, _ := cmd.Flags().GetString("plugin-dir")
 		if pluginDir == "" {
 			pluginDir = filepath.Join(sourceDir, "plugins")
@@ -79,16 +80,20 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 		soPath := filepath.Join(pluginDir, "cloudflare.so")
 		loader := plugin.NewLoader(pluginDir)
 		pluginCfg := cfg.Plugins["cloudflare"]
-		p, err = loader.LoadPlugin(soPath, pluginCfg)
+		p, err := loader.LoadPlugin(soPath, pluginCfg)
 		if err != nil {
 			return fmt.Errorf("cloudflare plugin not found (not compiled in and no .so loaded): %w", err)
 		}
 		_ = registry.Register(p)
+		deployers = plugin.Find[deploy.Deployer](registry)
 	}
-	deployer, ok := p.(deploy.Deployer)
-	if !ok {
-		return fmt.Errorf("cloudflare plugin does not implement Deployer (internal error)")
+
+	if len(deployers) == 0 {
+		return fmt.Errorf("no deployer plugin available (check huan.yaml plugins.cloudflare)")
 	}
+
+	// Use the first available deployer (typically "cloudflare")
+	deployer := deployers[0]
 
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	concurrency, _ := cmd.Flags().GetInt("concurrency")

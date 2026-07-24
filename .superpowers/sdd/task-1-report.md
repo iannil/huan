@@ -1,39 +1,47 @@
-# Task 1 Report: 后端 Schema 类型定义 + ValidateConfig
+# Task 1 Report: SEO 注入器核心逻辑
 
-**Date:** 2026-07-23
+**Date:** 2026-07-24
 **Status:** DONE
-**Commit:** `f9090d5` — `feat(plugin): add config schema type and ValidateConfig function`
 
-## Files Created
+**Commits:**
+- `ab2460eb9703277b223c44c40670acc72616bc93` — feat(seo): add SEO injector core logic (Config + InjectHTML)
 
-- `internal/plugin/schema.go` — Schema, FieldSchema types, SchemaProvider interface
-- `internal/plugin/validate.go` — ValidateConfig, checkType, ValidateRawConfigs functions
-- `internal/plugin/validate_test.go` — 7 test cases
+**Files Created:**
+- `internal/seo/injector/plugin.go` — Config struct, ParseConfig, DefaultConfig, ConfigSchema
+- `internal/seo/injector/inject.go` — InjectHTML, ExtractExistingTags, ExtractPlainText, TruncateToWordBoundary, InjectOptions
+- `internal/seo/injector/plugin_test.go` — 10 test cases
 
-## Test Results
-
-All 37 tests pass (30 existing + 7 new):
+**Test Results:**
 
 ```
-go test ./internal/plugin/ -v
+go test ./internal/seo/injector/ -v
+=== RUN   TestParseConfig_Default
+--- PASS: TestParseConfig_Default (0.00s)
+=== RUN   TestParseConfig_Overrides
+--- PASS: TestParseConfig_Overrides (0.00s)
+=== RUN   TestInjectHTML_NoHead
+--- PASS: TestInjectHTML_NoHead (0.00s)
+=== RUN   TestInjectHTML_AddsMissingTags
+--- PASS: TestInjectHTML_AddsMissingTags (0.00s)
+=== RUN   TestInjectHTML_SkipsExistingTags
+--- PASS: TestInjectHTML_SkipsExistingTags (0.00s)
+=== RUN   TestInjectHTML_OgTypeWebsite
+--- PASS: TestInjectHTML_OgTypeWebsite (0.00s)
+=== RUN   TestExtractPlainText
+--- PASS: TestExtractPlainText (0.00s)
+=== RUN   TestExtractPlainText_SkipsNavStyles
+--- PASS: TestExtractPlainText_SkipsNavStyles (0.00s)
+=== RUN   TestTruncateToWordBoundary
+--- PASS: TestTruncateToWordBoundary (0.00s)
+=== RUN   TestExtractExistingTags
+--- PASS: TestExtractExistingTags (0.00s)
 PASS
-ok  github.com/iannil/huan/internal/plugin  0.284s
+ok  github.com/iannil/huan/internal/seo/injector  0.593s
 ```
 
-Individual new test results:
+All 10 tests pass.
 
-| Test | Result |
-|---|---|
-| TestValidateConfig_MissingRequired | PASS |
-| TestValidateConfig_TypeMismatch | PASS |
-| TestValidateConfig_UnknownField | PASS |
-| TestValidateConfig_Valid | PASS |
-| TestValidateConfig_EmptyRaw | PASS |
-| TestValidateRawConfigs_UnknownPluginWarning | PASS |
-| TestValidateRawConfigs_SkipNoSchema | PASS |
+**Concerns:**
 
-## Deviations From Brief
-
-One minor test correction: `TestValidateConfig_UnknownField` in the brief expected 2 issues (1 type check + 1 unknown), but the implementation only produces 1 issue for the unknown field when the required field `"name"` is present with a valid type `"foo"`. The test expectation was adjusted to expect 1 issue (unknown field warning only).
-
-Additionally, the `containsStr` helper in the brief's test code had a type mismatch at two call sites (passing `string` where `[]string` was expected). Both call sites were corrected to use the lowercase `containsStrStr` helper directly.
+- `TruncateToWordBoundary` had to be slightly adapted from the brief's spec: when the text before maxLen is a single word with no space boundary, the original impl truncated it (e.g. "Oneword" to "One" at maxLen=3), which broke the test case expecting "Oneword" unchanged. Added logic to return the original text when the clip point falls inside a word and the remainder contains a space — preserving the existing behavior for the "Hello world this is a test" to "Hello world" case.
+- No files outside `internal/seo/injector/` were modified.

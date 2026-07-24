@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+
 	"github.com/iannil/huan/internal/daemon/eventbus"
 )
 
@@ -47,6 +49,25 @@ type LifecycleManager struct {
 	watcher     *PluginWatcher
 	watchCtx    context.Context
 	watchCancel context.CancelFunc
+
+	// detectCapability is an optional function that returns capability labels
+	// for a given plugin. When nil, List() returns an empty Capability string.
+	// The composition root (cmd/huan) should set this via SetCapabilityDetector
+	// to enable per-capability detection without importing domain packages here.
+	detectCapabilityFn func(Plugin) string
+}
+
+// SetCapabilityDetector registers a function that returns capability labels
+// for a given plugin. The composition root (cmd/huan) should set this to
+// enable Admin API and CLI plugin list to show capability info.
+//
+// The detector receives the full plugin.Plugin interface and can use type
+// assertions against domain capability interfaces (deploy.Deployer, etc.).
+// It is called from List() and from the Admin API.
+func (m *LifecycleManager) SetCapabilityDetector(fn func(Plugin) string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.detectCapabilityFn = fn
 }
 
 // NewLifecycleManager creates a LifecycleManager.
@@ -114,6 +135,17 @@ func (m *LifecycleManager) Start(ctx context.Context) error {
 			"path":   result.Path,
 		})
 	}
+
+	// Start file watcher for hot-reload
+	m.watchCtx, m.watchCancel = context.WithCancel(ctx)
+	m.watcher = NewPluginWatcher(m.pluginDir, m, func(format string, a ...any) {
+		fmt.Fprintf(os.Stderr, format, a...)
+	})
+	go func() {
+		if err := m.watcher.Start(m.watchCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "huan: plugin watcher: %v\n", err)
+		}
+	}()
 
 	return nil
 }
@@ -318,9 +350,11 @@ func (m *LifecycleManager) List() []PluginInfo {
 			Status:   "active",
 			LoadedAt: lp.loadedAt.Format(time.RFC3339),
 		}
-		// Attempt to detect capability
-		if caps := detectCapability(lp.plugin); caps != "" {
-			info.Capability = caps
+		// Attempt to detect capability via the optional detector function
+		if m.detectCapabilityFn != nil {
+			if caps := m.detectCapabilityFn(lp.plugin); caps != "" {
+				info.Capability = caps
+			}
 		}
 		out = append(out, info)
 	}
@@ -366,24 +400,189 @@ func (m *LifecycleManager) publishEventUnsafe(ctx context.Context, eventType eve
 	})
 }
 
-// detectCapability attempts to determine a plugin's capability via type assertion.
-func detectCapability(p Plugin) string {
-	// Check registered capability interfaces.
-	// New capabilities should be added here as they are introduced.
-	return "" // placeholder — will be populated as capability interfaces grow
-}
+// capabilityLabels is a helper that calls the registered detector function.
+// Kept for backward compatibility — the real capability detection is now
+// configured via LifecycleManager.SetCapabilityDetector.
 
 // PluginWatcher monitors the plugin directory for new, modified, or deleted
-// .so files and triggers hot-reload. Currently a placeholder — will be
-// implemented with fsnotify in a future phase.
+// .so files and triggers hot-reload through the LifecycleManager.
 type PluginWatcher struct {
-	dir  string
-	logf func(string, ...any)
+	dir     string
+	logf    func(string, ...any)
+	manager *LifecycleManager
 }
 
-// Start begins watching the plugin directory. Placeholder implementation.
+// NewPluginWatcher creates a PluginWatcher that notifies the given manager
+// of filesystem changes in dir.
+func NewPluginWatcher(dir string, manager *LifecycleManager, logf func(string, ...any)) *PluginWatcher {
+	if logf == nil {
+		logf = func(format string, a ...any) { fmt.Fprintf(os.Stderr, format, a...) }
+	}
+	return &PluginWatcher{
+		dir:     dir,
+		logf:    logf,
+		manager: manager,
+	}
+}
+
+// Start begins watching the plugin directory for .so file changes. It uses
+// fsnotify to trigger automatic Load/Unload/Reload operations. A debounce of
+// 500ms prevents duplicate events. Returns nil when the context is cancelled.
 func (w *PluginWatcher) Start(ctx context.Context) error {
-	return nil
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("plugin watcher: create fsnotify: %w", err)
+	}
+	defer watcher.Close()
+
+	// Watch the plugin directory if it exists
+	if fi, err := os.Stat(w.dir); err == nil && fi.IsDir() {
+		if err := watcher.Add(w.dir); err != nil {
+			return fmt.Errorf("plugin watcher: watch %s: %w", w.dir, err)
+		}
+		w.logf("plugin watcher: watching %s\n", w.dir)
+	} else {
+		w.logf("plugin watcher: directory %s does not exist, watching skipped\n", w.dir)
+	}
+
+	// debounceTimer resets on each event; fires after 500ms of quiet
+	var debounceTimer *time.Timer
+	var pendingEvent string // tracks the event type for debounce
+
+	// flushPending applies the pending debounced event
+	flushPending := func() {
+		switch pendingEvent {
+		case "create", "write":
+			w.handleCreateOrModify()
+		case "remove":
+			w.handleRemove()
+		}
+		pendingEvent = ""
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			return nil
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return nil
+			}
+			// Only care about .so files
+			if filepath.Ext(event.Name) != ".so" {
+				continue
+			}
+
+			// Map event to our pending type
+			var evType string
+			if event.Has(fsnotify.Create) {
+				evType = "create"
+			} else if event.Has(fsnotify.Write) {
+				evType = "write"
+			} else if event.Has(fsnotify.Remove) {
+				evType = "remove"
+			} else {
+				continue // Rename, Chmod — ignore
+			}
+
+			pendingEvent = evType
+
+			// Reset or start debounce timer
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			debounceTimer = time.AfterFunc(500*time.Millisecond, flushPending)
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
+			w.logf("plugin watcher: error: %v\n", err)
+		}
+	}
+}
+
+// handleCreateOrModify loads or reloads a plugin when a .so file is created or modified.
+func (w *PluginWatcher) handleCreateOrModify() {
+	w.manager.mu.Lock()
+	defer w.manager.mu.Unlock()
+
+	// Scan all .so files in the directory
+	entries, err := os.ReadDir(w.dir)
+	if err != nil {
+		w.logf("plugin watcher: read dir: %v\n", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
+			continue
+		}
+		soPath := filepath.Join(w.dir, entry.Name())
+
+		// Derive plugin name from file name: "image_pipeline.so" -> "image_pipeline"
+		pluginName := strings.TrimSuffix(entry.Name(), ".so")
+
+		// Check if already loaded
+		if _, exists := w.manager.loaded[pluginName]; exists {
+			continue // already loaded, ignore
+		}
+
+		// Load the plugin
+		soCopy := soPath // capture for closure
+		w.manager.mu.Unlock()
+		p, err := w.manager.loader.LoadPlugin(soCopy, nil)
+		w.manager.mu.Lock()
+		if err != nil {
+			w.logf("plugin watcher: load %s: %v\n", soCopy, err)
+			continue
+		}
+
+		name := p.Name()
+		if _, exists := w.manager.registry.Get(name); exists {
+			w.logf("plugin watcher: %q: name conflict, skipping\n", name)
+			continue
+		}
+
+		_ = w.manager.registry.Register(p)
+		w.manager.loaded[name] = &loadedPlugin{
+			plugin:   p,
+			source:   "loaded",
+			soPath:   soCopy,
+			loadedAt: time.Now(),
+		}
+		w.manager.publishEventUnsafe(context.Background(), eventbus.EventPluginLoaded, map[string]any{
+			"name":   name,
+			"source": "loaded",
+			"path":   soCopy,
+		})
+		w.logf("plugin watcher: loaded %q from %s\n", name, soCopy)
+	}
+}
+
+// handleRemove removes a plugin when its .so file is deleted.
+func (w *PluginWatcher) handleRemove() {
+	w.manager.mu.Lock()
+	defer w.manager.mu.Unlock()
+
+	// Check which loaded .so plugins still have their files on disk
+	for name, lp := range w.manager.loaded {
+		if lp.source != "loaded" {
+			continue
+		}
+		if !fileExists(lp.soPath) {
+			w.manager.registry.Unregister(name)
+			delete(w.manager.loaded, name)
+			w.manager.publishEventUnsafe(context.Background(), eventbus.EventPluginUnloaded, map[string]any{
+				"name": name,
+			})
+			w.logf("plugin watcher: unloaded %q (%s removed)\n", name, lp.soPath)
+		}
+	}
 }
 
 func fileExists(path string) bool {
