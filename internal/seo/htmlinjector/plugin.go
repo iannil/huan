@@ -1,8 +1,11 @@
 package htmlinjector
 
 import (
+	"context"
 	"fmt"
+	"html/template"
 
+	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/plugin"
 )
 
@@ -84,3 +87,47 @@ func (c *Config) ConfigSchema() plugin.Schema {
 		{Key: "excludeKinds", Type: "string_slice", Required: false, Description: "skip injection for these page kinds"},
 	}}
 }
+
+// HTMLInjector is the build.Hook plugin that injects custom HTML fragments.
+type HTMLInjector struct {
+	cfg *Config
+}
+
+// New creates a new HTMLInjector plugin.
+func New(cfg *Config) *HTMLInjector {
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+	return &HTMLInjector{cfg: cfg}
+}
+
+// Name returns the plugin name.
+func (p *HTMLInjector) Name() string { return "html_injector" }
+
+// ConfigSchema returns the plugin.Schema for config validation.
+func (p *HTMLInjector) ConfigSchema() plugin.Schema {
+	return p.cfg.ConfigSchema()
+}
+
+// OnContentLoaded is a no-op for this plugin.
+func (p *HTMLInjector) OnContentLoaded(_ context.Context, pages []*content.Page) ([]*content.Page, error) {
+	return nil, nil
+}
+
+// OnPageRendered injects configured HTML fragments into the page.
+func (p *HTMLInjector) OnPageRendered(_ context.Context, page *content.Page) error {
+	modified := InjectHTML(string(page.Content), p.cfg, page.Kind)
+	if modified != string(page.Content) {
+		page.Content = template.HTML(modified)
+	}
+	return nil
+}
+
+// OnOutputWritten is a no-op for this plugin.
+func (p *HTMLInjector) OnOutputWritten(_ context.Context, outputDir string) error {
+	return nil
+}
+
+// Ensure compile-time interface satisfaction.
+var _ plugin.Plugin = (*HTMLInjector)(nil)
+var _ plugin.SchemaProvider = (*HTMLInjector)(nil)

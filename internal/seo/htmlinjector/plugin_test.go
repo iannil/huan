@@ -1,8 +1,12 @@
 package htmlinjector
 
 import (
+	"context"
+	"html/template"
 	"strings"
 	"testing"
+
+	"github.com/iannil/huan/internal/content"
 )
 
 func TestParseConfig_Default(t *testing.T) {
@@ -151,5 +155,42 @@ func TestInjectHTML_EmptyConfig(t *testing.T) {
 	result := InjectHTML(html, cfg, "page")
 	if result != html {
 		t.Error("expected unchanged for empty config")
+	}
+}
+
+func TestNewHTMLInjector(t *testing.T) {
+	p := New(nil)
+	if p.Name() != "html_injector" {
+		t.Errorf("Name() = %q, want html_injector", p.Name())
+	}
+}
+
+func TestHTMLInjector_OnPageRendered(t *testing.T) {
+	cfg := &Config{
+		Head: []string{`<script src="test.js"></script>`},
+	}
+	p := New(cfg)
+	page := &content.Page{
+		Content: template.HTML(`<html><head><title>Test</title></head><body><p>Content</p></body></html>`),
+		Kind:    "page",
+	}
+	err := p.OnPageRendered(context.Background(), page)
+	if err != nil {
+		t.Fatalf("OnPageRendered: %v", err)
+	}
+	if !strings.Contains(string(page.Content), `src="test.js"`) {
+		t.Errorf("expected script tag in page content, got: %s", string(page.Content))
+	}
+}
+
+func TestHTMLInjector_HooksReturnNil(t *testing.T) {
+	p := New(nil)
+	pages, err := p.OnContentLoaded(context.Background(), nil)
+	if err != nil || pages != nil {
+		t.Errorf("OnContentLoaded: err=%v pages=%v", err, pages)
+	}
+	err = p.OnOutputWritten(context.Background(), "")
+	if err != nil {
+		t.Errorf("OnOutputWritten: %v", err)
 	}
 }
