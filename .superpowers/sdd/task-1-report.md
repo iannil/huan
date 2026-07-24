@@ -1,51 +1,22 @@
-# Task 1 Report: HTML 注入器核心逻辑
+# Task 1 Report: MetadataProvider Interface + PluginInfo Enhancement
 
-- **Status**: DONE
-- **Commit SHA**: 1571594
-- **Branch**: feat/html-injector
-- **Files created**:
-  - `internal/seo/htmlinjector/plugin.go` — Config 类型、ParseConfig、ConfigSchema、toStringSlice 辅助函数
-  - `internal/seo/htmlinjector/inject.go` — InjectHTML 函数 + contains 辅助函数
-  - `internal/seo/htmlinjector/plugin_test.go` — 12 个测试用例
+## Status
+Completed and committed.
 
-## 测试结果
-
+## Commits
 ```
-$ go test ./internal/seo/htmlinjector/ -v
-=== RUN   TestParseConfig_Default
---- PASS: TestParseConfig_Default (0.00s)
-=== RUN   TestParseConfig_Overrides
---- PASS: TestParseConfig_Overrides (0.00s)
-=== RUN   TestInjectHTML_HeadInjection
---- PASS: TestInjectHTML_HeadInjection (0.00s)
-=== RUN   TestInjectHTML_BodyEndInjection
---- PASS: TestInjectHTML_BodyEndInjection (0.00s)
-=== RUN   TestInjectHTML_Both
---- PASS: TestInjectHTML_Both (0.00s)
-=== RUN   TestInjectHTML_NoHeadTag
---- PASS: TestInjectHTML_NoHeadTag (0.00s)
-=== RUN   TestInjectHTML_NoBodyTag
---- PASS: TestInjectHTML_NoBodyTag (0.00s)
-=== RUN   TestInjectHTML_IncludeKinds
---- PASS: TestInjectHTML_IncludeKinds (0.00s)
-=== RUN   TestInjectHTML_ExcludeKinds
---- PASS: TestInjectHTML_ExcludeKinds (0.00s)
-=== RUN   TestInjectHTML_NilConfig
---- PASS: TestInjectHTML_NilConfig (0.00s)
-=== RUN   TestInjectHTML_EmptyConfig
---- PASS: TestInjectHTML_EmptyConfig (0.00s)
-PASS
-ok  	github.com/iannil/huan/internal/seo/htmlinjector
+a30365c feat(plugin): add MetadataProvider interface and enhance PluginInfo
 ```
 
-ALL PASS, 12/12。
+## Files Changed
+- `internal/plugin/plugin.go` — added `PluginMeta` struct and `MetadataProvider` interface at end of file
+- `internal/plugin/lifecycle.go` — extended `PluginInfo` with Author, RepoURL, License, Tags fields; modified `List()` to detect `MetadataProvider` and fill metadata
+- `internal/plugin/plugin_test.go` — added `testMetaPlugin` and two tests: `TestMetadataProvider_OptionalInterface` and `TestMetadataProvider_NotRequired`
 
-## 开发过程中的调整
+## Test Results
+All 43 tests pass, including the two new tests:
+- `TestMetadataProvider_OptionalInterface` — verifies `Find[MetadataProvider]` returns 1 plugin with correct Version, Author, Tags, IsOfficial
+- `TestMetadataProvider_NotRequired` — verifies plugins without MetadataProvider are not returned by `Find[MetadataProvider]`
 
-1. **`TestInjectHTML_IncludeKinds` 断言修正**：brief 中的 `result2 == html` 是错误判断（当 kind 被 exclude 时，返回的是原始 html，所以应该用 `!=` 判断。已在提交前修正。
-
-## 备注
-
-- 不使用任何外部依赖，仅依赖 `strings` 和 `fmt`（以及内部 `plugin.Schema` 类型）
-- 接口签名：`InjectHTML(htmlSrc string, cfg *Config, pageKind string) string`
-- 遵循 TDD 流程：先写测试确认编译失败，再实现代码，最后全部通过
+## Concerns
+None. Implementation follows the task brief exactly. The metadata detection in `List()` is placed after capability detection, before `append(out, info)`.

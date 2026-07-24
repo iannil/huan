@@ -111,6 +111,15 @@ func (p *SEOInjector) SetLogf(fn func(string, ...any)) {
 // Name returns the plugin name.
 func (p *SEOInjector) Name() string { return "seo_injector" }
 
+func (p *SEOInjector) PluginMetadata() plugin.PluginMeta {
+	return plugin.PluginMeta{
+		Version:    "0.1.0",
+		Author:     "huan team",
+		Tags:       []string{"seo", "og", "twitter"},
+		IsOfficial: true,
+	}
+}
+
 // OnContentLoaded is a no-op for this plugin.
 func (p *SEOInjector) OnContentLoaded(_ context.Context, pages []*content.Page) ([]*content.Page, error) {
 	return nil, nil
