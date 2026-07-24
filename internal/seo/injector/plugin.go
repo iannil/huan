@@ -1,9 +1,15 @@
 package injector
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/plugin"
+	"golang.org/x/net/html"
 )
 
 // Config is the SEO injector configuration from huan.yaml plugins.seo_injector.*
@@ -81,4 +87,138 @@ func (c *Config) ConfigSchema() plugin.Schema {
 		{Key: "injectOG", Type: "bool", Required: false, Default: true, Description: "是否注入 OG 标签"},
 		{Key: "injectTwitter", Type: "bool", Required: false, Default: true, Description: "是否注入 Twitter Card 标签"},
 	}}
+}
+
+// SEOInjector is the build.Hook plugin that injects SEO meta tags.
+type SEOInjector struct {
+	cfg  *Config
+	logf func(string, ...any)
+}
+
+// New creates a new SEOInjector plugin.
+func New(cfg *Config) *SEOInjector {
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+	return &SEOInjector{cfg: cfg, logf: func(format string, args ...any) {}}
+}
+
+// SetLogf sets the logger function.
+func (p *SEOInjector) SetLogf(fn func(string, ...any)) {
+	p.logf = fn
+}
+
+// Name returns the plugin name.
+func (p *SEOInjector) Name() string { return "seo_injector" }
+
+// OnContentLoaded is a no-op for this plugin.
+func (p *SEOInjector) OnContentLoaded(_ context.Context, pages []*content.Page) ([]*content.Page, error) {
+	return nil, nil
+}
+
+// OnPageRendered is a no-op for this plugin.
+func (p *SEOInjector) OnPageRendered(_ context.Context, page *content.Page) error {
+	return nil
+}
+
+// OnOutputWritten scans the output directory for HTML files and injects missing SEO meta tags.
+func (p *SEOInjector) OnOutputWritten(ctx context.Context, outputDir string) error {
+	entries, err := filepath.Glob(filepath.Join(outputDir, "**/*.html"))
+	if err != nil {
+		p.logf("seo-injector: glob %s: %v\n", outputDir, err)
+		return nil // collection-not-interruption: log warning, don't abort
+	}
+
+	for _, filePath := range entries {
+		select {
+		case <-ctx.Done():
+			p.logf("seo-injector: cancelled\n")
+			return nil
+		default:
+		}
+
+		if err := p.processFile(filePath, outputDir); err != nil {
+			p.logf("seo-injector: %s: %v\n", filePath, err)
+		}
+	}
+	return nil
+}
+
+// processFile reads, injects, and writes a single HTML file.
+func (p *SEOInjector) processFile(filePath, outputDir string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+
+	// Compute relative URL
+	rel, err := filepath.Rel(outputDir, filePath)
+	if err != nil {
+		return fmt.Errorf("rel path: %w", err)
+	}
+	// Convert filesystem path to URL path. On Windows, use ToSlash.
+	urlPath := "/" + strings.ReplaceAll(rel, string(filepath.Separator), "/")
+
+	opts := &InjectOptions{
+		DescriptionMaxLength: p.cfg.DescriptionMaxLength,
+		DefaultOGImage:       p.cfg.DefaultOGImage,
+		InjectOG:             p.cfg.InjectOG,
+		InjectTwitter:        p.cfg.InjectTwitter,
+		PageURL:              urlPath, // relative to site root; caller should prepend baseURL if needed
+		PageKind:             p.guessKind(rel),
+		PageTitle:            p.extractTitle(string(data)),
+	}
+
+	result, err := InjectHTML(string(data), opts)
+	if err != nil {
+		return fmt.Errorf("inject: %w", err)
+	}
+
+	if result == string(data) {
+		return nil // no changes
+	}
+
+	if err := os.WriteFile(filePath, []byte(result), 0644); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return nil
+}
+
+// guessKind tries to infer the page kind from the file path.
+func (p *SEOInjector) guessKind(relPath string) string {
+	// Files in the root (index.html) are "home"
+	if relPath == "index.html" || relPath == "/index.html" {
+		return "home"
+	}
+	// Section index files — but exclude pagination paths like /page/2/index.html
+	if strings.HasSuffix(relPath, "/index.html") &&
+		!strings.Contains(relPath, "/page/") {
+		return "section"
+	}
+	// Everything else is a page
+	return "page"
+}
+
+// extractTitle extracts the <title> from HTML.
+func (p *SEOInjector) extractTitle(htmlSrc string) string {
+	doc, err := html.Parse(strings.NewReader(htmlSrc))
+	if err != nil {
+		return ""
+	}
+	var title string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n == nil || title != "" {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "title" && n.FirstChild != nil {
+			title = strings.TrimSpace(n.FirstChild.Data)
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return title
 }

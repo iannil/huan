@@ -1,6 +1,9 @@
 package injector
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -171,4 +174,84 @@ func TestExtractExistingTags(t *testing.T) {
 // helpers
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestNewSEOInjector(t *testing.T) {
+	p := New(nil)
+	if p.Name() != "seo_injector" {
+		t.Errorf("Name() = %q, want seo_injector", p.Name())
+	}
+}
+
+func TestSEOInjector_HooksReturnNil(t *testing.T) {
+	p := New(nil)
+	pages, err := p.OnContentLoaded(context.Background(), nil)
+	if err != nil || pages != nil {
+		t.Errorf("OnContentLoaded: err=%v pages=%v", err, pages)
+	}
+	err = p.OnPageRendered(context.Background(), nil)
+	if err != nil {
+		t.Errorf("OnPageRendered: %v", err)
+	}
+}
+
+func TestGuessKind(t *testing.T) {
+	p := New(nil)
+	tests := []struct{ path, kind string }{
+		{"index.html", "home"},
+		{"/index.html", "home"},
+		{"posts/index.html", "section"},
+		{"posts/2024/01/post/index.html", "section"},
+		{"posts/page/2/index.html", "page"},
+		{"404.html", "page"},
+	}
+	for _, tt := range tests {
+		got := p.guessKind(tt.path)
+		if got != tt.kind {
+			t.Errorf("guessKind(%q) = %q, want %q", tt.path, got, tt.kind)
+		}
+	}
+}
+
+func TestExtractTitle(t *testing.T) {
+	p := New(nil)
+	html := `<html><head><title>My Awesome Page</title></head><body></body></html>`
+	title := p.extractTitle(html)
+	if title != "My Awesome Page" {
+		t.Errorf("extractTitle = %q, want %q", title, "My Awesome Page")
+	}
+}
+
+func TestProcessFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	htmlFile := filepath.Join(tmpDir, "index.html")
+	content := `<html><head><title>Home</title></head><body><p>Welcome to my site.</p></body></html>`
+	if err := os.WriteFile(htmlFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := New(&Config{
+		DescriptionMaxLength: 160,
+		InjectOG:             true,
+		InjectTwitter:        true,
+		DefaultOGImage:       "/images/default.png",
+	})
+	p.SetLogf(t.Logf)
+
+	err := p.processFile(htmlFile, tmpDir)
+	if err != nil {
+		t.Fatalf("processFile: %v", err)
+	}
+
+	data, err := os.ReadFile(htmlFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := string(data)
+	if !strings.Contains(result, `<!-- huan seo-injector -->`) {
+		t.Error("expected injection marker in output")
+	}
+	if !strings.Contains(result, `content="Home"`) {
+		t.Error("expected og:title in output")
+	}
 }

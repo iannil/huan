@@ -9,6 +9,7 @@ import (
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/seo/injector"
 	"github.com/iannil/huan/internal/translate"
 )
 
@@ -29,6 +30,15 @@ func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
 	for name := range cfg.Plugins {
 		switch name {
 		// ### Compiled-in plugins ###
+		case "seo_injector":
+			raw := cfg.Plugins[name]
+			pluginCfg, err := injector.ParseConfig(raw)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %s: %w", name, err)
+			}
+			if err := r.Register(injector.New(pluginCfg)); err != nil {
+				return nil, fmt.Errorf("plugin %s: %w", name, err)
+			}
 		// Add `case "name":` here for plugins compiled into the binary.
 		// Example:
 		//   case "cloudflare":
