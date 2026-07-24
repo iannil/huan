@@ -9,6 +9,7 @@ import (
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/seo/htmlinjector"
 	"github.com/iannil/huan/internal/seo/injector"
 	"github.com/iannil/huan/internal/seo/sitemap"
 	"github.com/iannil/huan/internal/translate"
@@ -46,6 +47,15 @@ func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
 		//       cfCfg, err := cloudflare.ParseConfig(raw)
 		//       if err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
 		//       if err := r.Register(cloudflare.New(cfCfg)); err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+		case "html_injector":
+			raw := cfg.Plugins[name]
+			pluginCfg, err := htmlinjector.ParseConfig(raw)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %s: %w", name, err)
+			}
+			if err := r.Register(htmlinjector.New(pluginCfg)); err != nil {
+				return nil, fmt.Errorf("plugin %s: %w", name, err)
+			}
 		case "sitemap_enhancer":
 			raw := cfg.Plugins[name]
 			pluginCfg, err := sitemap.ParseConfig(raw)
