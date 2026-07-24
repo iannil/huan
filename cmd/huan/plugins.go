@@ -10,6 +10,7 @@ import (
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/seo/injector"
+	"github.com/iannil/huan/internal/seo/sitemap"
 	"github.com/iannil/huan/internal/translate"
 )
 
@@ -45,6 +46,15 @@ func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
 		//       cfCfg, err := cloudflare.ParseConfig(raw)
 		//       if err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
 		//       if err := r.Register(cloudflare.New(cfCfg)); err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+		case "sitemap_enhancer":
+			raw := cfg.Plugins[name]
+			pluginCfg, err := sitemap.ParseConfig(raw)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %s: %w", name, err)
+			}
+			if err := r.Register(sitemap.New(pluginCfg)); err != nil {
+				return nil, fmt.Errorf("plugin %s: %w", name, err)
+			}
 
 		// ### .so plugins (handled at runtime by LifecycleManager) ###
 		default:

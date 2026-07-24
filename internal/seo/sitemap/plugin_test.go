@@ -1,6 +1,9 @@
 package sitemap
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -176,5 +179,72 @@ func TestEnhanceSitemap_NilOptions(t *testing.T) {
 	result := EnhanceSitemap(input, nil)
 	if result != input {
 		t.Errorf("expected unchanged when opts is nil")
+	}
+}
+
+func TestNewSitemapEnhancer(t *testing.T) {
+	p := New(nil)
+	if p.Name() != "sitemap_enhancer" {
+		t.Errorf("Name() = %q, want sitemap_enhancer", p.Name())
+	}
+}
+
+func TestSitemapEnhancer_HooksReturnNil(t *testing.T) {
+	p := New(nil)
+	pages, err := p.OnContentLoaded(context.Background(), nil)
+	if err != nil || pages != nil {
+		t.Errorf("OnContentLoaded: err=%v pages=%v", err, pages)
+	}
+	err = p.OnPageRendered(context.Background(), nil)
+	if err != nil {
+		t.Errorf("OnPageRendered: %v", err)
+	}
+}
+
+func TestOnOutputWritten_EnhancesSitemap(t *testing.T) {
+	tmpDir := t.TempDir()
+	sitemapPath := filepath.Join(tmpDir, "sitemap.xml")
+	input := `<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/</loc>
+  </url>
+  <url>
+    <loc>https://example.com/posts/</loc>
+  </url>
+</urlset>`
+	if err := os.WriteFile(sitemapPath, []byte(input), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := New(nil)
+	p.SetLogf(t.Logf)
+	err := p.OnOutputWritten(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("OnOutputWritten: %v", err)
+	}
+
+	data, err := os.ReadFile(sitemapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := string(data)
+	// Home should get priority 1.0
+	if !strings.Contains(result, "<priority>1</priority>") {
+		t.Errorf("expected home priority 1, got: %s", result)
+	}
+	// Section should get priority 0.6
+	if !strings.Contains(result, "<priority>0.6</priority>") {
+		t.Errorf("expected section priority 0.6, got: %s", result)
+	}
+}
+
+func TestOnOutputWritten_NoSitemap(t *testing.T) {
+	tmpDir := t.TempDir()
+	p := New(nil)
+	p.SetLogf(t.Logf)
+	err := p.OnOutputWritten(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("OnOutputWritten on empty dir: %v", err)
 	}
 }
