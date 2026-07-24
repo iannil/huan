@@ -107,7 +107,8 @@ func runDev(cmd *cobra.Command, args []string) error {
 			}
 		}
 		// Run image pipeline after build if configured
-		if err := runImagePipeline(cfg, sourceDir, opts.OutputDir); err != nil {
+		reg, _ := newPluginRegistry(cfg)
+		if err := runImagePipeline(cfg, sourceDir, opts.OutputDir, reg); err != nil {
 			return fmt.Errorf("image pipeline: %w", err)
 		}
 		return nil

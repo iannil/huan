@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/plugin"
 )
 
 // TestRunImagePipeline_NotConfigured tests that runImagePipeline returns nil
@@ -27,7 +28,7 @@ func TestRunImagePipeline_NotConfigured(t *testing.T) {
 		Plugins: map[string]map[string]any{}, // no image_pipeline
 	}
 
-	err := runImagePipeline(cfg, sourceDir, outputDir)
+	err := runImagePipeline(cfg, sourceDir, outputDir, plugin.NewRegistry())
 	if err != nil {
 		t.Errorf("expected nil when image_pipeline not configured, got: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestRunImagePipeline_ConfiguredButPluginMissing(t *testing.T) {
 		},
 	}
 
-	err := runImagePipeline(cfg, sourceDir, outputDir)
+	err := runImagePipeline(cfg, sourceDir, outputDir, plugin.NewRegistry())
 	if err == nil {
 		t.Fatal("expected error when plugin .so doesn't exist")
 	}
@@ -65,9 +66,4 @@ func TestRunImagePipeline_ConfiguredButPluginMissing(t *testing.T) {
 	if !strings.Contains(err.Error(), "load plugin") {
 		t.Errorf("error should contain 'load plugin', got: %v", err)
 	}
-}
-
-// containsString is a helper to check if s contains substr.
-func containsString(s, substr string) bool {
-	return strings.Contains(s, substr)
 }

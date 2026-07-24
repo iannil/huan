@@ -17,7 +17,10 @@ import (
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
 	"github.com/iannil/huan/internal/daemon/sse"
+	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/translate"
 )
 
 // Options configures the daemon.
@@ -147,6 +150,28 @@ func Run(opts Options) error {
 			pluginLoader,
 			d.bus,
 		)
+
+		// Register capability detector for Admin API plugin listing
+		d.pluginManager.SetCapabilityDetector(func(p plugin.Plugin) string {
+			var caps []string
+			if _, ok := p.(deploy.Deployer); ok {
+				caps = append(caps, "deploy")
+			}
+			if _, ok := p.(translate.Translator); ok {
+				caps = append(caps, "translate")
+			}
+			if _, ok := p.(image.ImageProcessor); ok {
+				caps = append(caps, "image")
+			}
+			if len(caps) == 0 {
+				return ""
+			}
+			out := caps[0]
+			for _, c := range caps[1:] {
+				out += "," + c
+			}
+			return out
+		})
 
 		if err := d.pluginManager.Start(context.Background()); err != nil {
 			log.Printf("daemon: plugin manager start warning: %v", err)

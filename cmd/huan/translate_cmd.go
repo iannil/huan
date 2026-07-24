@@ -79,9 +79,10 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("plugin registry: %w", err)
 	}
 
-	p, ok := registry.Get("qwen3_translate")
-	if !ok {
-		// Try to load from .so plugin
+	// First, try to find a translator plugin via the unified plugin system
+	translators := plugin.Find[translate.Translator](registry)
+	if len(translators) == 0 {
+		// No compiled-in translator — try to load the .so plugin
 		pluginDir, _ := cmd.Flags().GetString("plugin-dir")
 		if pluginDir == "" {
 			pluginDir = filepath.Join(sourceDir, "plugins")
@@ -94,7 +95,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		}
 		// Inject _project_root for the plugin
 		pluginCfg["_project_root"] = sourceDir
-		p, err = loader.LoadPlugin(soPath, pluginCfg)
+		p, err := loader.LoadPlugin(soPath, pluginCfg)
 		if err != nil {
 			// Graceful skip: deploy.sh calls `huan translate qwen3` unconditionally;
 			// if the plugin isn't configured (no qwen3_translate block in huan.yaml),
@@ -105,11 +106,16 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 		_ = registry.Register(p)
+		translators = plugin.Find[translate.Translator](registry)
 	}
-	translator, ok := p.(translate.Translator)
-	if !ok {
-		return fmt.Errorf("qwen3_translate plugin does not implement Translator (internal error)")
+
+	if len(translators) == 0 {
+		fmt.Fprintln(os.Stderr, "translate: no translator plugin available (check huan.yaml plugins.qwen3_translate)")
+		return nil
 	}
+
+	// Use the first available translator (typically "qwen3_translate")
+	translator := translators[0]
 
 	fileFlag, _ := cmd.Flags().GetString("file")
 	force, _ := cmd.Flags().GetBool("force")

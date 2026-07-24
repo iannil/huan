@@ -12,6 +12,7 @@ import (
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/output"
+	"github.com/iannil/huan/internal/plugin"
 	tmpl "github.com/iannil/huan/internal/template"
 )
 
@@ -60,6 +61,12 @@ type Options struct {
 	// incremental builds. Pass a cache created by NewPipelineCache().
 	// Experimental: API may change in future versions.
 	PipelineCache *PipelineCache
+
+	// PluginRegistry, if non-nil, is used to discover build.Hook plugins
+	// that participate in the build pipeline. Hook methods are called with
+	// collection-not-interruption semantics — failures log a warning but
+	// do not abort the build.
+	PluginRegistry *plugin.Registry
 }
 
 // RenderPageFunc is the callback signature for single-page rendering.

@@ -100,7 +100,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		fmt.Println(build.SummarizeMultiSite(multiResult))
 
 		// Run image pipeline after build if configured
-		if err := runImagePipeline(cfg, sourceDir, outputDir); err != nil {
+		reg, _ := newPluginRegistry(cfg)
+		if err := runImagePipeline(cfg, sourceDir, outputDir, reg); err != nil {
 			return fmt.Errorf("after build: %w", err)
 		}
 		return nil
@@ -120,6 +121,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run image pipeline after build if configured
-	return runImagePipeline(cfg, sourceDir, outputDir)
+	reg2, _ := newPluginRegistry(cfg)
+	return runImagePipeline(cfg, sourceDir, outputDir, reg2)
 }
 

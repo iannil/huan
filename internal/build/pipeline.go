@@ -4,6 +4,7 @@ package build
 // See build.go::BuildSite for the entry point and Result/Options types.
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"path/filepath"
@@ -54,6 +55,61 @@ type pipeline struct {
 	lookup  map[*content.Page]*tmpl.Context
 
 	// Stage 5 (renderPages) — renderedCount and errors accumulate into result.
+}
+
+// runOnContentLoaded invokes any registered build.Hook.OnContentLoaded plugins.
+// Collection-not-interruption: failures log a warning but do not abort.
+func (p *pipeline) runOnContentLoaded() {
+	if p.opts.PluginRegistry == nil {
+		return
+	}
+	for _, h := range p.opts.PluginRegistry.All() {
+		hook, ok := h.(Hook)
+		if !ok {
+			continue
+		}
+		modified, err := hook.OnContentLoaded(context.Background(), p.pages)
+		if err != nil {
+			p.logf("  WARN: hook %s OnContentLoaded: %v\n", hook.Name(), err)
+			continue
+		}
+		if modified != nil {
+			p.pages = modified
+			p.logf("  hook %s: OnContentLoaded modified pages (%d)\n", hook.Name(), len(modified))
+		}
+	}
+}
+
+// runOnPageRendered invokes any registered build.Hook.OnPageRendered plugins.
+func (p *pipeline) runOnPageRendered(pg *content.Page) {
+	if p.opts.PluginRegistry == nil {
+		return
+	}
+	for _, h := range p.opts.PluginRegistry.All() {
+		hook, ok := h.(Hook)
+		if !ok {
+			continue
+		}
+		if err := hook.OnPageRendered(context.Background(), pg); err != nil {
+			p.logf("  WARN: hook %s OnPageRendered %s: %v\n", hook.Name(), pg.RelPath, err)
+		}
+	}
+}
+
+// runOnOutputWritten invokes any registered build.Hook.OnOutputWritten plugins.
+func (p *pipeline) runOnOutputWritten() {
+	if p.opts.PluginRegistry == nil {
+		return
+	}
+	for _, h := range p.opts.PluginRegistry.All() {
+		hook, ok := h.(Hook)
+		if !ok {
+			continue
+		}
+		if err := hook.OnOutputWritten(context.Background(), p.opts.OutputDir); err != nil {
+			p.logf("  WARN: hook %s OnOutputWritten: %v\n", hook.Name(), err)
+		}
+	}
 }
 
 // newPipeline initializes the struct with options + result. Stages mutate it.
@@ -144,6 +200,10 @@ func (p *pipeline) loadContent() error {
 	}
 	p.logf("  Data files:   %d\n", len(data))
 	p.data = data
+
+	// Invoke OnContentLoaded hooks
+	p.runOnContentLoaded()
+
 	return nil
 }
 

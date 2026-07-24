@@ -7,15 +7,18 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/deploy"
+	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/translate"
 )
 
 // newPluginRegistry is the composition root for the unified plugin system
 // (ADR 0003 §7). It instantiates each plugin declared in cfg.Plugins via its
 // typed constructor and registers it with a fresh Registry.
 //
-// Adding a new plugin = add a case to this switch + import the plugin package.
-// This file is the only place that knows about all available plugins.
+// Adding a compiled-in plugin = add a case to this switch + import the
+// plugin package. This file is the only place that knows about all available
+// compiled-in plugins.
 //
 // Unknown plugins declared in yaml are silently skipped at compile time — they
 // will be loaded at runtime by the LifecycleManager's .so scanner. Warnings
@@ -62,6 +65,11 @@ func capabilityLabels(p plugin.Plugin) []string {
 	if _, ok := p.(deploy.Deployer); ok {
 		labels = append(labels, "deploy")
 	}
-	// future: payment.PaymentProvider -> "payment"; etc.
+	if _, ok := p.(translate.Translator); ok {
+		labels = append(labels, "translate")
+	}
+	if _, ok := p.(image.ImageProcessor); ok {
+		labels = append(labels, "image")
+	}
 	return labels
 }
