@@ -1,107 +1,91 @@
-### Task 2: SubscribeBus — EventBus 桥接
+### Task 2: 集成配置校验到 newPluginRegistry
 
 **Files:**
-- Modify: `internal/daemon/sse/hub.go` — 新增 SubscribeBus 方法
-- Modify: `internal/daemon/sse/hub_test.go` — 桥接测试
+- Modify: `cmd/huan/plugins.go`
+- Modify: `cmd/huan/main.go`
+- Test: `cmd/huan/plugins_test.go`
 
 **Interfaces:**
-- Consumes: `eventbus.EventBus`, `eventbus.EventType`, `eventbus.Event`（`internal/daemon/eventbus/`）
-- Produces: `SSEHub.SubscribeBus(bus eventbus.EventBus)`
+- Consumes: `plugin.ValidateConfig`, `plugin.ValidateRawConfigs`, `plugin.SchemaProvider`
+- Produces: 在 `newPluginRegistry` 中集成校验逻辑
 
-- [ ] **Step 1: 编写测试**
+- [ ] **Step 1: 修改 `cmd/huan/plugins.go`，在 `newPluginRegistry` 末尾集成校验**
 
-在 `internal/daemon/sse/hub_test.go` 末尾添加：
+在 `newPluginRegistry` 函数末尾添加配置校验逻辑。注意 `newPluginRegistry` 当前只返回 `(*plugin.Registry, error)`，需要改为在返回前校验配置。
 
 ```go
-import (
-	// ... existing
-	"context"
-	"github.com/iannil/huan/internal/daemon/eventbus"
-)
+func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
+	r := plugin.NewRegistry()
+	for name := range cfg.Plugins {
+		switch name {
+		// ### Compiled-in plugins ###
+		// Add `case "name":` here for plugins compiled into the binary.
+		// Example:
+		//   case "cloudflare":
+		//       cfCfg, err := cloudflare.ParseConfig(raw)
+		//       if err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+		//       if err := r.Register(cloudflare.New(cfCfg)); err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
 
-func TestSubscribeBus_Bridges(t *testing.T) {
-	h := NewSSEHub(testLogf(t))
-	ch := h.registerClient()
-	bus := eventbus.NewChannelBus()
-	defer bus.Close()
-
-	h.SubscribeBus(bus)
-
-	// Publish a build_completed event.
-	_ = bus.Publish(context.Background(), eventbus.Event{
-		Type:      eventbus.EventBuildCompleted,
-		Timestamp: time.Now(),
-		Payload:   map[string]int{"pages": 5},
-	})
-
-	select {
-	case ev := <-ch:
-		if ev.Type != "build_completed" {
-			t.Errorf("Type = %q, want build_completed", ev.Type)
+		// ### .so plugins (handled at runtime by LifecycleManager) ###
+		default:
+			// .so plugin — will be loaded from the plugins/ directory at
+			// runtime. Silently skip at compile time.
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not receive bridged event")
+	}
+
+	// Validate configs against schemas for compiled-in plugins
+	// (SO plugins are validated at load time by the LifecycleManager)
+	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins); len(errs) > 0 || len(warns) > 0 {
+		for _, w := range warns {
+			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
+		}
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("plugin config errors:\n  - %s", strings.Join(errs, "\n  - "))
+		}
+	}
+
+	return r, nil
+}
+```
+
+需要添加 import：`"strings"` 和 `"os"`。
+
+- [ ] **Step 2: 更新 `cmd/huan/plugins_test.go`，添加配置校验的测试**
+
+```go
+func TestNewPluginRegistry_SchemaValidation(t *testing.T) {
+	// Register a test schema plugin via the plugins map.
+	// Since newPluginRegistry only handles compiled-in plugins (switch cases),
+	// unknown plugins go to the default case and produce warnings.
+	// This test verifies the warning path.
+	cfg := &config.Config{
+		Plugins: map[string]map[string]any{
+			"unknown_plugin": {"some_field": "value"},
+			"another_unknown": {},
+		},
+	}
+	r, err := newPluginRegistry(cfg)
+	if err != nil {
+		t.Fatalf("unknown plugins should not cause error, got: %v", err)
+	}
+	if len(r.All()) != 0 {
+		t.Errorf("got %d plugins, want 0", len(r.All()))
 	}
 }
 ```
 
-（合并 import：把新 import 加入文件顶部已有的 import 块。）
+- [ ] **Step 3: 运行测试**
 
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-go test ./internal/daemon/sse/ -run "TestSubscribeBus" -v
-```
-Expected: COMPILATION ERROR (no SubscribeBus)
-
-- [ ] **Step 3: 实现 SubscribeBus**
-
-在 `internal/daemon/sse/hub.go` 末尾添加。先在 import 块加入：
-
-```go
-	"github.com/iannil/huan/internal/daemon/eventbus"
-```
-
-然后在文件末尾添加：
-
-```go
-// SubscribeBus wires the hub to the daemon EventBus: every build/content/
-// plugin event is forwarded to all SSE clients. Call once at daemon startup.
-func (h *SSEHub) SubscribeBus(bus eventbus.EventBus) {
-	for _, eventType := range []eventbus.EventType{
-		eventbus.EventBuildCompleted,
-		eventbus.EventBuildFailed,
-		eventbus.EventContentChanged,
-		eventbus.EventPluginLoaded,
-		eventbus.EventPluginUnloaded,
-	} {
-		bus.Subscribe(eventType, func(_ context.Context, ev eventbus.Event) error {
-			h.Broadcast(Event{Type: ev.Type.String(), Data: ev.Payload})
-			return nil
-		})
-	}
-}
-```
-
-- [ ] **Step 4: 运行测试验证通过**
-
-```bash
-go test ./internal/daemon/sse/ -run "TestSubscribeBus" -v
-```
-Expected: PASS
-
-- [ ] **Step 5: 运行 sse 全部测试**
-
-```bash
-go test ./internal/daemon/sse/ -v
-```
+Run: `go test ./cmd/huan/ -run TestNewPluginRegistry -v`
 Expected: ALL PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 4: 提交**
 
 ```bash
-git add internal/daemon/sse/hub.go internal/daemon/sse/hub_test.go
-git commit -m "feat(sse): add SubscribeBus to bridge EventBus events"
+git add cmd/huan/plugins.go cmd/huan/plugins_test.go
+git commit -m "feat(plugin): integrate config validation into newPluginRegistry
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
 ---

@@ -8,12 +8,14 @@ import {
   Settings as SettingsIcon,
   Hammer,
   ExternalLink,
+  Puzzle,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/admin/', label: '概览', icon: LayoutDashboard, end: true },
   { to: '/admin/content', label: '内容', icon: FileText, end: false },
   { to: '/admin/media', label: '媒体', icon: Image, end: false },
+  { to: '/admin/plugins', label: '插件', icon: Puzzle, end: false },
   { to: '/admin/settings', label: '设置', icon: SettingsIcon, end: false },
 ]
 

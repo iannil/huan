@@ -1,274 +1,324 @@
-### Task 1: SSEHub 核心 + Broadcast + 心跳
+### Task 1: 后端 Schema 类型定义 + ValidateConfig
 
 **Files:**
-- Create: `internal/daemon/sse/hub.go` — Event, SSEHub, NewSSEHub, Broadcast, broadcastRaw, startHeartbeat, register/unregister, ClientCount
-- Create: `internal/daemon/sse/hub_test.go` — 单元测试
+- Create: `internal/plugin/schema.go`
+- Create: `internal/plugin/validate.go`
+- Test: `internal/plugin/validate_test.go`
 
 **Interfaces:**
-- Produces: `Event`, `SSEHub`, `NewSSEHub(logf)`, `Broadcast(Event)`, `broadcastRaw(string)`, `registerClient/unregisterClient`, `ClientCount() int`
+- Produces: `plugin.Schema`, `plugin.FieldSchema`, `plugin.SchemaProvider` interface, `plugin.ValidateConfig(name string, schema Schema, raw map[string]any) []string`
 
-- [ ] **Step 1: 编写测试**
-
-`internal/daemon/sse/hub_test.go`：
+- [ ] **Step 1: 创建 `internal/plugin/schema.go`**
 
 ```go
-package sse
+package plugin
+
+// Schema describes the full config shape a plugin expects.
+type Schema struct {
+	Fields []FieldSchema
+}
+
+// FieldSchema describes a single config field.
+type FieldSchema struct {
+	Key         string // 字段名，对应 yaml key
+	Type        string // "string" | "int" | "bool" | "string_slice" | "map"
+	Required    bool   // true = 必填，启动时校验
+	Default     any    // 默认值（Required=false 时生效）
+	Description string // 人类可读的说明
+	Sensitive   bool   // true = 在 CLI info 中 mask 为 ***
+	EnvVarHint  string // 建议的环境变量名，仅用于文档提示
+}
+
+// SchemaProvider is an optional interface plugins can implement to declare
+// their config schema. Used by the registry for config validation.
+type SchemaProvider interface {
+	ConfigSchema() Schema
+}
+```
+
+- [ ] **Step 2: 创建 `internal/plugin/validate.go`**
+
+```go
+package plugin
+
+import (
+	"fmt"
+	"reflect"
+	"strings"
+)
+
+// ValidateConfig checks raw config against the schema. Returns a list of
+// validation errors (empty = valid). Each error is a human-readable string.
+// Unknown fields in raw produce warnings (prefixed with "WARN:").
+// Missing required fields produce errors.
+// Type mismatches produce errors.
+func ValidateConfig(name string, schema Schema, raw map[string]any) []string {
+	var issues []string
+
+	// Build a set of known field keys for unknown-field detection
+	knownKeys := make(map[string]*FieldSchema, len(schema.Fields))
+	requiredKeys := make(map[string]bool)
+	defaults := make(map[string]any)
+
+	for i := range schema.Fields {
+		f := &schema.Fields[i]
+		knownKeys[f.Key] = f
+		if f.Required {
+			requiredKeys[f.Key] = true
+		}
+		if f.Default != nil {
+			defaults[f.Key] = f.Default
+		}
+	}
+
+	// Check required fields
+	for key := range requiredKeys {
+		val, exists := raw[key]
+		if !exists {
+			issues = append(issues, fmt.Sprintf("plugin %q: missing required field %q", name, key))
+			continue
+		}
+		if fs, ok := knownKeys[key]; ok {
+			if err := checkType(name, key, fs.Type, val); err != "" {
+				issues = append(issues, err)
+			}
+		}
+	}
+
+	// Check optional fields that are present
+	for key, val := range raw {
+		fs, known := knownKeys[key]
+		if !known {
+			issues = append(issues, fmt.Sprintf("WARN: plugin %q: unknown field %q", name, key))
+			continue
+		}
+		if !requiredKeys[key] {
+			// Optional field present — check type
+			if err := checkType(name, key, fs.Type, val); err != "" {
+				issues = append(issues, err)
+			}
+		}
+	}
+
+	return issues
+}
+
+func checkType(name, key, expectedType string, val any) string {
+	if val == nil {
+		return fmt.Sprintf("plugin %q: field %q is nil, want %s", name, key, expectedType)
+	}
+	var actual string
+	switch val.(type) {
+	case string:
+		actual = "string"
+	case int, int64, float64:
+		// yaml unmarshal numbers as int or float64
+		actual = "int"
+	case bool:
+		actual = "bool"
+	case []any:
+		actual = "string_slice"
+	case map[string]any:
+		actual = "map"
+	default:
+		actual = reflect.TypeOf(val).String()
+	}
+
+	// Accept float64 as int (yaml unmarshals "42" as int, but nested values may be float64)
+	if expectedType == "int" && actual == "int" {
+		return ""
+	}
+
+	if actual != expectedType {
+		return fmt.Sprintf("plugin %q: field %q: got %s, want %s", name, key, actual, expectedType)
+	}
+	return ""
+}
+
+// ValidateRawConfigs validates all plugin configs against their schemas.
+// Returns errors and warnings separately. Plugins that don't implement
+// SchemaProvider are skipped.
+func ValidateRawConfigs(registry *Registry, rawConfigs map[string]map[string]any) (errors, warnings []string) {
+	for name, raw := range rawConfigs {
+		p, ok := registry.Get(name)
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("plugin %q: declared in yaml but not compiled-in (will be loaded from .so at runtime if available)", name))
+			continue
+		}
+		sp, ok := p.(SchemaProvider)
+		if !ok {
+			continue // plugin doesn't declare schema, skip
+		}
+		issues := ValidateConfig(name, sp.ConfigSchema(), raw)
+		for _, issue := range issues {
+			if strings.HasPrefix(issue, "WARN:") {
+				warnings = append(warnings, strings.TrimPrefix(issue, "WARN: "))
+			} else {
+				errors = append(errors, issue)
+			}
+		}
+	}
+	return errors, warnings
+}
+```
+
+- [ ] **Step 3: 创建 `internal/plugin/validate_test.go`**
+
+```go
+package plugin
 
 import (
 	"testing"
-	"time"
 )
 
-func TestBroadcast_DeliversToClient(t *testing.T) {
-	h := NewSSEHub(testLogf(t))
-	ch := h.registerClient()
+type testSchemaPlugin struct {
+	name   string
+	schema Schema
+}
 
-	h.Broadcast(Event{Type: "build_completed", Data: map[string]int{"pages": 10}})
+func (p *testSchemaPlugin) Name() string { return p.name }
+func (p *testSchemaPlugin) ConfigSchema() Schema { return p.schema }
 
-	select {
-	case ev := <-ch:
-		if ev.Type != "build_completed" {
-			t.Errorf("Type = %q, want build_completed", ev.Type)
+var _ Plugin = (*testSchemaPlugin)(nil)
+var _ SchemaProvider = (*testSchemaPlugin)(nil)
+
+func TestValidateConfig_MissingRequired(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "apiKey", Type: "string", Required: true},
+		{Key: "project", Type: "string", Required: false},
+	}}
+	raw := map[string]any{"project": "my-site"}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for missing required field")
+	}
+	if !containsStr(issues, `"apiKey"`) {
+		t.Errorf("issues = %v, want mention apiKey", issues)
+	}
+}
+
+func TestValidateConfig_TypeMismatch(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "count", Type: "int", Required: true},
+	}}
+	raw := map[string]any{"count": "not-a-number"}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for type mismatch")
+	}
+}
+
+func TestValidateConfig_UnknownField(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "name", Type: "string", Required: true},
+	}}
+	raw := map[string]any{"name": "foo", "unknownField": "bar"}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues (1 type check + 1 unknown), got %d: %v", len(issues), issues)
+	}
+	hasWarn := false
+	for _, i := range issues {
+		if containsStr(i, "WARN:") {
+			hasWarn = true
 		}
-	case <-time.After(time.Second):
-		t.Fatal("client did not receive event")
+	}
+	if !hasWarn {
+		t.Errorf("expected WARN for unknown field, got %v", issues)
 	}
 }
 
-func TestBroadcast_MultipleClients(t *testing.T) {
-	h := NewSSEHub(testLogf(t))
-	ch1 := h.registerClient()
-	ch2 := h.registerClient()
+func TestValidateConfig_Valid(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "name", Type: "string", Required: true},
+		{Key: "count", Type: "int", Required: false},
+	}}
+	raw := map[string]any{"name": "foo", "count": 42}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) != 0 {
+		t.Errorf("expected no issues, got %v", issues)
+	}
+}
 
-	h.Broadcast(Event{Type: "content_changed", Data: nil})
+func TestValidateConfig_EmptyRaw(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "name", Type: "string", Required: true},
+	}}
+	raw := map[string]any{}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for empty raw with required field")
+	}
+}
 
-	for i, ch := range []chan Event{ch1, ch2} {
-		select {
-		case <-ch:
-		case <-time.After(time.Second):
-			t.Fatalf("client %d did not receive event", i)
+func TestValidateRawConfigs_UnknownPluginWarning(t *testing.T) {
+	registry := NewRegistry()
+	_ = registry.Register(&testSchemaPlugin{name: "known", schema: Schema{}})
+	rawConfigs := map[string]map[string]any{
+		"known":  {"foo": "bar"},
+		"unknown": {"x": "y"},
+	}
+	errs, warns := ValidateRawConfigs(registry, rawConfigs)
+	if len(errs) != 0 {
+		t.Errorf("expected 0 errors, got %v", errs)
+	}
+	if len(warns) == 0 {
+		t.Fatal("expected warning for unknown plugin")
+	}
+	if !containsStr(warns[0], "unknown") {
+		t.Errorf("warn = %q, want mention 'unknown'", warns[0])
+	}
+}
+
+func TestValidateRawConfigs_SkipNoSchema(t *testing.T) {
+	// A plugin that doesn't implement SchemaProvider should be skipped
+	registry := NewRegistry()
+	_ = registry.Register(&stubPlugin{name: "noschema"})
+	rawConfigs := map[string]map[string]any{
+		"noschema": {"foo": "bar"},
+	}
+	errs, warns := ValidateRawConfigs(registry, rawConfigs)
+	if len(errs) != 0 || len(warns) != 0 {
+		t.Errorf("expected no issues for plugin without schema, got errs=%v warns=%v", errs, warns)
+	}
+}
+
+func containsStr(slice []string, substr string) bool {
+	for _, s := range slice {
+		if containsStrStr(s, substr) {
+			return true
 		}
 	}
+	return false
 }
 
-func TestBroadcast_SlowClientDrops(t *testing.T) {
-	h := NewSSEHub(testLogf(t))
-	ch := h.registerClient()
-	// Fill the buffer (clientBufferSize events).
-	for i := 0; i < clientBufferSize; i++ {
-		h.Broadcast(Event{Type: "build_completed"})
-	}
-	// One more should be dropped (non-blocking) — client never reads.
-	h.Broadcast(Event{Type: "build_completed"})
-	// Drain to verify buffer not exceeded.
-	count := 0
-	draining := true
-	for draining {
-		select {
-		case <-ch:
-			count++
-		default:
-			draining = false
+func containsStrStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
 		}
 	}
-	if count != clientBufferSize {
-		t.Errorf("received %d, want %d (overflow dropped)", count, clientBufferSize)
-	}
-}
-
-func TestClientCount(t *testing.T) {
-	h := NewSSEHub(testLogf(t))
-	if h.ClientCount() != 0 {
-		t.Fatalf("initial count = %d, want 0", h.ClientCount())
-	}
-	ch := h.registerClient()
-	if h.ClientCount() != 1 {
-		t.Errorf("after register = %d, want 1", h.ClientCount())
-	}
-	h.unregisterClient(ch)
-	if h.ClientCount() != 0 {
-		t.Errorf("after unregister = %d, want 0", h.ClientCount())
-	}
-}
-
-func TestBroadcastRaw_HeartbeatComment(t *testing.T) {
-	h := NewSSEHub(testLogf(t))
-	ch := h.registerClient()
-	h.broadcastRaw(":heartbeat\n\n")
-	select {
-	case ev := <-ch:
-		// Raw broadcast is delivered as an Event with empty Type and the raw line in Data.
-		if ev.Type != "" {
-			t.Errorf("raw event Type = %q, want empty", ev.Type)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("client did not receive raw broadcast")
-	}
-}
-
-func testLogf(t *testing.T) func(string, ...any) {
-	t.Helper()
-	return func(format string, args ...any) { t.Logf(format, args...) }
+	return false
 }
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [ ] **Step 4: 运行测试确保通过**
 
-```bash
-go test ./internal/daemon/sse/ -run "TestBroadcast|TestClientCount" -v
-```
-Expected: COMPILATION ERROR (no hub.go)
-
-- [ ] **Step 3: 实现 hub.go**
-
-`internal/daemon/sse/hub.go`：
-
-```go
-// Package sse provides Server-Sent Events (SSE) push for the daemon.
-// SSEHub subscribes to daemon EventBus events and broadcasts them to all
-// connected browser clients via the /api/v1/events endpoint.
-package sse
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"sync"
-	"time"
-)
-
-const (
-	// clientBufferSize is the per-client event buffer. A slow client that
-	// falls behind this many events has new events dropped (non-blocking).
-	clientBufferSize = 16
-	// maxClients caps concurrent SSE connections to prevent resource exhaustion.
-	maxClients = 1000
-	// heartbeatInterval is how often a keep-alive comment line is sent.
-	heartbeatInterval = 15 * time.Second
-)
-
-// Event is a single SSE message sent to clients.
-type Event struct {
-	// Type is the SSE event name (e.g. "build_completed"). Empty for raw
-	// comment lines (heartbeats) — see broadcastRaw.
-	Type string
-	// Data is the event payload (JSON-marshaled on the wire). For raw
-	// broadcasts this holds the literal wire text.
-	Data any
-	// raw, when true, means Data is already-formatted wire text written
-	// verbatim (used by heartbeats).
-	raw bool
-}
-
-// SSEHub manages SSE client connections and broadcasts daemon events.
-// Thread-safe. Slow clients do not block fast clients.
-type SSEHub struct {
-	mu      sync.RWMutex
-	clients map[chan Event]struct{}
-	logf    func(format string, args ...any)
-}
-
-// NewSSEHub creates an empty hub.
-func NewSSEHub(logf func(string, ...any)) *SSEHub {
-	if logf == nil {
-		logf = func(string, ...any) {}
-	}
-	return &SSEHub{
-		clients: map[chan Event]struct{}{},
-		logf:    logf,
-	}
-}
-
-// registerClient adds a new buffered client channel and returns it.
-// The caller must eventually call unregisterClient to avoid leaks.
-func (h *SSEHub) registerClient() chan Event {
-	ch := make(chan Event, clientBufferSize)
-	h.mu.Lock()
-	h.clients[ch] = struct{}{}
-	h.mu.Unlock()
-	return ch
-}
-
-// unregisterClient removes a client channel and drains it.
-func (h *SSEHub) unregisterClient(ch chan Event) {
-	h.mu.Lock()
-	delete(h.clients, ch)
-	h.mu.Unlock()
-}
-
-// ClientCount returns the number of connected clients.
-func (h *SSEHub) ClientCount() int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.clients)
-}
-
-// Broadcast sends an event to all clients. A client whose buffer is full
-// (slow consumer) has the event dropped — it never blocks other clients.
-func (h *SSEHub) Broadcast(event Event) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for ch := range h.clients {
-		select {
-		case ch <- event:
-		default:
-			h.logf("sse: client buffer full, dropping event %q", event.Type)
-		}
-	}
-}
-
-// broadcastRaw sends already-formatted wire text (e.g. a heartbeat comment
-// line) to all clients as a raw Event.
-func (h *SSEHub) broadcastRaw(line string) {
-	h.Broadcast(Event{Data: line, raw: true})
-}
-
-// startHeartbeat periodically broadcasts an SSE comment line to keep
-// connections alive through proxies. Runs until ctx is cancelled.
-func (h *SSEHub) startHeartbeat(ctx context.Context) {
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			h.broadcastRaw(":heartbeat\n\n")
-		}
-	}
-}
-
-// encodeEvent formats an Event as SSE wire text. Structured events become
-// "event: <type>\ndata: <json>\n\n"; raw events are written verbatim.
-func encodeEvent(ev Event) (string, error) {
-	if ev.raw {
-		if s, ok := ev.Data.(string); ok {
-			return s, nil
-		}
-	}
-	data, err := json.Marshal(ev.Data)
-	if err != nil {
-		return "", fmt.Errorf("sse: marshal event data: %w", err)
-	}
-	if ev.Type == "" {
-		return fmt.Sprintf("data: %s\n\n", data), nil
-	}
-	return fmt.Sprintf("event: %s\ndata: %s\n\n", ev.Type, data), nil
-}
-```
-
-- [ ] **Step 4: 运行测试验证通过**
-
-```bash
-go test ./internal/daemon/sse/ -run "TestBroadcast|TestClientCount" -v
-```
+Run: `go test ./internal/plugin/ -run TestValidate -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: 运行全部 plugin 测试确保未破坏现有功能**
+
+Run: `go test ./internal/plugin/ -v`
+Expected: ALL PASS
+
+- [ ] **Step 6: 然后提交**
 
 ```bash
-git add internal/daemon/sse/hub.go internal/daemon/sse/hub_test.go
-git commit -m "feat(sse): add SSEHub with broadcast and heartbeat"
+git add internal/plugin/schema.go internal/plugin/validate.go internal/plugin/validate_test.go
+git commit -m "feat(plugin): add config schema type and ValidateConfig function
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
 ---

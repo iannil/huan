@@ -1,3 +1,439 @@
+# 插件管理后台与配置验证体系 实现计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 为 Admin UI 添加插件管理页面，增加插件配置 Schema 声明与校验体系
+
+**Architecture:** 前端新增 Plugins.tsx 页面 + 路由 + 导航入口；后端新增 Schema 类型与 ValidateConfig 函数，在 newPluginRegistry 中集成校验
+
+**Tech Stack:** 前端 React + TypeScript + Tailwind CSS + @base-ui/react + lucide-react + react-router-dom；后端 Go 1.22+
+
+## Global Constraints
+
+- 前端使用现有 UI 组件库（@base-ui/react Dialog, react-router-dom, lucide-react, Tailwind CSS）
+- 后端插件 Schema 不强制所有 plugin 实现，通过可选接口检测
+- 配置校验 fail-fast（必填缺失/类型错误）或 warning（未知字段）
+- 所有新代码须有完整测试
+
+---
+
+### Task 1: 后端 Schema 类型定义 + ValidateConfig
+
+**Files:**
+- Create: `internal/plugin/schema.go`
+- Create: `internal/plugin/validate.go`
+- Test: `internal/plugin/validate_test.go`
+
+**Interfaces:**
+- Produces: `plugin.Schema`, `plugin.FieldSchema`, `plugin.SchemaProvider` interface, `plugin.ValidateConfig(name string, schema Schema, raw map[string]any) []string`
+
+- [ ] **Step 1: 创建 `internal/plugin/schema.go`**
+
+```go
+package plugin
+
+// Schema describes the full config shape a plugin expects.
+type Schema struct {
+	Fields []FieldSchema
+}
+
+// FieldSchema describes a single config field.
+type FieldSchema struct {
+	Key         string // 字段名，对应 yaml key
+	Type        string // "string" | "int" | "bool" | "string_slice" | "map"
+	Required    bool   // true = 必填，启动时校验
+	Default     any    // 默认值（Required=false 时生效）
+	Description string // 人类可读的说明
+	Sensitive   bool   // true = 在 CLI info 中 mask 为 ***
+	EnvVarHint  string // 建议的环境变量名，仅用于文档提示
+}
+
+// SchemaProvider is an optional interface plugins can implement to declare
+// their config schema. Used by the registry for config validation.
+type SchemaProvider interface {
+	ConfigSchema() Schema
+}
+```
+
+- [ ] **Step 2: 创建 `internal/plugin/validate.go`**
+
+```go
+package plugin
+
+import (
+	"fmt"
+	"reflect"
+	"strings"
+)
+
+// ValidateConfig checks raw config against the schema. Returns a list of
+// validation errors (empty = valid). Each error is a human-readable string.
+// Unknown fields in raw produce warnings (prefixed with "WARN:").
+// Missing required fields produce errors.
+// Type mismatches produce errors.
+func ValidateConfig(name string, schema Schema, raw map[string]any) []string {
+	var issues []string
+
+	// Build a set of known field keys for unknown-field detection
+	knownKeys := make(map[string]*FieldSchema, len(schema.Fields))
+	requiredKeys := make(map[string]bool)
+	defaults := make(map[string]any)
+
+	for i := range schema.Fields {
+		f := &schema.Fields[i]
+		knownKeys[f.Key] = f
+		if f.Required {
+			requiredKeys[f.Key] = true
+		}
+		if f.Default != nil {
+			defaults[f.Key] = f.Default
+		}
+	}
+
+	// Check required fields
+	for key := range requiredKeys {
+		val, exists := raw[key]
+		if !exists {
+			issues = append(issues, fmt.Sprintf("plugin %q: missing required field %q", name, key))
+			continue
+		}
+		if fs, ok := knownKeys[key]; ok {
+			if err := checkType(name, key, fs.Type, val); err != "" {
+				issues = append(issues, err)
+			}
+		}
+	}
+
+	// Check optional fields that are present
+	for key, val := range raw {
+		fs, known := knownKeys[key]
+		if !known {
+			issues = append(issues, fmt.Sprintf("WARN: plugin %q: unknown field %q", name, key))
+			continue
+		}
+		if !requiredKeys[key] {
+			// Optional field present — check type
+			if err := checkType(name, key, fs.Type, val); err != "" {
+				issues = append(issues, err)
+			}
+		}
+	}
+
+	return issues
+}
+
+func checkType(name, key, expectedType string, val any) string {
+	if val == nil {
+		return fmt.Sprintf("plugin %q: field %q is nil, want %s", name, key, expectedType)
+	}
+	var actual string
+	switch val.(type) {
+	case string:
+		actual = "string"
+	case int, int64, float64:
+		// yaml unmarshal numbers as int or float64
+		actual = "int"
+	case bool:
+		actual = "bool"
+	case []any:
+		actual = "string_slice"
+	case map[string]any:
+		actual = "map"
+	default:
+		actual = reflect.TypeOf(val).String()
+	}
+
+	// Accept float64 as int (yaml unmarshals "42" as int, but nested values may be float64)
+	if expectedType == "int" && actual == "int" {
+		return ""
+	}
+
+	if actual != expectedType {
+		return fmt.Sprintf("plugin %q: field %q: got %s, want %s", name, key, actual, expectedType)
+	}
+	return ""
+}
+
+// ValidateRawConfigs validates all plugin configs against their schemas.
+// Returns errors and warnings separately. Plugins that don't implement
+// SchemaProvider are skipped.
+func ValidateRawConfigs(registry *Registry, rawConfigs map[string]map[string]any) (errors, warnings []string) {
+	for name, raw := range rawConfigs {
+		p, ok := registry.Get(name)
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("plugin %q: declared in yaml but not compiled-in (will be loaded from .so at runtime if available)", name))
+			continue
+		}
+		sp, ok := p.(SchemaProvider)
+		if !ok {
+			continue // plugin doesn't declare schema, skip
+		}
+		issues := ValidateConfig(name, sp.ConfigSchema(), raw)
+		for _, issue := range issues {
+			if strings.HasPrefix(issue, "WARN:") {
+				warnings = append(warnings, strings.TrimPrefix(issue, "WARN: "))
+			} else {
+				errors = append(errors, issue)
+			}
+		}
+	}
+	return errors, warnings
+}
+```
+
+- [ ] **Step 3: 创建 `internal/plugin/validate_test.go`**
+
+```go
+package plugin
+
+import (
+	"testing"
+)
+
+type testSchemaPlugin struct {
+	name   string
+	schema Schema
+}
+
+func (p *testSchemaPlugin) Name() string { return p.name }
+func (p *testSchemaPlugin) ConfigSchema() Schema { return p.schema }
+
+var _ Plugin = (*testSchemaPlugin)(nil)
+var _ SchemaProvider = (*testSchemaPlugin)(nil)
+
+func TestValidateConfig_MissingRequired(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "apiKey", Type: "string", Required: true},
+		{Key: "project", Type: "string", Required: false},
+	}}
+	raw := map[string]any{"project": "my-site"}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for missing required field")
+	}
+	if !containsStr(issues, `"apiKey"`) {
+		t.Errorf("issues = %v, want mention apiKey", issues)
+	}
+}
+
+func TestValidateConfig_TypeMismatch(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "count", Type: "int", Required: true},
+	}}
+	raw := map[string]any{"count": "not-a-number"}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for type mismatch")
+	}
+}
+
+func TestValidateConfig_UnknownField(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "name", Type: "string", Required: true},
+	}}
+	raw := map[string]any{"name": "foo", "unknownField": "bar"}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues (1 type check + 1 unknown), got %d: %v", len(issues), issues)
+	}
+	hasWarn := false
+	for _, i := range issues {
+		if containsStr(i, "WARN:") {
+			hasWarn = true
+		}
+	}
+	if !hasWarn {
+		t.Errorf("expected WARN for unknown field, got %v", issues)
+	}
+}
+
+func TestValidateConfig_Valid(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "name", Type: "string", Required: true},
+		{Key: "count", Type: "int", Required: false},
+	}}
+	raw := map[string]any{"name": "foo", "count": 42}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) != 0 {
+		t.Errorf("expected no issues, got %v", issues)
+	}
+}
+
+func TestValidateConfig_EmptyRaw(t *testing.T) {
+	schema := Schema{Fields: []FieldSchema{
+		{Key: "name", Type: "string", Required: true},
+	}}
+	raw := map[string]any{}
+	issues := ValidateConfig("test", schema, raw)
+	if len(issues) == 0 {
+		t.Fatal("expected error for empty raw with required field")
+	}
+}
+
+func TestValidateRawConfigs_UnknownPluginWarning(t *testing.T) {
+	registry := NewRegistry()
+	_ = registry.Register(&testSchemaPlugin{name: "known", schema: Schema{}})
+	rawConfigs := map[string]map[string]any{
+		"known":  {"foo": "bar"},
+		"unknown": {"x": "y"},
+	}
+	errs, warns := ValidateRawConfigs(registry, rawConfigs)
+	if len(errs) != 0 {
+		t.Errorf("expected 0 errors, got %v", errs)
+	}
+	if len(warns) == 0 {
+		t.Fatal("expected warning for unknown plugin")
+	}
+	if !containsStr(warns[0], "unknown") {
+		t.Errorf("warn = %q, want mention 'unknown'", warns[0])
+	}
+}
+
+func TestValidateRawConfigs_SkipNoSchema(t *testing.T) {
+	// A plugin that doesn't implement SchemaProvider should be skipped
+	registry := NewRegistry()
+	_ = registry.Register(&stubPlugin{name: "noschema"})
+	rawConfigs := map[string]map[string]any{
+		"noschema": {"foo": "bar"},
+	}
+	errs, warns := ValidateRawConfigs(registry, rawConfigs)
+	if len(errs) != 0 || len(warns) != 0 {
+		t.Errorf("expected no issues for plugin without schema, got errs=%v warns=%v", errs, warns)
+	}
+}
+
+func containsStr(slice []string, substr string) bool {
+	for _, s := range slice {
+		if containsStrStr(s, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsStrStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+```
+
+- [ ] **Step 4: 运行测试确保通过**
+
+Run: `go test ./internal/plugin/ -run TestValidate -v`
+Expected: ALL PASS
+
+- [ ] **Step 5: 运行全部 plugin 测试确保未破坏现有功能**
+
+Run: `go test ./internal/plugin/ -v`
+Expected: ALL PASS
+
+- [ ] **Step 6: 然后提交**
+
+```bash
+git add internal/plugin/schema.go internal/plugin/validate.go internal/plugin/validate_test.go
+git commit -m "feat(plugin): add config schema type and ValidateConfig function
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+---
+
+### Task 2: 集成配置校验到 newPluginRegistry
+
+**Files:**
+- Modify: `cmd/huan/plugins.go`
+- Modify: `cmd/huan/main.go`
+- Test: `cmd/huan/plugins_test.go`
+
+**Interfaces:**
+- Consumes: `plugin.ValidateConfig`, `plugin.ValidateRawConfigs`, `plugin.SchemaProvider`
+- Produces: 在 `newPluginRegistry` 中集成校验逻辑
+
+- [ ] **Step 1: 修改 `cmd/huan/plugins.go`，在 `newPluginRegistry` 末尾集成校验**
+
+在 `newPluginRegistry` 函数末尾添加配置校验逻辑。注意 `newPluginRegistry` 当前只返回 `(*plugin.Registry, error)`，需要改为在返回前校验配置。
+
+```go
+func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
+	r := plugin.NewRegistry()
+	for name := range cfg.Plugins {
+		switch name {
+		// ### Compiled-in plugins ###
+		// Add `case "name":` here for plugins compiled into the binary.
+		// Example:
+		//   case "cloudflare":
+		//       cfCfg, err := cloudflare.ParseConfig(raw)
+		//       if err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+		//       if err := r.Register(cloudflare.New(cfCfg)); err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
+
+		// ### .so plugins (handled at runtime by LifecycleManager) ###
+		default:
+			// .so plugin — will be loaded from the plugins/ directory at
+			// runtime. Silently skip at compile time.
+		}
+	}
+
+	// Validate configs against schemas for compiled-in plugins
+	// (SO plugins are validated at load time by the LifecycleManager)
+	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins); len(errs) > 0 || len(warns) > 0 {
+		for _, w := range warns {
+			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
+		}
+		if len(errs) > 0 {
+			return nil, fmt.Errorf("plugin config errors:\n  - %s", strings.Join(errs, "\n  - "))
+		}
+	}
+
+	return r, nil
+}
+```
+
+需要添加 import：`"strings"` 和 `"os"`。
+
+- [ ] **Step 2: 更新 `cmd/huan/plugins_test.go`，添加配置校验的测试**
+
+```go
+func TestNewPluginRegistry_SchemaValidation(t *testing.T) {
+	// Register a test schema plugin via the plugins map.
+	// Since newPluginRegistry only handles compiled-in plugins (switch cases),
+	// unknown plugins go to the default case and produce warnings.
+	// This test verifies the warning path.
+	cfg := &config.Config{
+		Plugins: map[string]map[string]any{
+			"unknown_plugin": {"some_field": "value"},
+			"another_unknown": {},
+		},
+	}
+	r, err := newPluginRegistry(cfg)
+	if err != nil {
+		t.Fatalf("unknown plugins should not cause error, got: %v", err)
+	}
+	if len(r.All()) != 0 {
+		t.Errorf("got %d plugins, want 0", len(r.All()))
+	}
+}
+```
+
+- [ ] **Step 3: 运行测试**
+
+Run: `go test ./cmd/huan/ -run TestNewPluginRegistry -v`
+Expected: ALL PASS
+
+- [ ] **Step 4: 提交**
+
+```bash
+git add cmd/huan/plugins.go cmd/huan/plugins_test.go
+git commit -m "feat(plugin): integrate config validation into newPluginRegistry
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 3: 前端插件管理页面 — 基础组件
 
 **Files:**

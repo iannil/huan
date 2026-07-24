@@ -1,22 +1,8 @@
-### Task 3: 前端插件管理页面 — 基础组件
-
-**Files:**
-- Create: `web/admin/src/pages/Plugins.tsx`
-- Modify: `web/admin/src/App.tsx`
-- Modify: `web/admin/src/components/Layout.tsx`
-
-**Interfaces:**
-- Consumes: `apiFetch` from `../lib/api`, `Puzzle` icon from `lucide-react`, existing UI components
-- Produces: Plugins page component, route `/admin/plugins`, nav entry
-
-- [ ] **Step 1: 创建 `web/admin/src/pages/Plugins.tsx`**
-
-```tsx
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import { Puzzle, Plus, X, RefreshCw, AlertCircle } from 'lucide-react'
+import { Plus, X, RefreshCw, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -39,6 +25,7 @@ interface PluginListResponse {
 interface PluginManageResponse {
   status: string
   plugin?: PluginInfo
+  error?: string
 }
 
 export default function Plugins() {
@@ -87,7 +74,7 @@ export default function Plugins() {
       })
       const data: PluginManageResponse = await res.json()
       if (!res.ok) {
-        setActionError(data.status || '加载失败')
+        setActionError(data.error || '加载失败')
         return
       }
       setLoadPath('')
@@ -122,9 +109,9 @@ export default function Plugins() {
     }
   }
 
-  const openReloadDialog = (name: string, currentPath: string) => {
+  const openReloadDialog = (name: string) => {
     setReloadTarget(name)
-    setReloadPath(currentPath)
+    setReloadPath('')
     setReloadDialogOpen(true)
   }
 
@@ -197,7 +184,7 @@ export default function Plugins() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold text-foreground tracking-tight">插件管理</h2>
         <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>
-          <DialogTrigger asChild>
+          <DialogTrigger>
             <Button variant="default" size="sm">
               <Plus className="h-3.5 w-3.5 mr-1" />
               加载新插件
@@ -224,7 +211,7 @@ export default function Plugins() {
               <p className="text-xs text-destructive">{actionError}</p>
             )}
             <DialogFooter>
-              <DialogClose asChild>
+              <DialogClose>
                 <Button variant="outline" size="sm">取消</Button>
               </DialogClose>
               <Button
@@ -254,7 +241,6 @@ export default function Plugins() {
           暂无插件。点击"加载新插件"添加 .so 插件。
         </div>
       ) : (
-        /* Plugin table */
         <Card>
           <div className="divide-y divide-border">
             {/* Table header */}
@@ -293,7 +279,7 @@ export default function Plugins() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => openReloadDialog(p.name, '')}
+                          onClick={() => openReloadDialog(p.name)}
                           disabled={actionLoading === `reload-${p.name}`}
                           title="重载"
                         >
@@ -357,7 +343,7 @@ export default function Plugins() {
             <p className="text-xs text-destructive">{actionError}</p>
           )}
           <DialogFooter>
-            <DialogClose asChild>
+            <DialogClose>
               <Button variant="outline" size="sm">取消</Button>
             </DialogClose>
             <Button
@@ -374,73 +360,3 @@ export default function Plugins() {
     </div>
   )
 }
-```
-
-- [ ] **Step 2: 修改 `web/admin/src/App.tsx`，添加路由**
-
-```tsx
-import { Routes, Route } from 'react-router-dom'
-import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
-import ContentList from './pages/ContentList'
-import ContentEdit from './pages/ContentEdit'
-import ContentNew from './pages/ContentNew'
-import MediaPage from './pages/MediaPage'
-import Settings from './pages/Settings'
-import Plugins from './pages/Plugins'
-
-export default function App() {
-  return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route path="/admin/" element={<Dashboard />} />
-        <Route path="/admin/content" element={<ContentList />} />
-        <Route path="/admin/content/new" element={<ContentNew />} />
-        <Route path="/admin/media" element={<MediaPage />} />
-        <Route path="/admin/plugins" element={<Plugins />} />
-        <Route path="/admin/settings" element={<Settings />} />
-      </Route>
-      {/* Full-screen editor outside layout — no sidebar, no chrome */}
-      <Route path="/admin/content/edit" element={<ContentEdit />} />
-    </Routes>
-  )
-}
-```
-
-- [ ] **Step 3: 修改 `web/admin/src/components/Layout.tsx`，添加"插件"导航项**
-
-在 `navItems` 数组中添加插件入口，放在"设置"之前：
-
-```tsx
-import {
-  LayoutDashboard,
-  FileText,
-  Image,
-  Settings as SettingsIcon,
-  Hammer,
-  ExternalLink,
-  Puzzle,
-} from 'lucide-react'
-
-const navItems = [
-  { to: '/admin/', label: '概览', icon: LayoutDashboard, end: true },
-  { to: '/admin/content', label: '内容', icon: FileText, end: false },
-  { to: '/admin/media', label: '媒体', icon: Image, end: false },
-  { to: '/admin/plugins', label: '插件', icon: Puzzle, end: false },
-  { to: '/admin/settings', label: '设置', icon: SettingsIcon, end: false },
-]
-```
-
-- [ ] **Step 4: 构建前端验证**
-
-Run: `cd web/admin && npm run build`
-Expected: Build succeeds without errors
-
-- [ ] **Step 5: 提交**
-
-```bash
-git add web/admin/src/pages/Plugins.tsx web/admin/src/App.tsx web/admin/src/components/Layout.tsx
-git commit -m "feat(admin): add plugin management page with list, load, unload, reload
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
-```
