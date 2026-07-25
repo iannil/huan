@@ -125,6 +125,15 @@ func (p *SitemapEnhancer) SetLogf(fn func(string, ...any)) {
 // Name returns the plugin name.
 func (p *SitemapEnhancer) Name() string { return "sitemap_enhancer" }
 
+func (p *SitemapEnhancer) PluginMetadata() plugin.PluginMeta {
+	return plugin.PluginMeta{
+		Version:    "0.1.0",
+		Author:     "huan team",
+		Tags:       []string{"seo", "sitemap"},
+		IsOfficial: true,
+	}
+}
+
 // ConfigSchema returns the plugin.Schema for config validation.
 func (p *SitemapEnhancer) ConfigSchema() plugin.Schema {
 	return p.cfg.ConfigSchema()

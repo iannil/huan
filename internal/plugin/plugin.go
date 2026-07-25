@@ -125,3 +125,19 @@ func (r *Registry) SortedNames() []string {
 	sort.Strings(out)
 	return out
 }
+
+// PluginMeta carries human-readable metadata for a plugin.
+type PluginMeta struct {
+	Version    string   `json:"version"`
+	Author     string   `json:"author"`
+	RepoURL    string   `json:"repoURL"`
+	License    string   `json:"license"`
+	Tags       []string `json:"tags"`
+	IsOfficial bool     `json:"isOfficial"`
+}
+
+// MetadataProvider is an optional interface plugins can implement to declare
+// their metadata. Used by the LifecycleManager.List() and CLI/Admin UI.
+type MetadataProvider interface {
+	PluginMetadata() PluginMeta
+}

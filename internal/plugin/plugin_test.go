@@ -188,3 +188,56 @@ func TestUnregister_MaintainsOrder(t *testing.T) {
 		}
 	}
 }
+
+type testMetaPlugin struct {
+	stubPlugin
+	meta PluginMeta
+}
+
+func (p *testMetaPlugin) PluginMetadata() PluginMeta { return p.meta }
+
+var _ MetadataProvider = (*testMetaPlugin)(nil)
+
+func TestMetadataProvider_OptionalInterface(t *testing.T) {
+	r := NewRegistry()
+	// Plugin without MetadataProvider
+	_ = r.Register(&stubPlugin{name: "plain"})
+	// Plugin with MetadataProvider
+	_ = r.Register(&testMetaPlugin{
+		stubPlugin: stubPlugin{name: "metap"},
+		meta: PluginMeta{
+			Version:    "1.0.0",
+			Author:     "test author",
+			Tags:       []string{"tag1", "tag2"},
+			IsOfficial: true,
+		},
+	})
+
+	// Test Find[MetadataProvider]
+	providers := Find[MetadataProvider](r)
+	if len(providers) != 1 {
+		t.Fatalf("Find[MetadataProvider] len = %d, want 1", len(providers))
+	}
+	meta := providers[0].PluginMetadata()
+	if meta.Version != "1.0.0" {
+		t.Errorf("Version = %q, want 1.0.0", meta.Version)
+	}
+	if meta.Author != "test author" {
+		t.Errorf("Author = %q", meta.Author)
+	}
+	if len(meta.Tags) != 2 || meta.Tags[0] != "tag1" {
+		t.Errorf("Tags = %v", meta.Tags)
+	}
+	if !meta.IsOfficial {
+		t.Error("IsOfficial should be true")
+	}
+}
+
+func TestMetadataProvider_NotRequired(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(&stubPlugin{name: "plain"})
+	providers := Find[MetadataProvider](r)
+	if len(providers) != 0 {
+		t.Errorf("Find[MetadataProvider] len = %d, want 0", len(providers))
+	}
+}

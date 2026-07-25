@@ -104,6 +104,15 @@ func New(cfg *Config) *HTMLInjector {
 // Name returns the plugin name.
 func (p *HTMLInjector) Name() string { return "html_injector" }
 
+func (p *HTMLInjector) PluginMetadata() plugin.PluginMeta {
+	return plugin.PluginMeta{
+		Version:    "0.1.0",
+		Author:     "huan team",
+		Tags:       []string{"html", "script", "css"},
+		IsOfficial: true,
+	}
+}
+
 // ConfigSchema returns the plugin.Schema for config validation.
 func (p *HTMLInjector) ConfigSchema() plugin.Schema {
 	return p.cfg.ConfigSchema()

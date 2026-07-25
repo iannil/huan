@@ -15,6 +15,10 @@ interface PluginInfo {
   status: string
   loadedAt: string
   error: string
+  author: string
+  repoURL: string
+  license: string
+  tags: string[]
 }
 
 interface PluginListResponse {
@@ -244,8 +248,9 @@ export default function Plugins() {
         <Card>
           <div className="divide-y divide-border">
             {/* Table header */}
-            <div className="grid grid-cols-[1fr_80px_100px_80px_1fr_120px] gap-2 px-3 py-2 text-[11px] text-muted-foreground font-medium">
+            <div className="grid grid-cols-[1fr_60px_80px_100px_80px_1fr_120px] gap-2 px-3 py-2 text-[11px] text-muted-foreground font-medium">
               <span>名称</span>
+              <span>版本</span>
               <span>来源</span>
               <span>能力</span>
               <span>状态</span>
@@ -256,8 +261,21 @@ export default function Plugins() {
             {/* Table rows */}
             {plugins.map((p) => (
               <div key={p.name}>
-                <div className="grid grid-cols-[1fr_80px_100px_80px_1fr_120px] gap-2 px-3 py-2.5 text-xs items-center">
-                  <span className="text-foreground font-medium truncate">{p.name}</span>
+                <div className="grid grid-cols-[1fr_60px_80px_100px_80px_1fr_120px] gap-2 px-3 py-2.5 text-xs items-center">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-foreground font-medium truncate">{p.name}</span>
+                    {p.author === 'huan team' && (
+                      <Badge variant="secondary" className="text-[9px] leading-none px-1 py-0 shrink-0">官方</Badge>
+                    )}
+                    {p.tags && p.tags.length > 0 && (
+                      <div className="hidden lg:flex items-center gap-1">
+                        {p.tags.slice(0, 3).map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-[9px] leading-none px-1 py-0">{tag}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-muted-foreground truncate">{p.version || '-'}</span>
                   <span>
                     <Badge variant={p.source === 'compiled' ? 'secondary' : p.source === 'loaded' ? 'default' : 'outline'}>
                       {p.source}

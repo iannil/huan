@@ -1,3 +1,24 @@
+# 插件元数据系统 实现计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 为插件系统添加 MetadataProvider 可选接口，增强 PluginInfo 元数据，在前端 Admin UI 和 CLI 中展示
+
+**Architecture:** 在 `internal/plugin/` 新增 `PluginMeta` 类型和 `MetadataProvider` 可选接口；`LifecycleManager.List()` 检测接口并填充 `PluginInfo` 额外字段；三个 compiled-in 插件实现接口；前端表格增加版本/作者/Tags/官方徽章列
+
+**Tech Stack:** Go + React + TypeScript
+
+## Global Constraints
+
+- MetadataProvider 是可选接口（不强制所有 plugin 实现）
+- PluginMeta 字段：Version, Author, RepoURL, License, Tags, IsOfficial
+- LifecycleManager.List() 对每个插件检测 MetadataProvider，填充 PluginInfo 额外字段
+- 三个 compiled-in 插件（seo_injector, sitemap_enhancer, html_injector）必须实现 MetadataProvider
+- Admin UI 表格新增列：Version、Author、Tags、官方徽章
+- 所有现有测试必须继续通过
+
+---
+
 ### Task 1: 后端 MetadataProvider 接口 + PluginInfo 增强
 
 **Files:**
@@ -160,3 +181,146 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
+### Task 2: 三个 compiled-in 插件实现 MetadataProvider
+
+**Files:**
+- Modify: `internal/seo/injector/plugin.go`
+- Modify: `internal/seo/sitemap/plugin.go`
+- Modify: `internal/seo/htmlinjector/plugin.go`
+
+**Interfaces:**
+- Consumes: `plugin.MetadataProvider`, `plugin.PluginMeta`
+- Produces: 三个插件实现 `PluginMetadata()` 方法
+
+- [ ] **Step 1: SEO 注入器实现 MetadataProvider**
+
+在 `internal/seo/injector/plugin.go` 中，在 `Name()` 方法后添加：
+
+```go
+func (p *SEOInjector) PluginMetadata() plugin.PluginMeta {
+	return plugin.PluginMeta{
+		Version:    "0.1.0",
+		Author:     "huan team",
+		Tags:       []string{"seo", "og", "twitter"},
+		IsOfficial: true,
+	}
+}
+```
+
+- [ ] **Step 2: Sitemap 增强器实现 MetadataProvider**
+
+在 `internal/seo/sitemap/plugin.go` 中，在 `Name()` 方法后添加：
+
+```go
+func (p *SitemapEnhancer) PluginMetadata() plugin.PluginMeta {
+	return plugin.PluginMeta{
+		Version:    "0.1.0",
+		Author:     "huan team",
+		Tags:       []string{"seo", "sitemap"},
+		IsOfficial: true,
+	}
+}
+```
+
+- [ ] **Step 3: HTML 注入器实现 MetadataProvider**
+
+在 `internal/seo/htmlinjector/plugin.go` 中，在 `Name()` 方法后添加：
+
+```go
+func (p *HTMLInjector) PluginMetadata() plugin.PluginMeta {
+	return plugin.PluginMeta{
+		Version:    "0.1.0",
+		Author:     "huan team",
+		Tags:       []string{"html", "script", "css"},
+		IsOfficial: true,
+	}
+}
+```
+
+- [ ] **Step 4: 运行测试**
+
+Run: `go test ./internal/seo/... ./internal/plugin/ -v`
+Expected: ALL PASS
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add internal/seo/injector/plugin.go internal/seo/sitemap/plugin.go internal/seo/htmlinjector/plugin.go
+git commit -m "feat(seo): implement MetadataProvider for all compiled-in plugins
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3: Admin UI 插件列表页面增强
+
+**Files:**
+- Modify: `web/admin/src/pages/Plugins.tsx`
+
+- [ ] **Step 1: 更新 PluginInfo 接口，添加新字段**
+
+```tsx
+interface PluginInfo {
+  name: string
+  version: string
+  source: string
+  capability: string
+  status: string
+  loadedAt: string
+  error: string
+  author: string
+  repoURL: string
+  license: string
+  tags: string[]
+}
+```
+
+- [ ] **Step 2: 修改表格列**
+
+当前表格使用 grid 布局：`grid-cols-[1fr_80px_100px_80px_1fr_120px]`
+
+改为：`grid-cols-[1fr_80px_80px_100px_80px_1fr_120px]`
+
+在"名称"和"来源"之间插入"版本"列。
+
+表格 header 在 `"名称"` 后增加 `"版本"`。
+
+表格 body 在名称 span 后增加版本 span：
+
+```tsx
+<span className="text-muted-foreground truncate">{p.version || '-'}</span>
+```
+
+- [ ] **Step 3: 添加官方徽章和 Tags**
+
+在名称列中，如果 `p.tags` 非空且 `p.author` 为 "huan team"，在名称后显示 "官方" badge：
+
+```tsx
+<span className="text-foreground font-medium truncate">{p.name}</span>
+{p.tags && p.tags.length > 0 && (
+  <div className="flex items-center gap-1">
+    {p.tags.slice(0, 3).map((tag) => (
+      <Badge key={tag} variant="secondary" className="text-[9px] leading-none px-1 py-0">
+        {tag}
+      </Badge>
+    ))}
+  </div>
+)}
+```
+
+- [ ] **Step 4: 构建验证**
+
+```bash
+cd web/admin && npm run build
+```
+Expected: Build succeeds
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add web/admin/src/pages/Plugins.tsx
+git commit -m "feat(admin): enhance plugin list with version, tags, official badge
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```

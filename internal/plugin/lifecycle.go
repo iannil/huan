@@ -19,13 +19,18 @@ var ErrPluginNotFound = fmt.Errorf("plugin: not found")
 // PluginInfo is the metadata returned by LifecycleManager.List() and used
 // by the Admin API and CLI for display.
 type PluginInfo struct {
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-	Source     string `json:"source"`               // "compiled" | "loaded" | "grpc"
-	Capability string `json:"capability,omitempty"`
-	Status     string `json:"status"`               // "active" | "inactive" | "error"
-	LoadedAt   string `json:"loadedAt,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Name       string   `json:"name"`
+	Version    string   `json:"version"`
+	Source     string   `json:"source"`               // "compiled" | "loaded" | "grpc"
+	Capability string   `json:"capability,omitempty"`
+	Status     string   `json:"status"`               // "active" | "inactive" | "error"
+	LoadedAt   string   `json:"loadedAt,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	// 新增元数据字段
+	Author     string   `json:"author,omitempty"`
+	RepoURL    string   `json:"repoURL,omitempty"`
+	License    string   `json:"license,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 // loadedPlugin tracks metadata about a runtime-loaded plugin.
@@ -355,6 +360,15 @@ func (m *LifecycleManager) List() []PluginInfo {
 			if caps := m.detectCapabilityFn(lp.plugin); caps != "" {
 				info.Capability = caps
 			}
+		}
+		// Detect metadata via optional MetadataProvider interface
+		if mp, ok := lp.plugin.(MetadataProvider); ok {
+			meta := mp.PluginMetadata()
+			info.Version = meta.Version
+			info.Author = meta.Author
+			info.RepoURL = meta.RepoURL
+			info.License = meta.License
+			info.Tags = meta.Tags
 		}
 		out = append(out, info)
 	}
