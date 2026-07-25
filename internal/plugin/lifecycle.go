@@ -60,6 +60,16 @@ type LifecycleManager struct {
 	// The composition root (cmd/huan) should set this via SetCapabilityDetector
 	// to enable per-capability detection without importing domain packages here.
 	detectCapabilityFn func(Plugin) string
+
+	// subscriptionIDs tracks eventbus subscriptions per plugin name.
+	// Key: plugin name, Value: list of subscription entries for unsubscription.
+	subscriptionIDs map[string][]subscriptionEntry
+}
+
+// subscriptionEntry holds the event type and handler ID for a plugin subscription.
+type subscriptionEntry struct {
+	eventType eventbus.EventType
+	handlerID string
 }
 
 // SetCapabilityDetector registers a function that returns capability labels
@@ -83,6 +93,7 @@ func NewLifecycleManager(registry *Registry, loader *Loader, bus eventbus.EventB
 		bus:       bus,
 		pluginDir: loader.PluginDir(),
 		loaded:    make(map[string]*loadedPlugin),
+		subscriptionIDs: make(map[string][]subscriptionEntry),
 	}
 }
 
@@ -152,6 +163,11 @@ func (m *LifecycleManager) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Subscribe compiled plugins to system events
+	for _, p := range m.registry.All() {
+		m.subscribePluginEvents(p)
+	}
+
 	return nil
 }
 
@@ -162,6 +178,11 @@ func (m *LifecycleManager) Stop() {
 
 	if m.watchCancel != nil {
 		m.watchCancel()
+	}
+
+	// Unsubscribe all plugin event handlers
+	for name := range m.subscriptionIDs {
+		m.unsubscribePluginEvents(name)
 	}
 
 	for name, lp := range m.loaded {
@@ -226,6 +247,9 @@ func (m *LifecycleManager) Load(soPath string, pluginCfg map[string]any) (Plugin
 		"path":   cleanPath,
 	})
 
+	// Subscribe to system events if the plugin implements EventSubscriber
+	m.subscribePluginEvents(p)
+
 	return p, nil
 }
 
@@ -242,6 +266,9 @@ func (m *LifecycleManager) Unload(name string) error {
 	if lp.source == "compiled" {
 		return fmt.Errorf("plugin %q: cannot unload compiled plugin", name)
 	}
+
+	// Unsubscribe from system events
+	m.unsubscribePluginEvents(name)
 
 	m.registry.Unregister(name)
 	delete(m.loaded, name)
@@ -396,6 +423,49 @@ func (m *LifecycleManager) registerCompiled(p Plugin) {
 		"name":   name,
 		"source": "compiled",
 	})
+}
+
+// --- subscription helpers ---
+
+// subscribePluginEvents checks if a plugin implements EventSubscriber and
+// subscribes to its declared events. Must be called with m.mu held.
+func (m *LifecycleManager) subscribePluginEvents(p Plugin) {
+	es, ok := p.(EventSubscriber)
+	if !ok {
+		return
+	}
+	events := es.SubscribedEvents()
+	if len(events) == 0 {
+		return
+	}
+
+	name := p.Name()
+	var entries []subscriptionEntry
+	for _, evtType := range events {
+		// Capture the handler for the closure
+		h := es.HandleEvent
+		handlerID := m.bus.Subscribe(evtType, func(ctx context.Context, ev eventbus.Event) error {
+			return h(ctx, ev)
+		})
+		entries = append(entries, subscriptionEntry{
+			eventType: evtType,
+			handlerID: handlerID,
+		})
+	}
+	m.subscriptionIDs[name] = entries
+}
+
+// unsubscribePluginEvents removes all event subscriptions for a plugin.
+// Must be called with m.mu held.
+func (m *LifecycleManager) unsubscribePluginEvents(name string) {
+	entries, ok := m.subscriptionIDs[name]
+	if !ok {
+		return
+	}
+	for _, entry := range entries {
+		m.bus.Unsubscribe(entry.eventType, entry.handlerID)
+	}
+	delete(m.subscriptionIDs, name)
 }
 
 // --- helpers ---

@@ -1,3 +1,27 @@
+# 插件事件订阅系统 实现计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 为插件系统添加 EventSubscriber 可选接口，让插件可以订阅系统事件
+
+**Architecture:** 在 `internal/plugin/` 新增 `EventSubscriber` 接口；`LifecycleManager.Start()` 检测接口并调用 `eventbus.Subscribe()`；`Stop()` 和 `Unload()` 时取消订阅；生命周期管理通过 `subscriptionIDs` map 跟踪
+
+**Tech Stack:** Go + `internal/daemon/eventbus` 已有事件总线
+
+## Global Constraints
+
+- EventSubscriber 是可选接口（不强制所有 plugin 实现）
+- `SubscribedEvents()` 返回 `[]eventbus.EventType`，nil/空 = 跳过所有事件
+- `HandleEvent(ctx, Event) error` 在事件发生时被调用
+- LifecycleManager.Start() 对已注册的 compiled 插件检测 EventSubscriber 并订阅
+- LifecycleManager.Stop() 取消所有插件订阅
+- LifecycleManager.Load() 对 .so 插件也检测 EventSubscriber 并订阅
+- LifecycleManager.Unload() 取消该插件订阅
+- 订阅 ID 格式：`"plugin:<name>:<eventType>"`，通过 `eventbus.Unsubscribe()` 取消
+- 所有现有测试必须继续通过
+
+---
+
 ### Task 1: EventSubscriber 接口 + LifecycleManager 集成
 
 **Files:**

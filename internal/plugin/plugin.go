@@ -9,8 +9,11 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"sort"
+
+	"github.com/iannil/huan/internal/daemon/eventbus"
 )
 
 // Plugin is the base interface every plugin satisfies. Capability interfaces
@@ -136,7 +139,18 @@ type PluginMeta struct {
 	IsOfficial bool     `json:"isOfficial"`
 }
 
-// MetadataProvider is an optional interface plugins can implement to declare
+// EventSubscriber is an optional interface plugins can implement to subscribe
+// to system events. The LifecycleManager registers these subscriptions when
+// the plugin is loaded (compiled or .so) in serve/dev mode.
+type EventSubscriber interface {
+	// SubscribedEvents returns the event types this plugin wants to receive.
+	// Return nil or empty slice to skip all events.
+	SubscribedEvents() []eventbus.EventType
+
+	// HandleEvent is called for each subscribed event. Returning an error
+	// logs the failure but does not interrupt other handlers.
+	HandleEvent(ctx context.Context, event eventbus.Event) error
+}
 // their metadata. Used by the LifecycleManager.List() and CLI/Admin UI.
 type MetadataProvider interface {
 	PluginMetadata() PluginMeta
