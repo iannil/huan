@@ -139,3 +139,66 @@ func TestLifecycleManager_List_ActiveAndLoaded(t *testing.T) {
 		t.Errorf("Status = %q, want active", info[0].Status)
 	}
 }
+
+// --- EventSubscriber tests ---
+
+type testEventSubscriberPlugin struct {
+	name     string
+	events   []eventbus.EventType
+	received []eventbus.Event
+}
+
+func (p *testEventSubscriberPlugin) Name() string { return p.name }
+func (p *testEventSubscriberPlugin) SubscribedEvents() []eventbus.EventType { return p.events }
+func (p *testEventSubscriberPlugin) HandleEvent(ctx context.Context, event eventbus.Event) error {
+	p.received = append(p.received, event)
+	return nil
+}
+
+var _ EventSubscriber = (*testEventSubscriberPlugin)(nil)
+
+func TestLifecycleManager_EventSubscriber_CompiledPlugin(t *testing.T) {
+	registry := NewRegistry()
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	plugin := &testEventSubscriberPlugin{
+		name:   "test-es",
+		events: []eventbus.EventType{eventbus.EventBuildCompleted, eventbus.EventPluginLoaded},
+	}
+	_ = registry.Register(plugin)
+
+	lm := NewLifecycleManager(registry, NewLoader(t.TempDir()), bus)
+	_ = lm.Start(context.Background())
+	defer lm.Stop()
+
+	// Publish an event the plugin subscribed to
+	_ = bus.Publish(context.Background(), eventbus.Event{
+		Type:      eventbus.EventBuildCompleted,
+		Timestamp: time.Now(),
+		Payload:   "test",
+	})
+
+	// Give the async handler time to fire
+	time.Sleep(50 * time.Millisecond)
+
+	if len(plugin.received) == 0 {
+		t.Error("expected plugin to receive event, got none")
+	}
+}
+
+func TestLifecycleManager_EventSubscriber_NotRequired(t *testing.T) {
+	registry := NewRegistry()
+	bus := eventbus.NewChannelBus()
+	defer bus.Close()
+
+	_ = registry.Register(&lifecycleTestPlugin{name: "no-es"})
+
+	lm := NewLifecycleManager(registry, NewLoader(t.TempDir()), bus)
+	// Should not panic
+	err := lm.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	lm.Stop()
+}
