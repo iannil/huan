@@ -2,6 +2,7 @@ package sse
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -194,4 +195,52 @@ func TestSubscribeBus_Bridges(t *testing.T) {
 func testLogf(t *testing.T) func(string, ...any) {
 	t.Helper()
 	return func(format string, args ...any) { t.Logf(format, args...) }
+}
+
+func TestBroadcastNoClients(t *testing.T) {
+	h := NewSSEHub(nil)
+	// Should not panic
+	h.Broadcast(Event{Type: "test", Data: "hello"})
+}
+
+func TestConcurrentBroadcast(t *testing.T) {
+	h := NewSSEHub(t.Logf)
+
+	var clients []chan Event
+	for i := 0; i < 10; i++ {
+		ch := h.registerClient()
+		clients = append(clients, ch)
+	}
+	defer func() {
+		for _, ch := range clients {
+			h.unregisterClient(ch)
+		}
+	}()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			h.Broadcast(Event{Type: "test", Data: i})
+		}(i)
+	}
+	wg.Wait()
+
+	// Each client should receive events (non-blocking, some may be dropped)
+	for _, ch := range clients {
+		count := 0
+		for {
+			select {
+			case <-ch:
+				count++
+			default:
+				goto done
+			}
+		}
+	done:
+		if count == 0 {
+			t.Error("expected at least 1 event per client")
+		}
+	}
 }
