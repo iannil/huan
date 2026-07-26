@@ -222,34 +222,40 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	bus := NewChannelBus()
 	defer bus.Close()
 
-	var wg sync.WaitGroup
 	const goroutines = 10
 	const eventsPerGoroutine = 100
+	totalExpected := int32(goroutines * goroutines * eventsPerGoroutine)
 
-	// Subscribe handlers
+	// Use a WaitGroup to wait for all handler goroutines to complete
+	var handlerWg sync.WaitGroup
+	handlerWg.Add(int(totalExpected))
+
 	var totalReceived atomic.Int32
 	for i := 0; i < goroutines; i++ {
 		bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
 			totalReceived.Add(1)
+			handlerWg.Done()
 			return nil
 		})
 	}
 
 	// Concurrently publish
+	var publishWg sync.WaitGroup
 	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
+		publishWg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer publishWg.Done()
 			for j := 0; j < eventsPerGoroutine; j++ {
 				_ = bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
 			}
 		}()
 	}
-	wg.Wait()
+	publishWg.Wait()
 
-	time.Sleep(100 * time.Millisecond) // let async handlers finish
-	expected := int32(goroutines * goroutines * eventsPerGoroutine)
-	if got := totalReceived.Load(); got != expected {
-		t.Errorf("expected %d handler calls, got %d", expected, got)
+	// Wait for all async handlers to complete instead of time.Sleep
+	handlerWg.Wait()
+
+	if got := totalReceived.Load(); got != totalExpected {
+		t.Errorf("expected %d handler calls, got %d", totalExpected, got)
 	}
 }
