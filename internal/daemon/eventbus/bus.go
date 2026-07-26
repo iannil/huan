@@ -58,11 +58,17 @@ func (b *ChannelBus) Publish(ctx context.Context, event Event) error {
 	entries := b.handlers[event.Type]
 	for _, entry := range entries {
 		h := entry.handler // capture for closure
+		id := entry.id
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					b.logf("eventbus: handler %s panicked: %v", id, r)
+				}
+			}()
 			hctx, cancel := context.WithTimeout(ctx, handlerTimeout)
 			defer cancel()
 			if err := h(hctx, event); err != nil {
-				b.logf("eventbus: handler %s error: %v", entry.id, err)
+				b.logf("eventbus: handler %s error: %v", id, err)
 			}
 		}()
 	}
@@ -70,9 +76,14 @@ func (b *ChannelBus) Publish(ctx context.Context, event Event) error {
 }
 
 // Subscribe registers a handler for eventType. Returns a unique handler ID.
+// After Close, Subscribe still works (re-initializes the handler map) so that
+// plugins or components that subscribe after the bus is closed don't panic.
 func (b *ChannelBus) Subscribe(eventType EventType, handler Handler) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.handlers == nil {
+		b.handlers = make(map[EventType][]handlerEntry)
+	}
 	b.seq++
 	id := fmt.Sprintf("h%d", b.seq)
 	b.handlers[eventType] = append(b.handlers[eventType], handlerEntry{id: id, handler: handler})

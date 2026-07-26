@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -142,5 +143,113 @@ func TestEventBus_PluginLifecycleEventsCanBePublished(t *testing.T) {
 				t.Errorf("expected 1 handler call, got %d", got)
 			}
 		})
+	}
+}
+
+func TestPublish_HandlerPanic(t *testing.T) {
+	bus := NewChannelBus()
+	defer bus.Close()
+
+	bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
+		panic("handler panic")
+	})
+
+	// This should not crash the test
+	err := bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
+	if err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
+
+	// Give goroutine time to panic
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestUnsubscribeNonExistent(t *testing.T) {
+	bus := NewChannelBus()
+	defer bus.Close()
+
+	// Should not panic
+	bus.Unsubscribe(EventContentChanged, "nonexistent-id")
+	bus.Unsubscribe(EventBuildCompleted, "another-nonexistent")
+}
+
+func TestSubscribeAfterClose(t *testing.T) {
+	bus := NewChannelBus()
+	bus.Close()
+
+	// Should not panic (current behavior allows it)
+	bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
+		return nil
+	})
+}
+
+func TestManySubscribers(t *testing.T) {
+	bus := NewChannelBus()
+	defer bus.Close()
+
+	const count = 1000
+	var totalReceived atomic.Int32
+	for i := 0; i < count; i++ {
+		bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
+			totalReceived.Add(1)
+			return nil
+		})
+	}
+
+	err := bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
+	if err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := totalReceived.Load(); got != int32(count) {
+		t.Errorf("expected %d handler calls, got %d", count, got)
+	}
+}
+
+func TestPublishNoSubscribers(t *testing.T) {
+	bus := NewChannelBus()
+	defer bus.Close()
+
+	err := bus.Publish(context.Background(), Event{Type: EventBuildCompleted, Timestamp: time.Now()})
+	if err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
+	// Should not panic or leak goroutines
+}
+
+func TestConcurrentPublishSubscribe(t *testing.T) {
+	bus := NewChannelBus()
+	defer bus.Close()
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	const eventsPerGoroutine = 100
+
+	// Subscribe handlers
+	var totalReceived atomic.Int32
+	for i := 0; i < goroutines; i++ {
+		bus.Subscribe(EventContentChanged, func(ctx context.Context, event Event) error {
+			totalReceived.Add(1)
+			return nil
+		})
+	}
+
+	// Concurrently publish
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < eventsPerGoroutine; j++ {
+				_ = bus.Publish(context.Background(), Event{Type: EventContentChanged, Timestamp: time.Now()})
+			}
+		}()
+	}
+	wg.Wait()
+
+	time.Sleep(100 * time.Millisecond) // let async handlers finish
+	expected := int32(goroutines * goroutines * eventsPerGoroutine)
+	if got := totalReceived.Load(); got != expected {
+		t.Errorf("expected %d handler calls, got %d", expected, got)
 	}
 }
