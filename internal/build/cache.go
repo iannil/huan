@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iannil/huan/internal/build/cache"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/i18n"
 	"github.com/iannil/huan/internal/markdown"
@@ -23,6 +24,11 @@ import (
 // content edit, so caching them would produce stale output for list pages.
 // Instead, incremental builds reload content + rebuild contexts (cheap)
 // and reuse only the rendering infrastructure here (expensive to rebuild).
+//
+// ContentCache is the exception: it caches page content by file path with
+// mtime-based invalidation, so incremental builds and JIT can skip re-reading
+// unchanged files. It is populated lazily (first access loads the file) and
+// is safe to share across builds as long as the source directory is stable.
 type PipelineCache struct {
 	// Rendering infrastructure (valid until template/i18n/config changes)
 	Templates  *template.Template
@@ -38,12 +44,17 @@ type PipelineCache struct {
 
 	// BuiltAt records when this cache was populated (the last full build time).
 	BuiltAt time.Time
+
+	// ContentCache caches loaded page content by content-relative path.
+	// Populated lazily on first access; invalidated by file mtime changes.
+	ContentCache *cache.ContentCache
 }
 
 // NewPipelineCache returns an empty PipelineCache with BuiltAt set to now.
 func NewPipelineCache() *PipelineCache {
 	return &PipelineCache{
-		BuiltAt: time.Now(),
+		BuiltAt:      time.Now(),
+		ContentCache: cache.NewContentCache(5000),
 	}
 }
 
