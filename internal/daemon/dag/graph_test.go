@@ -1,6 +1,7 @@
 package dag
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/iannil/huan/internal/content"
@@ -293,4 +294,53 @@ func indexOf(slice []string, s string) int {
 		}
 	}
 	return -1
+}
+
+func TestDependsOnDependedBy(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/article/"] = &Node{PagePath: "/article/", Kind: "page"}
+	dg.nodes["/section/"] = &Node{PagePath: "/section/", Kind: "section", DependsOn: []string{"/article/"}}
+	dg.nodes["/article/"].DependedBy = []string{"/section/"}
+
+	// 验证双向引用一致
+	article := dg.nodes["/article/"]
+	section := dg.nodes["/section/"]
+	if len(section.DependsOn) != 1 || section.DependsOn[0] != "/article/" {
+		t.Error("section should depend on article")
+	}
+	if len(article.DependedBy) != 1 || article.DependedBy[0] != "/section/" {
+		t.Error("article should be depended by section")
+	}
+}
+
+func TestOrderByDependency_Cyclic(t *testing.T) {
+	dg := NewDependencyGraph()
+	// A -> B -> A 的循环
+	dg.nodes["/a/"] = &Node{PagePath: "/a/", DependsOn: []string{"/b/"}}
+	dg.nodes["/b/"] = &Node{PagePath: "/b/", DependsOn: []string{"/a/"}}
+
+	// OrderByDependency 不应死循环
+	result := dg.OrderByDependency([]string{"/a/", "/b/"})
+	if len(result) != 2 {
+		t.Errorf("OrderByDependency = %v, want 2 items", result)
+	}
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	dg := NewDependencyGraph()
+	dg.nodes["/page/"] = &Node{PagePath: "/page/", Kind: "page"}
+	dg.sources["content/page.md"] = "/page/"
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = dg.OrderByDependency([]string{"/page/"})
+			_, _ = dg.PagePathFromSource("content/page.md")
+			_, _ = dg.SourceFromPagePath("/page/")
+			_ = dg.AffectedBy([]string{"content/page.md"})
+		}()
+	}
+	wg.Wait()
 }
