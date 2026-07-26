@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -252,4 +253,50 @@ func contains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+func TestEmptyIndex(t *testing.T) {
+	ci := NewContentIndex(baseURL)
+	if ci.Len() != 0 {
+		t.Errorf("Len = %d, want 0", ci.Len())
+	}
+
+	_, ok := ci.GetByURL("/nonexistent/")
+	if ok {
+		t.Error("expected false for GetByURL on empty index")
+	}
+
+	r := ci.Query(Filter{})
+	if r.Total != 0 {
+		t.Errorf("Total = %d, want 0", r.Total)
+	}
+	if len(r.Data) != 0 {
+		t.Errorf("Data len = %d, want 0", len(r.Data))
+	}
+
+	tags := ci.Tags()
+	if len(tags) != 0 {
+		t.Errorf("Tags = %v, want empty", tags)
+	}
+	secs := ci.Sections()
+	if len(secs) != 0 {
+		t.Errorf("Sections = %v, want empty", secs)
+	}
+}
+
+func TestConcurrentReadWrite(t *testing.T) {
+	ci := loadTestIndex(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = ci.Query(Filter{})
+			_ = ci.Tags()
+			_ = ci.Sections()
+			_, _ = ci.GetByURL("/posts/go/")
+		}()
+	}
+	wg.Wait()
 }
