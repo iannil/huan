@@ -340,11 +340,37 @@ func (b *Builder) TriggerRebuild() {
 // Reuses the cached pipeline state for speed. Returns the HTML (not written
 // to disk); the caller (serving.jitFallback) caches it in JITCache.
 //
+// Tries the fast path (JITRenderFast) first for regular pages: loads only the
+// target page, renders only its markdown, and builds only its context. Falls
+// back to the full RenderPageWithCache for list pages or when the cache is
+// not yet populated.
+//
 // Returns an error (→ 404 in serving layer) when the source file cannot
 // be resolved or does not exist on disk.
 func (b *Builder) RenderPageJIT(ctx context.Context, pageURL string) (string, error) {
 	cache := b.opts.PipelineCache
 
+	// Fast path: JITRenderFast for regular pages.
+	if cache != nil && cache.ContentCache != nil && cache.Templates != nil && cache.MDRenderer != nil {
+		if !isListPage(pageURL) {
+			html, err := build.JITRenderFast(build.Options{
+				SourceDir:     b.opts.SourceDir,
+				OutputDir:     b.opts.OutputDir,
+				IncludeDrafts: true,
+				Logf:          b.opts.Logf,
+				PipelineCache: cache,
+			}, cache, pageURL)
+			if err == nil && html != "" {
+				return html, nil
+			}
+			// On error or empty, fall through to legacy path.
+			if err != nil {
+				b.opts.Logf("JIT fast path failed for %s: %v, falling back\n", pageURL, err)
+			}
+		}
+	}
+
+	// Legacy path: RenderPageWithCache.
 	// 1. pageURL → source file (relative to content/).
 	sourceRel, ok := resolveSourceFile(b.opts.DAG, pageURL)
 	if !ok {
@@ -370,6 +396,20 @@ func (b *Builder) RenderPageJIT(ctx context.Context, pageURL string) (string, er
 	}
 
 	return html, nil
+}
+
+// isListPage returns true for section, home, tag, taxonomy pages.
+func isListPage(pageURL string) bool {
+	clean := strings.Trim(pageURL, "/")
+	if clean == "" {
+		return true // home
+	}
+	if strings.HasPrefix(clean, "tags/") || strings.HasPrefix(clean, "categories/") {
+		return true
+	}
+	// Single segment = section index
+	parts := strings.Split(clean, "/")
+	return len(parts) == 1 && !strings.HasSuffix(parts[0], ".html")
 }
 
 // resolveSourceFile maps a page URL to its source file path (relative to

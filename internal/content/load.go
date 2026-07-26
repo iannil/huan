@@ -39,6 +39,18 @@ func ParseFrontmatter(data []byte) (frontmatter map[string]interface{}, body str
 	return frontmatter, strings.TrimSpace(string(bodyData)), nil
 }
 
+// LoadPageFromFrontmatterData creates a Page from raw file data.
+// This is the exported version used by JITRenderFast and other callers that
+// need to construct a Page from already-read file bytes without going through
+// the full LoadDir pipeline.
+func LoadPageFromFrontmatterData(data []byte, relPath string) (*Page, error) {
+	fm, body, err := ParseFrontmatter(data)
+	if err != nil {
+		return nil, fmt.Errorf("LoadPageFromFrontmatterData parse %s: %w", relPath, err)
+	}
+	return loadPageFromFrontmatter(fm, body, relPath)
+}
+
 // loadPageFromFrontmatter creates a Page from parsed frontmatter and file info.
 func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*Page, error) {
 	p := &Page{
