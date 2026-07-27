@@ -187,20 +187,6 @@
                     {{ end }}
 
                     {{ range $book := $volumeData.books }}
-                        {{ if eq $.PageLanguage "en" }}
-                        {{/* English site: catalog only — English title, disabled, no link */}}
-                        {{ $enVersion := $book.version }}{{ if not $enVersion }}{{ $enVersion = "alpha" }}{{ end }}
-                        <div class="listing_item">
-                            <div class="book-info">
-                                <div class="book-row">
-                                    <div class="book-title-cn disabled">{{ $book.title }}<span class="book-version disabled">{{ $enVersion }}</span></div>
-                                </div>
-                                {{ if $book.subtitle }}
-                                <div class="book-title-en">{{ $book.subtitle }}</div>
-                                {{ end }}
-                            </div>
-                        </div>
-                        {{ else }}
                         {{ $bookPage := index $allBooksBySlug $book.slug }}
                         {{ $exists := ne $bookPage nil }}
 
@@ -323,7 +309,6 @@
                                     </div>
                                 </div>
                             {{ end }}
-                        {{ end }}
                         {{ end }}
                     {{ end }}
                 </div>
