@@ -12,6 +12,7 @@ import (
 	"io/fs"
 
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/shortcode"
 )
 
 // ThemePlugin is the core capability interface for theme plugins.
@@ -53,4 +54,13 @@ type TemplateEntry struct {
 type ThemeHooks interface {
 	BeforeRender(ctx context.Context) error
 	AfterRender(ctx context.Context) error
+}
+
+// ShortcodeProvider is an optional interface that themes can implement to
+// provide or override shortcode handlers.
+type ShortcodeProvider interface {
+	// Shortcodes returns a map of shortcode name to handler.
+	// These handlers are registered in the shortcode registry,
+	// overriding any built-in handlers with the same name.
+	Shortcodes() map[string]shortcode.Handler
 }
