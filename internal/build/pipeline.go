@@ -20,6 +20,7 @@ import (
 	"github.com/iannil/huan/internal/output"
 	"github.com/iannil/huan/internal/shortcode"
 	"github.com/iannil/huan/internal/taxonomy"
+	"github.com/iannil/huan/internal/theme"
 	tmpl "github.com/iannil/huan/internal/template"
 )
 
@@ -34,6 +35,10 @@ type pipeline struct {
 	opts   Options
 	logf   func(string, ...any)
 	result *Result
+
+	// themeManager, if non-nil, is used to discover theme hooks
+	// that participate in the build pipeline.
+	themeManager *theme.Manager
 
 	// Stage 1 (loadConfig)
 	cfg *config.Config
@@ -117,10 +122,11 @@ func (p *pipeline) runOnOutputWritten() {
 // newPipeline initializes the struct with options + result. Stages mutate it.
 func newPipeline(opts Options) *pipeline {
 	return &pipeline{
-		opts:   opts,
-		logf:   opts.logf(),
-		result: &Result{},
-		now:    time.Now(),
+		opts:         opts,
+		logf:         opts.logf(),
+		result:       &Result{},
+		now:          time.Now(),
+		themeManager: opts.ThemeManager,
 	}
 }
 

@@ -4,6 +4,7 @@ package build
 // pipeline_*.go and operate on a *pipeline struct (see pipeline.go).
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/output"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 	tmpl "github.com/iannil/huan/internal/template"
 )
 
@@ -67,6 +69,10 @@ type Options struct {
 	// collection-not-interruption semantics — failures log a warning but
 	// do not abort the build.
 	PluginRegistry *plugin.Registry
+
+	// ThemeManager, if non-nil, is used to discover theme hooks
+	// that participate in the build pipeline.
+	ThemeManager *theme.Manager
 }
 
 // RenderPageFunc is the callback signature for single-page rendering.
@@ -107,6 +113,19 @@ func BuildSite(opts Options) (*Result, error) {
 	start := time.Now()
 	p := newPipeline(opts)
 
+	// BeforeRender Hook: collection-not-interruption semantics.
+	// Fail-fast: a BeforeRender error aborts the build so the user
+	// knows the theme is broken before spending time rendering.
+	if p.themeManager != nil {
+		if tp := p.themeManager.Active(); tp != nil {
+			if hooks, ok := tp.(theme.ThemeHooks); ok {
+				if err := hooks.BeforeRender(context.Background()); err != nil {
+					return nil, fmt.Errorf("theme before render: %w", err)
+				}
+			}
+		}
+	}
+
 	stages := []struct {
 		name string
 		fn   func() error
@@ -132,6 +151,19 @@ func BuildSite(opts Options) (*Result, error) {
 	p.copyStaticAndFinalize()
 
 	p.result.Duration = time.Since(start)
+
+	// AfterRender Hook: collection-not-interruption semantics.
+	// Failures log a warning but do not abort the build, so partial
+	// output is still produced.
+	if p.themeManager != nil {
+		if tp := p.themeManager.Active(); tp != nil {
+			if hooks, ok := tp.(theme.ThemeHooks); ok {
+				if err := hooks.AfterRender(context.Background()); err != nil {
+					p.logf("WARN: theme after render: %v\n", err)
+				}
+			}
+		}
+	}
 
 	// Invoke AfterBuild callback if provided (for daemon JIT cache setup).
 	if opts.AfterBuild != nil {
