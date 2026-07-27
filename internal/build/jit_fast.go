@@ -30,11 +30,15 @@ func JITRenderFast(opts Options, cache *PipelineCache, pageURL string) (string, 
 	}
 
 	sourcePath := filepath.Join(opts.SourceDir, "content", sourceRel)
-	if _, err := os.Stat(sourcePath); err != nil {
-		return "", fmt.Errorf("JITRenderFast: source not found: %s", sourcePath)
-	}
 
 	// 2. Load single page via ContentCache.
+	// Stat first to get mtime, then ReadFile — avoids double syscall.
+	fi, serr := os.Stat(sourcePath)
+	if serr != nil {
+		return "", fmt.Errorf("JITRenderFast: stat %s: %w", sourcePath, serr)
+	}
+	fileMtime := fi.ModTime()
+
 	pg, err := cache.ContentCache.GetOrLoad(sourceRel, func(path string) (*content.Page, time.Time, error) {
 		data, rerr := os.ReadFile(sourcePath)
 		if rerr != nil {
@@ -45,11 +49,7 @@ func JITRenderFast(opts Options, cache *PipelineCache, pageURL string) (string, 
 			return nil, time.Time{}, perr
 		}
 		page.FilePath = sourcePath
-		fi, serr := os.Stat(sourcePath)
-		if serr != nil {
-			return nil, time.Time{}, serr
-		}
-		return page, fi.ModTime(), nil
+		return page, fileMtime, nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("JITRenderFast: load %s: %w", sourceRel, err)
@@ -82,9 +82,14 @@ func JITRenderFast(opts Options, cache *PipelineCache, pageURL string) (string, 
 		pg.WordCount = CountWordsInPlain(pg.Plain)
 	}
 
-	// 5. Build single-page context (no site-wide context, no DAG).
-	siteCtx := &tmpl.SiteContext{
-		Config: cache.SiteCfg,
+	// 5. Build single-page context. Check ContextCache first for reuse.
+	ctx := cache.ContextCache.Get(pg)
+	if ctx == nil {
+		siteCtx := &tmpl.SiteContext{
+			Config: cache.SiteCfg,
+		}
+		ctx = tmpl.NewContext(pg, siteCtx, cache.SiteCfg)
+		cache.ContextCache.Set(pg, ctx)
 	}
 
 	tmplName := ResolveTemplateName(cache.Templates, pg)
@@ -92,13 +97,15 @@ func JITRenderFast(opts Options, cache *PipelineCache, pageURL string) (string, 
 		return "", fmt.Errorf("JITRenderFast: no template for %s", sourceRel)
 	}
 
-	ctx := tmpl.NewContext(pg, siteCtx, cache.SiteCfg)
 	if pg.Kind == "section" || pg.Kind == "home" {
 		return "", fmt.Errorf("JITRenderFast: list page %s not supported, use RenderPageWithCache", pageURL)
 	}
 
-	// 6. Render the single page.
-	renderer := tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(cache.SiteCfg.BaseURL))
+	// 6. Render the single page. Reuse cached renderer when available.
+	renderer := cache.Renderer
+	if renderer == nil {
+		renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(cache.SiteCfg.BaseURL))
+	}
 	out, err := renderer.Render(tmplName, ctx)
 	if err != nil {
 		return "", fmt.Errorf("JITRenderFast: render %s: %w", pageURL, err)

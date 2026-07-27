@@ -94,9 +94,13 @@ func (p *pipeline) buildContexts() {
 	lookup := map[*content.Page]*tmpl.Context{}
 
 	// Resolve ContextCache from PipelineCache, if available.
+	// Clear it at the start of each build to prevent stale *content.Page
+	// pointers from accumulating across incremental builds. ContextCache
+	// is scoped to a single build; it does not survive across builds.
 	var ctxCache *cache.ContextCache
 	if p.opts.PipelineCache != nil {
 		ctxCache = p.opts.PipelineCache.ContextCache
+		ctxCache.Clear()
 	}
 
 	for _, pg := range p.site.Pages {

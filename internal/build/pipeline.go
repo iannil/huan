@@ -241,10 +241,11 @@ func (p *pipeline) loadContent() error {
 
 // loadContentWithCache loads pages and populates the ContentCache for use
 // by JITRenderFast. This always uses content.LoadDir to get fresh data,
-// then writes each page into the cache. The cache is a write-through cache
-// for JITRenderFast, not a read-through cache for full/incremental builds.
-// This ensures correctness: full builds and incremental builds always see
-// fresh content from disk, while JITRenderFast benefits from cached content.
+// then writes each page into the cache using the efficient Store method.
+// The cache is a write-through cache for JITRenderFast, not a read-through
+// cache for full/incremental builds. This ensures correctness: full builds
+// and incremental builds always see fresh content from disk, while
+// JITRenderFast benefits from cached content.
 func (p *pipeline) loadContentWithCache(contentDir string, contentCache *cache.ContentCache) ([]*content.Page, error) {
 	allPages, err := content.LoadDir(contentDir)
 	if err != nil {
@@ -252,25 +253,15 @@ func (p *pipeline) loadContentWithCache(contentDir string, contentCache *cache.C
 	}
 
 	// Populate the cache with freshly loaded pages so JITRenderFast can
-	// benefit from cached content. Since we always load fresh data from
-	// LoadDir, we first invalidate any existing cached entries to ensure
-	// the cache reflects the latest state.
+	// benefit from cached content. Uses Store for single-lock writes
+	// instead of Invalidate+GetOrLoad (which does double-checked locking).
 	loaded := make([]*content.Page, 0, len(allPages))
 	for _, pg := range allPages {
-		relPath := pg.RelPath
-		// Invalidate existing cache entry to force a fresh store.
-		contentCache.Invalidate(relPath)
-		// Store the freshly loaded page in the cache.
-		_, err := contentCache.GetOrLoad(relPath, func(path string) (*content.Page, time.Time, error) {
-			fi, serr := os.Stat(pg.FilePath)
-			if serr != nil {
-				return nil, time.Time{}, serr
-			}
-			return pg, fi.ModTime(), nil
-		})
-		if err != nil {
-			return nil, err
+		fi, serr := os.Stat(pg.FilePath)
+		if serr != nil {
+			return nil, serr
 		}
+		contentCache.Store(pg.RelPath, pg, fi.ModTime())
 		loaded = append(loaded, pg)
 	}
 

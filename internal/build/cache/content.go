@@ -49,15 +49,15 @@ func NewContentCache(max int) *ContentCache {
 	}
 }
 
-// GetOrLoad returns the cached page for path if it exists and is not stale.
-// If the cache misses or the entry was explicitly invalidated, it calls loadFn
-// to load the page, caches it (evicting the LRU entry if at capacity), and
-// returns the result. loadFn is only called when needed.
+// GetOrLoad returns the cached page for path if it exists.
+// If the cache misses, it calls loadFn to load the page, caches it (evicting
+// the LRU entry if at capacity), and returns the result. loadFn is only called
+// when needed.
 //
-// NOTE: The cache trusts the mtime returned by loadFn for its internal state,
-// but does NOT re-stat the filesystem on every access. Callers are responsible
-// for calling Invalidate/InvalidateByPrefix/Clear when files change (typically
-// via the file watcher in daemon mode).
+// NOTE: This cache uses caller-driven invalidation — callers must call
+// Invalidate/InvalidateByPrefix/Clear when files change (typically via the
+// file watcher in daemon mode). The cache does NOT re-stat the filesystem
+// on GetOrLoad, so stale entries are returned until explicitly invalidated.
 //
 // Concurrent calls to GetOrLoad with the same path are safe: only one
 // goroutine calls loadFn; the others wait and receive the cached result.
@@ -143,6 +143,47 @@ func (c *ContentCache) Clear() {
 	defer c.mu.Unlock()
 	c.items = make(map[string]*pageEntry)
 	c.lru = list.New()
+}
+
+// Store inserts or updates a cache entry for path with the given page and mtime.
+// This is a single-lock write operation without the double-checked loading
+// overhead of GetOrLoad. Use it when you already have fresh data and just
+// want to populate the cache (e.g., write-through pattern from full builds).
+//
+// Unlike GetOrLoad, Store does not call loadFn and does not check for existing
+// entries — it unconditionally writes the entry.
+func (c *ContentCache) Store(path string, pg *content.Page, mtime time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// If an entry already exists, remove it from the LRU list first.
+	if entry, exists := c.items[path]; exists {
+		c.lru.Remove(entry.element)
+		delete(c.items, path)
+	}
+
+	// Evict LRU if at capacity.
+	for c.lru.Len() >= c.max {
+		oldest := c.lru.Back()
+		if oldest == nil {
+			break
+		}
+		oldKey := oldest.Value.(*pageEntry).key
+		delete(c.items, oldKey)
+		c.lru.Remove(oldest)
+	}
+
+	elem := c.lru.PushFront(&pageEntry{
+		key:   path,
+		page:  pg,
+		mtime: mtime,
+	})
+	c.items[path] = &pageEntry{
+		key:     path,
+		page:    pg,
+		mtime:   mtime,
+		element: elem,
+	}
 }
 
 // Len returns the current number of cached entries.
