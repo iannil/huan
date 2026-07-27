@@ -20,6 +20,7 @@
                 {{ $bookDir := .File.Dir }}
 
                 {{ $booksData := .Site.Data.books }}
+                {{ if eq $.Site.LanguageCode "en" }}{{ with .Site.Data.en }}{{ with .books }}{{ $booksData = . }}{{ end }}{{ end }}{{ end }}
                 {{ $bookInfo := dict }}
                 {{ range $booksData.collection }}
                     {{ range .books }}
@@ -61,7 +62,7 @@
                 {{/* Prologue */}}
                 {{ with (first 1 (where $allPages "File.BaseFileName" "prologue")) }}
                     {{ if $partTitles }}
-                        <div class="listing_title section-title">楔子</div>
+                        <div class="listing_title section-title">{{ i18n "practice_prologue" }}</div>
                     {{ end }}
                     <div class="listing compact">
                         {{ range . }}
@@ -73,7 +74,7 @@
                 {{/* Introduction */}}
                 {{ with (first 1 (where $allPages "File.BaseFileName" "introduction")) }}
                     {{ if $partTitles }}
-                        <div class="listing_title section-title">导论</div>
+                        <div class="listing_title section-title">{{ i18n "practice_intro" }}</div>
                     {{ end }}
                     <div class="listing compact">
                         {{ range . }}
@@ -109,7 +110,13 @@
                     {{ range $partSlugs }}
                         {{ $slug := . }}
                         {{ $num := int (replace $slug "part-" "") }}
-                        {{ $default := printf "第%s部" (cond (and (ge $num 0) (lt $num (len $cnNumbers))) (index $cnNumbers $num) (printf "%02d" $num)) }}
+                        {{ $isEn := eq $.PageLanguage "en" }}
+                        {{ $default := "" }}
+                        {{ if $isEn }}
+                            {{ $default = printf "%s%d" (i18n "practice_part_prefix") $num }}
+                        {{ else }}
+                            {{ $default = printf "%s%s%s" (i18n "practice_part_prefix") (cond (and (ge $num 0) (lt $num (len $cnNumbers))) (index $cnNumbers $num) (printf "%02d" $num)) (i18n "practice_part_suffix") }}
+                        {{ end }}
                         {{ $title := $default }}
                         {{ if isset $partTitles $slug }}
                             {{ $title = index $partTitles $slug }}
@@ -133,7 +140,7 @@
                 {{/* Epilogue */}}
                 {{ with (first 1 (where $allPages "File.BaseFileName" "epilogue")) }}
                     {{ if $partTitles }}
-                        <div class="listing_title section-title epilogue-title">结语</div>
+                        <div class="listing_title section-title epilogue-title">{{ i18n "practice_epilogue" }}</div>
                     {{ end }}
                     <div class="listing compact">
                         {{ range . }}
@@ -145,7 +152,7 @@
                 {{/* Appendix */}}
                 {{ with (first 1 (where $allPages "File.BaseFileName" "appendix")) }}
                     {{ if $partTitles }}
-                        <div class="listing_title section-title epilogue-title">附录</div>
+                        <div class="listing_title section-title epilogue-title">{{ i18n "practice_appendix" }}</div>
                     {{ end }}
                     <div class="listing compact">
                         {{ range . }}

@@ -187,20 +187,6 @@
                     {{ end }}
 
                     {{ range $practice := $volumeData.practices }}
-                        {{ if eq $.PageLanguage "en" }}
-                        {{/* English site: catalog only — English title, disabled, no link */}}
-                        {{ $enVersion := $practice.version }}{{ if not $enVersion }}{{ $enVersion = "alpha" }}{{ end }}
-                        <div class="listing_item">
-                            <div class="book-info">
-                                <div class="book-row">
-                                    <div class="book-title-cn disabled">{{ $practice.title }}<span class="book-version disabled">{{ $enVersion }}</span></div>
-                                </div>
-                                {{ if $practice.subtitle }}
-                                <div class="book-title-en">{{ $practice.subtitle }}</div>
-                                {{ end }}
-                            </div>
-                        </div>
-                        {{ else }}
                         {{ $practicePage := index $allPracticesBySlug $practice.slug }}
                         {{ $exists := ne $practicePage nil }}
 
@@ -323,7 +309,6 @@
                                     </div>
                                 </div>
                             {{ end }}
-                        {{ end }}
                         {{ end }}
                     {{ end }}
                 </div>
