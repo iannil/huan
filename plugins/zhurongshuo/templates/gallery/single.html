@@ -1,0 +1,80 @@
+{{ partial "head.html" . }}
+<link rel="stylesheet" type="text/css" media="screen" href="/theme/zhurongshuo/css/gallery.css" />
+</head>
+
+<body>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            <div class="gallery-single">
+                <h1 class="gallery-single-title">{{ .Title }}</h1>
+
+                {{ if .Params.date }}
+                <div class="gallery-single-meta">
+                    <span class="date">{{ .Date.Format "2006年01月02日" }}</span>
+                </div>
+                {{ end }}
+
+                <div class="gallery-single-content">
+                    {{ if .Params.featured_image }}
+                    {{- $cdnURL := .Site.Params.cdnURL | default "" -}}
+                    {{- $imageURL := "" -}}
+                    {{- if $cdnURL -}}
+                        {{- $imageURL = printf "%s%s" $cdnURL .Params.featured_image -}}
+                    {{- else -}}
+                        {{- $imageURL = .Params.featured_image | absURL -}}
+                    {{- end -}}
+                    <div class="gallery-single-image">
+                        <a data-fancybox href="{{ $imageURL }}">
+                            <img src="{{ $imageURL }}" alt="{{ .Title }}">
+                        </a>
+                    </div>
+                    {{ end }}
+
+                    {{ if .Params.video }}
+                    {{- $cdnURL := .Site.Params.cdnURL | default "" -}}
+                    {{- $videoURL := "" -}}
+                    {{- if $cdnURL -}}
+                        {{- $videoURL = printf "%s%s" $cdnURL .Params.video -}}
+                    {{- else -}}
+                        {{- $videoURL = .Params.video | absURL -}}
+                    {{- end -}}
+                    <div class="gallery-single-video">
+                        <video controls>
+                            <source src="{{ $videoURL }}" type="video/mp4">
+                            {{ i18n "browser_no_video" }}
+                        </video>
+                    </div>
+                    {{ end }}
+
+                    {{ if .Params.audio }}
+                    {{- $cdnURL := .Site.Params.cdnURL | default "" -}}
+                    {{- $audioURL := "" -}}
+                    {{- if $cdnURL -}}
+                        {{- $audioURL = printf "%s%s" $cdnURL .Params.audio -}}
+                    {{- else -}}
+                        {{- $audioURL = .Params.audio | absURL -}}
+                    {{- end -}}
+                    <div class="gallery-single-audio">
+                        <audio controls>
+                            <source src="{{ $audioURL }}" type="audio/mpeg">
+                            {{ i18n "browser_no_audio" }}
+                        </audio>
+                    </div>
+                    {{ end }}
+
+                    <div class="gallery-single-description">
+                        {{ .Content }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    </div>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+    {{ partial "search.html" . }}
+</body>
+
+</html>

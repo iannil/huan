@@ -1,0 +1,341 @@
+{{ partial "head.html" . }}
+
+<body>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            <div class="list_with_title books-index-list">
+                <style>
+                /* Books Index Styles */
+                .books-index-list .listing {
+                    margin-bottom: 0px;
+                }
+
+                .books-index-list .listing_item {
+                    margin-bottom: 10px;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 10px;
+                }
+
+                .books-index-list .listing_item:last-child {
+                    border-bottom: none;
+                }
+
+                /* PC端布局 */
+                .books-index-list .book-info {
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .books-index-list .book-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: baseline;
+                    margin-bottom: 0px;
+                }
+
+                .books-index-list .book-title-cn {
+                    font-size: 1.15rem;
+                    font-weight: 500;
+                    flex: 1;
+                }
+
+                .books-index-list .book-title-cn a {
+                    color: #34495e;
+                    text-decoration: none;
+                    transition: color 0.3s ease;
+                }
+
+                .books-index-list .book-title-cn a:hover {
+                    color: #555555;
+                }
+
+                .books-index-list .book-version {
+                    color: #95a5a6;
+                    font-size: 0.9rem;
+                    font-weight: normal;
+                }
+
+                .books-index-list .book-word-count {
+                    color: #7f8c8d;
+                    font-size: 0.9rem;
+                    white-space: nowrap;
+                    margin-left: 15px;
+                }
+
+                .books-index-list .book-title-en {
+                    font-size: 0.9rem;
+                    color: #95a5a6;
+                    font-style: italic;
+                    flex: 1;
+                }
+
+                .books-index-list .book-date {
+                    color: #95a5a6;
+                    font-size: 0.85rem;
+                    white-space: nowrap;
+                    margin-left: 15px;
+                }
+
+                /* 默认隐藏移动端元素 */
+                .books-index-list .mobile-only {
+                    display: none;
+                }
+
+                /* 移动端响应式布局 */
+                @media screen and (max-width: 768px) {
+                    /* 隐藏PC端元素 */
+                    .books-index-list .pc-only {
+                        display: none;
+                    }
+
+                    /* 显示移动端元素 */
+                    .books-index-list .mobile-only {
+                        display: flex;
+                    }
+
+                    .books-index-list .book-row {
+                        flex-direction: column;
+                        align-items: flex-start;
+                    }
+
+                    .books-index-list .book-title-cn,
+                    .books-index-list .book-title-en {
+                        width: 100%;
+                        margin-bottom: 8px;
+                    }
+
+                    .books-index-list .book-word-count,
+                    .books-index-list .book-date {
+                        margin-left: 0;
+                    }
+
+                    .books-index-list .book-meta-row {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        width: 100%;
+                        margin-top: 4px;
+                    }
+
+                    .books-index-list .book-meta-row .book-word-count {
+                        text-align: left;
+                    }
+
+                    .books-index-list .book-meta-row .book-date {
+                        text-align: right;
+                    }
+                }
+
+                /* Disabled book styles */
+                .books-index-list .book-title-cn.disabled {
+                    color: #bdc3c7;
+                    cursor: default;
+                }
+
+                .books-index-list .book-title-cn.disabled a {
+                    color: #bdc3c7;
+                    pointer-events: none;
+                    cursor: default;
+                }
+
+                .books-index-list .book-title-cn.disabled:hover {
+                    color: #bdc3c7;
+                }
+
+                .books-index-list .book-title-cn.disabled a:hover {
+                    color: #bdc3c7;
+                }
+
+                .books-index-list .book-title-en.disabled {
+                    color: #d5d8da;
+                }
+
+                .books-index-list .book-version.disabled {
+                    color: #d5d8da;
+                }
+
+                /* Volume description styles */
+                .books-index-list .volume-description {
+                    color: #7f8c8d;
+                    font-size: 0.85rem;
+                    line-height: 1.6;
+                    margin-top: 8px;
+                    margin-bottom: 15px;
+                    padding-left: 0;
+                }
+                </style>
+
+                {{ $allBooksBySlug := dict }}
+                {{ range .Site.Pages }}
+                    {{ if eq .Type "book" }}
+                        {{ $bookSlug := path.Base .File.Dir }}
+                        {{ $allBooksBySlug = merge $allBooksBySlug (dict $bookSlug .) }}
+                    {{ end }}
+                {{ end }}
+
+                {{ $booksData := .Site.Data.books }}
+                {{ if eq $.Site.LanguageCode "en" }}{{ with .Site.Data.en }}{{ with .books }}{{ $booksData = . }}{{ end }}{{ end }}{{ end }}
+                {{ $bookCollection := $booksData.collection }}
+
+                {{ range $volumeData := $bookCollection }}
+                <div class="listing">
+                    <div class="listing_title">{{ $volumeData.volume }}</div>
+                    {{ if $volumeData.description }}
+                    <div class="volume-description">{{ $volumeData.description }}</div>
+                    {{ end }}
+
+                    {{ range $book := $volumeData.books }}
+                        {{ if eq $.PageLanguage "en" }}
+                        {{/* English site: catalog only — English title, disabled, no link */}}
+                        {{ $enVersion := $book.version }}{{ if not $enVersion }}{{ $enVersion = "alpha" }}{{ end }}
+                        <div class="listing_item">
+                            <div class="book-info">
+                                <div class="book-row">
+                                    <div class="book-title-cn disabled">{{ $book.title }}<span class="book-version disabled">{{ $enVersion }}</span></div>
+                                </div>
+                                {{ if $book.subtitle }}
+                                <div class="book-title-en">{{ $book.subtitle }}</div>
+                                {{ end }}
+                            </div>
+                        </div>
+                        {{ else }}
+                        {{ $bookPage := index $allBooksBySlug $book.slug }}
+                        {{ $exists := ne $bookPage nil }}
+
+                        {{/* Get version from YAML data */}}
+                        {{ $version := $book.version }}
+                        {{ if not $version }}
+                            {{ $version = "alpha" }}
+                        {{ end }}
+
+                        {{/* Determine if book should be clickable: exists AND (rc OR ongoing) */}}
+                        {{ $isClickable := and $exists (or (eq $version "rc") (eq $version "ongoing")) }}
+
+                        {{ if $isClickable }}
+                            {{ $totalWords := 0 }}
+                            {{ $allPages := $bookPage.RegularPagesRecursive }}
+                            {{ range $allPages }}
+                                {{ $totalWords = add $totalWords .WordCount }}
+                            {{ end }}
+
+                            {{/* Get date: prefer last_updated from YAML, fallback to Lastmod */}}
+                            {{ $displayDate := $bookPage.Lastmod }}
+                            {{ if $book.last_updated }}
+                                {{ $displayDate = time $book.last_updated }}
+                            {{ end }}
+
+                            <div class="listing_item">
+                                <div class="book-info">
+                                    <!-- PC端：第一行显示中文名和字数 -->
+                                    <div class="book-row">
+                                        <div class="book-title-cn">
+                                            <a href="{{ $bookPage.RelPermalink }}">{{ $book.title }}</a>
+                                            <span class="book-version">{{ $version }}</span>
+                                        </div>
+                                        <div class="book-word-count pc-only">{{ i18n "word_count_prefix" }}{{ lang.FormatNumberCustom 1 (div $totalWords (cond (eq $.PageLanguage "en") 1000.0 10000.0)) }} {{ i18n "word_count_unit" }}</div>
+                                    </div>
+
+                                    <!-- PC端：第二行显示英文名和日期 -->
+                                    <div class="book-row">
+                                        {{ if $book.subtitle }}
+                                        <div class="book-title-en">{{ $book.subtitle }}</div>
+                                        {{ end }}
+                                        <div class="book-date pc-only">
+                                            <span class="date">{{ $displayDate.Format "2006-01-02" }}</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 移动端：第三行显示字数和日期 -->
+                                    <div class="book-meta-row mobile-only">
+                                        <div class="book-word-count">{{ i18n "word_count_prefix" }}{{ lang.FormatNumberCustom 1 (div $totalWords (cond (eq $.PageLanguage "en") 1000.0 10000.0)) }} {{ i18n "word_count_unit" }}</div>
+                                        <div class="book-date">
+                                            <span class="date">{{ $displayDate.Format "2006-01-02" }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {{ else }}
+                            {{/* Book is not clickable: either doesn't exist OR is alpha version */}}
+                            {{ if $exists }}
+                                {{/* Alpha version exists: show full info but disabled */}}
+                                {{ $totalWords := 0 }}
+                                {{ $allPages := $bookPage.RegularPagesRecursive }}
+                                {{ range $allPages }}
+                                    {{ $totalWords = add $totalWords .WordCount }}
+                                {{ end }}
+
+                                {{/* Get date: prefer last_updated from YAML, fallback to Lastmod */}}
+                                {{ $displayDate := $bookPage.Lastmod }}
+                                {{ if $book.last_updated }}
+                                    {{ $displayDate = time $book.last_updated }}
+                                {{ end }}
+
+                                <div class="listing_item">
+                                    <div class="book-info">
+                                        <!-- PC端：第一行显示中文名和字数 -->
+                                        <div class="book-row">
+                                            <div class="book-title-cn disabled">
+                                                <a href="{{ $bookPage.RelPermalink }}">{{ $book.title }}</a>
+                                                <span class="book-version disabled">{{ $version }}</span>
+                                            </div>
+                                            <div class="book-word-count pc-only">{{ i18n "word_count_prefix" }}{{ lang.FormatNumberCustom 1 (div $totalWords (cond (eq $.PageLanguage "en") 1000.0 10000.0)) }} {{ i18n "word_count_unit" }}</div>
+                                        </div>
+
+                                        <!-- PC端：第二行显示英文名和日期 -->
+                                        <div class="book-row">
+                                            {{ if $book.subtitle }}
+                                            <div class="book-title-en disabled">{{ $book.subtitle }}</div>
+                                            {{ end }}
+                                            <div class="book-date pc-only">
+                                                <span class="date">{{ $displayDate.Format "2006-01-02" }}</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- 移动端：第三行显示字数和日期 -->
+                                        <div class="book-meta-row mobile-only">
+                                            <div class="book-word-count">{{ i18n "word_count_prefix" }}{{ lang.FormatNumberCustom 1 (div $totalWords (cond (eq $.PageLanguage "en") 1000.0 10000.0)) }} {{ i18n "word_count_unit" }}</div>
+                                            <div class="book-date">
+                                                <span class="date">{{ $displayDate.Format "2006-01-02" }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {{ else }}
+                                {{/* Book doesn't exist: show only title and subtitle, disabled */}}
+                                <div class="listing_item">
+                                    <div class="book-info">
+                                        <!-- PC端：第一行显示中文名（无字数） -->
+                                        <div class="book-row">
+                                            <div class="book-title-cn disabled">
+                                                {{ $book.title }}
+                                                <span class="book-version disabled">{{ $version }}</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- PC端：第二行显示英文名（如果有） -->
+                                        {{ if $book.subtitle }}
+                                        <div class="book-row">
+                                            <div class="book-title-en disabled">{{ $book.subtitle }}</div>
+                                        </div>
+                                        {{ end }}
+                                    </div>
+                                </div>
+                            {{ end }}
+                        {{ end }}
+                        {{ end }}
+                    {{ end }}
+                </div>
+                {{ end }}
+            </div>
+            <div class="pagination"></div>
+        </div>
+        <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    </div>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+    {{ partial "search.html" . }}
+</body>
+
+</html>

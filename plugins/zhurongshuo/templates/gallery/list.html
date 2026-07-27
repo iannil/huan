@@ -1,0 +1,257 @@
+{{ partial "head.html" . }}
+<link rel="stylesheet" type="text/css" media="screen" href="/theme/zhurongshuo/css/gallery.css" />
+</head>
+
+<body>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            <!-- <div class="gallery-intro">
+                {{ .Content }}
+            </div> -->
+
+            <div class="gallery-grid" id="galleryGrid"></div>
+            <div class="gallery-loading" id="galleryLoading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">{{ i18n "gallery_loading" }}</div>
+            </div>
+
+            <!-- Gallery data for infinite scroll -->
+            <script id="gallery-data" type="application/json">
+{{- $galleryItems := slice -}}
+{{- $cdnURL := .Site.Params.cdnURL | default "" -}}
+{{- range .Pages -}}
+    {{- if eq .Type "gallery" -}}
+        {{- $featuredImage := "" -}}
+        {{- $thumbnailImage := "" -}}
+        {{- $videoURL := "" -}}
+        {{- $audioURL := "" -}}
+        {{- if .Params.featured_image -}}
+            {{- if $cdnURL -}}
+                {{- $featuredImage = printf "%s%s" $cdnURL .Params.featured_image -}}
+                {{- $thumbnailImage = printf "%s%s?w=600&q=75" $cdnURL .Params.featured_image -}}
+            {{- else -}}
+                {{- $featuredImage = .Params.featured_image | absURL -}}
+                {{- $thumbnailImage = .Params.featured_image | absURL -}}
+            {{- end -}}
+        {{- end -}}
+        {{- if .Params.video -}}
+            {{- if $cdnURL -}}
+                {{- $videoURL = printf "%s%s" $cdnURL .Params.video -}}
+            {{- else -}}
+                {{- $videoURL = .Params.video | absURL -}}
+            {{- end -}}
+        {{- end -}}
+        {{- if .Params.audio -}}
+            {{- if $cdnURL -}}
+                {{- $audioURL = printf "%s%s" $cdnURL .Params.audio -}}
+            {{- else -}}
+                {{- $audioURL = .Params.audio | absURL -}}
+            {{- end -}}
+        {{- end -}}
+        {{- $item := dict
+            "title" .Title
+            "date" (.Date.Format "2006-01-02")
+            "description" (default "" .Params.description)
+            "featured_image" $featuredImage
+            "thumbnail_image" $thumbnailImage
+            "video" $videoURL
+            "audio" $audioURL
+            "permalink" .Permalink -}}
+        {{- $galleryItems = $galleryItems | append $item -}}
+    {{- end -}}
+{{- end -}}
+{{ $galleryItems | jsonify | safeJS }}
+            </script>
+        </div>
+        <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    </div>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+
+    <script>
+    (function() {
+        // i18n strings injected from server-side Go templates
+        const I18N = {
+            browser_no_video: {{ i18n "browser_no_video" | jsonify }},
+            browser_no_audio: {{ i18n "browser_no_audio" | jsonify }}
+        };
+
+        // Gallery infinite scroll functionality
+        const galleryGrid = document.getElementById('galleryGrid');
+        const galleryLoading = document.getElementById('galleryLoading');
+        const galleryDataElement = document.getElementById('gallery-data');
+
+        let galleryData = [];
+        try {
+            galleryData = JSON.parse(galleryDataElement.textContent);
+        } catch(e) {
+            console.error('Failed to parse gallery data:', e);
+            return;
+        }
+
+        // 追踪图库页面访问
+        if (window.ZrsAnalytics) {
+            ZrsAnalytics.track('zrs_gallery_view', {
+                total_items: galleryData.length
+            });
+        }
+
+        const ITEMS_PER_PAGE = 20;
+        let currentPage = 0;
+        let isLoading = false;
+        let hasMore = true;
+
+        // Function to create gallery item HTML
+        function createGalleryItem(item) {
+            const div = document.createElement('div');
+            div.className = 'gallery-item';
+
+            if (item.featured_image) {
+                // Use thumbnail for grid display, original for lightbox
+                const thumbnailSrc = item.thumbnail_image || item.featured_image;
+
+                div.innerHTML = `
+                    <div class="gallery-item-image">
+                        <a data-fancybox="gallery"
+                           href="${item.featured_image}"
+                           data-caption="${item.title}${item.description ? ' - ' + item.description : ''}">
+                            <img src="${thumbnailSrc}"
+                                 alt="${item.title}"
+                                 loading="lazy"
+                                 data-original="${item.featured_image}">
+                        </a>
+                        <div class="gallery-item-overlay">
+                            <a href="${item.permalink}" class="gallery-item-title">${item.title}</a>
+                            ${item.date ? `<div class="gallery-item-date">${item.date}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (item.video) {
+                div.innerHTML = `
+                    <div class="gallery-item-video">
+                        <video controls preload="metadata">
+                            <source src="${item.video}" type="video/mp4">
+                            ${I18N.browser_no_video}
+                        </video>
+                        <div class="gallery-item-info">
+                            <a href="${item.permalink}" class="gallery-item-title">${item.title}</a>
+                            ${item.description ? `<div class="gallery-item-description">${item.description}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (item.audio) {
+                div.innerHTML = `
+                    <div class="gallery-item-audio">
+                        <div class="gallery-item-info">
+                            <a href="${item.permalink}" class="gallery-item-title">${item.title}</a>
+                            ${item.description ? `<div class="gallery-item-description">${item.description}</div>` : ''}
+                        </div>
+                        <audio controls preload="metadata">
+                            <source src="${item.audio}" type="audio/mpeg">
+                            ${I18N.browser_no_audio}
+                        </audio>
+                    </div>
+                `;
+            }
+
+            return div;
+        }
+
+        // Function to check if page has scrollbar
+        function hasScrollbar() {
+            return document.documentElement.scrollHeight > window.innerHeight;
+        }
+
+        // Function to load more items
+        function loadMoreItems() {
+            if (isLoading || !hasMore) return;
+
+            isLoading = true;
+            galleryLoading.style.display = 'block';
+
+            // Simulate loading delay for better UX
+            setTimeout(() => {
+                const start = currentPage * ITEMS_PER_PAGE;
+                const end = start + ITEMS_PER_PAGE;
+                const items = galleryData.slice(start, end);
+
+                if (items.length === 0) {
+                    hasMore = false;
+                    galleryLoading.style.display = 'none';
+                    return;
+                }
+
+                items.forEach(item => {
+                    const element = createGalleryItem(item);
+                    galleryGrid.appendChild(element);
+                });
+
+                currentPage++;
+                isLoading = false;
+                galleryLoading.style.display = 'none';
+
+                // Check if we've loaded all items
+                if (end >= galleryData.length) {
+                    hasMore = false;
+                } else if (!hasScrollbar()) {
+                    // If no scrollbar yet, load more automatically
+                    loadMoreItems();
+                }
+            }, 300);
+        }
+
+        // Function to check if scrolled to bottom
+        function checkScroll() {
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const windowHeight = window.innerHeight;
+            const documentHeight = document.documentElement.scrollHeight;
+
+            // Trigger loading when user is 200px from bottom
+            if (scrollTop + windowHeight >= documentHeight - 200) {
+                loadMoreItems();
+            }
+        }
+
+        // Throttle scroll event
+        let scrollTimeout;
+        function throttledScroll() {
+            if (scrollTimeout) return;
+            scrollTimeout = setTimeout(() => {
+                checkScroll();
+                scrollTimeout = null;
+            }, 100);
+        }
+
+        // Event listeners
+        window.addEventListener('scroll', throttledScroll);
+
+        // 追踪图库项目点击（事件委托）
+        galleryGrid.addEventListener('click', function(e) {
+            const link = e.target.closest('a');
+            if (!link) return;
+
+            const item = link.closest('.gallery-item');
+            if (!item) return;
+
+            const title = item.querySelector('.gallery-item-title');
+            const titleText = title ? title.textContent.trim() : '';
+            const isFancybox = link.hasAttribute('data-fancybox');
+
+            if (window.ZrsAnalytics) {
+                ZrsAnalytics.track('zrs_gallery_item_click', {
+                    item_title: titleText.substring(0, 100),
+                    click_type: isFancybox ? 'lightbox' : 'link'
+                });
+            }
+        });
+
+        // Initial load
+        loadMoreItems();
+    })();
+    </script>
+    {{ partial "search.html" . }}
+</body>
+
+</html>

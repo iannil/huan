@@ -1,0 +1,254 @@
+{{ partial "head.html" . }}
+
+<body>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            <div class="list_with_title products-index-list">
+                <style>
+                /* Products Index Styles */
+                .products-index-list .listing {
+                    margin-bottom: 20px;
+                }
+
+                .products-index-list .listing_item {
+                    margin-bottom: 12px;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 12px;
+                }
+
+                .products-index-list .listing_item:last-child {
+                    border-bottom: none;
+                }
+
+                /* Product info layout */
+                .products-index-list .product-info {
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .products-index-list .product-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: baseline;
+                    margin-bottom: 0px;
+                }
+
+                .products-index-list .product-title {
+                    font-size: 1.15rem;
+                    font-weight: 500;
+                    flex: 1;
+                }
+
+                .products-index-list .product-title a {
+                    color: #34495e;
+                    text-decoration: none;
+                    transition: color 0.3s ease;
+                }
+
+                .products-index-list .product-title a:hover {
+                    color: #555555;
+                }
+
+                .products-index-list .product-status {
+                    font-size: 0.75rem;
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    font-weight: 500;
+                    margin-left: 8px;
+                    vertical-align: middle;
+                }
+
+                .products-index-list .product-status.public {
+                    background-color: #e8f5e9;
+                    color: #2e7d32;
+                }
+
+                .products-index-list .product-status.private {
+                    background-color: #fff3e0;
+                    color: #ef6c00;
+                }
+
+                .products-index-list .product-status.archived {
+                    background-color: #f5f5f5;
+                    color: #9e9e9e;
+                }
+
+                .products-index-list .product-license {
+                    font-size: 0.75rem;
+                    color: #7f8c8d;
+                    background-color: #f5f5f5;
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    margin-left: 8px;
+                    vertical-align: middle;
+                }
+
+                .products-index-list .product-github {
+                    font-size: 0.75rem;
+                    color: #7f8c8d;
+                    text-decoration: none;
+                    transition: color 0.2s ease;
+                    white-space: nowrap;
+                    margin-left: 15px;
+                    display: inline-flex;
+                    align-items: center;
+                }
+
+                .products-index-list .product-github:hover {
+                    color: #34495e;
+                }
+
+                .products-index-list .product-github i {
+                    margin-right: 4px;
+                    font-size: 1em;
+                    line-height: 1;
+                }
+
+                .products-index-list .product-description {
+                    font-size: 0.9rem;
+                    color: #7f8c8d;
+                    line-height: 1.6;
+                    margin: 6px 0;
+                }
+
+                .products-index-list .product-tech-stack {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 6px;
+                    margin-top: 8px;
+                }
+
+                .products-index-list .tech-tag {
+                    font-size: 0.75rem;
+                    padding: 2px 10px;
+                    border-radius: 12px;
+                    background-color: #ecf0f1;
+                    color: #34495e;
+                    font-weight: 400;
+                    line-height: normal;
+                }
+
+                /* Category description styles */
+                .products-index-list .category-description {
+                    color: #4a4a4a;
+                    font-size: 0.9rem;
+                    line-height: 1.6;
+                    margin-top: 8px;
+                    margin-bottom: 15px;
+                    padding-left: 0;
+                }
+
+                /* Hide mobile elements by default */
+                .products-index-list .mobile-only {
+                    display: none;
+                }
+
+                /* Mobile responsive layout */
+                @media screen and (max-width: 768px) {
+                    .products-index-list .pc-only {
+                        display: none;
+                    }
+
+                    .products-index-list .mobile-only {
+                        display: flex;
+                    }
+
+                    .products-index-list .product-row {
+                        flex-direction: column;
+                        align-items: flex-start;
+                    }
+
+                    .products-index-list .product-title {
+                        width: 100%;
+                        margin-bottom: 8px;
+                    }
+
+                    .products-index-list .product-github {
+                        margin-left: 0;
+                    }
+
+                    .products-index-list .product-meta-row {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        width: 100%;
+                        margin-top: 8px;
+                    }
+                }
+                </style>
+
+                {{ $productsData := .Site.Data.products }}
+                {{ if eq $.Site.LanguageCode "en" }}{{ with .Site.Data.en }}{{ with .products }}{{ $productsData = . }}{{ end }}{{ end }}{{ end }}
+                {{ $productCollection := $productsData.collection }}
+
+                {{ range $categoryData := $productCollection }}
+                <div class="listing">
+                    <div class="listing_title">{{ $categoryData.category }}</div>
+                    {{ if $categoryData.description }}
+                    <div class="category-description">{{ $categoryData.description }}</div>
+                    {{ end }}
+
+                    {{ range $product := $categoryData.products }}
+                        {{ $productPage := $.Site.GetPage (printf "/products/%s" $product.slug) }}
+                        {{ $hasPage := ne $productPage nil }}
+
+                        <div class="listing_item">
+                            <div class="product-info">
+                                <!-- First row: title with badges, and GitHub link -->
+                                <div class="product-row">
+                                    <div class="product-title">
+                                        {{ if $hasPage }}
+                                        <a href="{{ $productPage.RelPermalink }}">{{ $product.title }}</a>
+                                        {{ else }}
+                                        {{ $product.title }}
+                                        {{ end }}
+                                        {{ if $product.status }}<span class="product-status {{ $product.status }}">{{ $product.status }}</span>{{ end }}
+                                        {{ if $product.license }}<span class="product-license">{{ $product.license }}</span>{{ end }}
+                                    </div>
+                                    {{ if $product.github }}
+                                    <a href="{{ $product.github }}" class="product-github pc-only" target="_blank" rel="noopener">
+                                        <i class="ri-github-fill"></i>GitHub
+                                    </a>
+                                    {{ end }}
+                                </div>
+
+                                <!-- Description -->
+                                {{ if $product.description }}
+                                <div class="product-description">{{ $product.description }}</div>
+                                {{ end }}
+
+                                <!-- Tech stack tags -->
+                                {{ if $product.tech_stack }}
+                                <div class="product-tech-stack">
+                                    {{ range $tech := $product.tech_stack }}
+                                    <span class="tech-tag">{{ $tech }}</span>
+                                    {{ end }}
+                                </div>
+                                {{ end }}
+
+                                <!-- Mobile: GitHub link -->
+                                {{ if $product.github }}
+                                <div class="product-meta-row mobile-only">
+                                    <a href="{{ $product.github }}" class="product-github" target="_blank" rel="noopener">
+                                        <i class="ri-github-fill"></i>GitHub
+                                    </a>
+                                </div>
+                                {{ end }}
+                            </div>
+                        </div>
+                    {{ end }}
+                </div>
+                {{ end }}
+            </div>
+            <div class="pagination"></div>
+        </div>
+        <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    </div>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+    {{ partial "search.html" . }}
+</body>
+
+</html>
