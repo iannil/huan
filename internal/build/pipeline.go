@@ -383,5 +383,6 @@ func (p *pipeline) populateCache(cache *PipelineCache) {
 	cache.MDRenderer = p.md
 	cache.SiteCfg = p.cfg
 	cache.Writer = p.writer
+	cache.Renderer = p.renderer
 	cache.BuiltAt = time.Now()
 }

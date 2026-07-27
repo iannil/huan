@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/iannil/huan/internal/build/cache"
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/i18n"
 	"github.com/iannil/huan/internal/output"
@@ -91,8 +92,27 @@ func (p *pipeline) buildContexts() {
 	siteCtx.AvailableTranslations = p.opts.AvailableTranslations
 
 	lookup := map[*content.Page]*tmpl.Context{}
+
+	// Resolve ContextCache from PipelineCache, if available.
+	var ctxCache *cache.ContextCache
+	if p.opts.PipelineCache != nil {
+		ctxCache = p.opts.PipelineCache.ContextCache
+	}
+
 	for _, pg := range p.site.Pages {
-		lookup[pg] = tmpl.NewContext(pg, siteCtx, p.cfg)
+		// Try cache hit (matching page version).
+		if ctxCache != nil {
+			if cached := ctxCache.Get(pg); cached != nil {
+				lookup[pg] = cached
+				continue
+			}
+		}
+		// Cache miss: build new context and cache it.
+		ctx := tmpl.NewContext(pg, siteCtx, p.cfg)
+		lookup[pg] = ctx
+		if ctxCache != nil {
+			ctxCache.Set(pg, ctx)
+		}
 	}
 	for _, pg := range p.site.Pages {
 		if ctx, ok := lookup[pg]; ok {

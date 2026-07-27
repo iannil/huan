@@ -12,6 +12,7 @@ import (
 	"github.com/iannil/huan/internal/markdown"
 	"github.com/iannil/huan/internal/output"
 	"github.com/iannil/huan/internal/shortcode"
+	tmpl "github.com/iannil/huan/internal/template"
 )
 
 // PipelineCache holds reusable build state across incremental builds.
@@ -48,6 +49,15 @@ type PipelineCache struct {
 	// ContentCache caches loaded page content by content-relative path.
 	// Populated lazily on first access; invalidated by file mtime changes.
 	ContentCache *cache.ContentCache
+
+	// ContextCache caches per-page template contexts, keyed by page pointer
+	// and version-gated. Used by buildContexts() to avoid re-creating contexts
+	// for pages whose content hasn't changed.
+	ContextCache *cache.ContextCache
+
+	// Renderer is the cached template renderer, reused across incremental
+	// builds to avoid re-cloning the template tree.
+	Renderer *tmpl.Renderer
 }
 
 // NewPipelineCache returns an empty PipelineCache with BuiltAt set to now.
@@ -55,6 +65,7 @@ func NewPipelineCache() *PipelineCache {
 	return &PipelineCache{
 		BuiltAt:      time.Now(),
 		ContentCache: cache.NewContentCache(5000),
+		ContextCache: cache.NewContextCache(),
 	}
 }
 
