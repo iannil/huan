@@ -32,6 +32,7 @@ type Config struct {
 	Outputs      OutputsConfig     `yaml:"outputs"`
 	AI           AIConfig          `yaml:"ai"`
 	Plugins      map[string]map[string]any `yaml:"plugins"`
+	Theme        string                    `yaml:"theme"`
 
 	// Computed (not from YAML)
 	BaseURLTemplate template.URL
