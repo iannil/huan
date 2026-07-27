@@ -193,6 +193,18 @@ func (p *pipeline) loadContent() error {
 			return fmt.Errorf("load content: %w", err)
 		}
 		p.pages = pages
+		// Populate ContentCache with freshly loaded pages so subsequent
+		// calls (e.g. JITRenderFast) can benefit from cached content.
+		for _, pg := range pages {
+			relPath := pg.RelPath
+			contentCache.GetOrLoad(relPath, func(path string) (*content.Page, time.Time, error) {
+				fi, serr := os.Stat(pg.FilePath)
+				if serr != nil {
+					return nil, time.Time{}, serr
+				}
+				return pg, fi.ModTime(), nil
+			})
+		}
 	} else {
 		pages, err := content.LoadDir(contentDir)
 		if err != nil {
@@ -227,29 +239,29 @@ func (p *pipeline) loadContent() error {
 	return nil
 }
 
-// loadContentWithCache loads pages using ContentCache to skip unchanged files.
-// It discovers all content files, then loads each through the cache.
+// loadContentWithCache loads pages and populates the ContentCache for use
+// by JITRenderFast. This always uses content.LoadDir to get fresh data,
+// then writes each page into the cache. The cache is a write-through cache
+// for JITRenderFast, not a read-through cache for full/incremental builds.
+// This ensures correctness: full builds and incremental builds always see
+// fresh content from disk, while JITRenderFast benefits from cached content.
 func (p *pipeline) loadContentWithCache(contentDir string, contentCache *cache.ContentCache) ([]*content.Page, error) {
-	// Discover all content files. LoadDir handles directory walking.
-	// We use the cache to load each discovered file individually.
 	allPages, err := content.LoadDir(contentDir)
 	if err != nil {
 		return nil, err
 	}
 
-	// Reload each page through the cache. Pages whose files haven't changed
-	// return cached results; changed files trigger a fresh load.
-	//
-	// NOTE: content.LoadDir already loads each file, so this is a double-load
-	// on first run. The benefit comes on subsequent builds where the cache
-	// is warm. A future optimization could skip the initial LoadDir when
-	// the cache is known to be complete (e.g., after a full build).
+	// Populate the cache with freshly loaded pages so JITRenderFast can
+	// benefit from cached content. Since we always load fresh data from
+	// LoadDir, we first invalidate any existing cached entries to ensure
+	// the cache reflects the latest state.
 	loaded := make([]*content.Page, 0, len(allPages))
 	for _, pg := range allPages {
 		relPath := pg.RelPath
-		cached, err := contentCache.GetOrLoad(relPath, func(path string) (*content.Page, time.Time, error) {
-			// loadFn: called on cache miss. We already have the page from
-			// LoadDir, so we just return it with the file's mtime.
+		// Invalidate existing cache entry to force a fresh store.
+		contentCache.Invalidate(relPath)
+		// Store the freshly loaded page in the cache.
+		_, err := contentCache.GetOrLoad(relPath, func(path string) (*content.Page, time.Time, error) {
 			fi, serr := os.Stat(pg.FilePath)
 			if serr != nil {
 				return nil, time.Time{}, serr
@@ -259,7 +271,7 @@ func (p *pipeline) loadContentWithCache(contentDir string, contentCache *cache.C
 		if err != nil {
 			return nil, err
 		}
-		loaded = append(loaded, cached)
+		loaded = append(loaded, pg)
 	}
 
 	return loaded, nil

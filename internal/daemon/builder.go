@@ -240,6 +240,12 @@ func (b *Builder) IncrementalBuild(ctx context.Context, changedFiles []string) e
 	b.opts.Logf("builder: incremental build: %d pages affected by %d file changes",
 		len(ordered), len(changedFiles))
 
+	// 4a. Invalidate ContentCache entries for changed files so the
+	// incremental render loads fresh content from disk.
+	for _, cf := range normalized {
+		b.opts.PipelineCache.ContentCache.Invalidate(cf)
+	}
+
 	// 5. Re-render only affected pages, reusing the cached pipeline state.
 	start := time.Now()
 	err := build.IncrementalRender(build.Options{

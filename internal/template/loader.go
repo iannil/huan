@@ -19,6 +19,8 @@ type Loader struct {
 
 // tmplRef is the currently active template (set to the clone during Render).
 // It's a package-level variable because the partial closure must reference it.
+// NOTE: Render now overrides "partial"/"partialCached" in each clone so this
+// global is only used as a fallback for the root (factory) template.
 var tmplRef *template.Template
 
 // SetActiveTemplate updates the active template reference used by the partial closure.

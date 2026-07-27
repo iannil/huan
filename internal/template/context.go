@@ -1,6 +1,7 @@
 package template
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"os"
@@ -884,9 +885,10 @@ func NewRenderer(tmpl *template.Template, funcMap template.FuncMap) *Renderer {
 }
 
 // Render executes a named template with the given context.
-// For each render, it clones the factory template and sets it as the active
-// template reference (so `partial` closures resolve to this clone), then injects
-// the `site` function returning the current Site context.
+// For each render, it clones the factory template and injects
+// the `site` function returning the current Site context. The `partial`
+// and `partialCached` functions are also overridden on the clone to close
+// over the cloned template directly, avoiding a global variable race.
 func (r *Renderer) Render(templateName string, ctx *Context) (string, error) {
 	t := r.tmpl.Lookup(templateName)
 	if t == nil {
@@ -898,11 +900,25 @@ func (r *Renderer) Render(templateName string, ctx *Context) (string, error) {
 		return "", fmt.Errorf("clone template: %w", err)
 	}
 
-	// Make this clone the active template so `partial` closures resolve correctly.
-	SetActiveTemplate(cloned)
+	// Override partial/partialCached on the clone so they close over the
+	// cloned template directly. This avoids the race from concurrent calls
+	// writing/reading the package-level tmplRef.
+	partialFunc := func(name string, ctx interface{}) (template.HTML, error) {
+		t := cloned.Lookup("partials/" + name)
+		if t == nil {
+			return "", fmt.Errorf("partial not found: %s", name)
+		}
+		var buf bytes.Buffer
+		if err := t.Execute(&buf, ctx); err != nil {
+			return "", err
+		}
+		return template.HTML(buf.String()), nil
+	}
 
 	cloned.Funcs(template.FuncMap{
-		"site": func() *SiteContext { return ctx.Site },
+		"partial":       partialFunc,
+		"partialCached": func(name string, ctx interface{}) (template.HTML, error) { return partialFunc(name, ctx) },
+		"site":          func() *SiteContext { return ctx.Site },
 	})
 
 	ct := cloned.Lookup(templateName)

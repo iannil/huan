@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Writer writes files to the publish directory.
 type Writer struct {
+	mu sync.Mutex
+
 	publishDir string
 	minifier   *Minifier
 	canonOpts  *CanonifyOptions
@@ -59,6 +62,8 @@ func PathToFilePath(path, publishDir string) string {
 // minified according to the file's media type before writing. If canonify
 // is set, root-relative URLs in HTML are rewritten to absolute URLs.
 func (w *Writer) Write(relPath, content string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.minifier != nil {
 		content = w.minifier.Minify(relPath, content)
 	}
@@ -100,6 +105,8 @@ func isHomePath(relPath string) bool {
 // WriteBytesPath writes raw bytes WITHOUT applying minify/canonify.
 // Use for pre-formatted content that should be emitted verbatim.
 func (w *Writer) WriteBytesPath(relPath string, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -116,6 +123,8 @@ func (w *Writer) WriteBytesPath(relPath string, data []byte) error {
 // WriteBytes writes raw bytes to a file path under publishDir.
 // Minification is applied if a minifier is set.
 func (w *Writer) WriteBytes(relPath string, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.minifier != nil {
 		data = w.minifier.MinifyBytes(relPath, data)
 	}
@@ -162,6 +171,8 @@ func (w *Writer) CopyStatic(srcDir string) error {
 }
 
 func (w *Writer) copyFile(src, relPath string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
@@ -198,5 +209,7 @@ func CleanPublishDir(publishDir string) error {
 
 // Stats returns the number of files written and total bytes.
 func (w *Writer) Stats() (files int, bytes int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.written, w.bytes
 }

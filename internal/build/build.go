@@ -264,6 +264,16 @@ func IncrementalRender(opts Options, cache *PipelineCache, affectedURLs []string
 	}
 
 	logf := opts.logf()
+
+	// Propagate cache into opts so loadContent and buildContexts can use it.
+	// IncrementalRender receives cache as a separate argument; opts.PipelineCache
+	// may be nil (callers like daemon.Builder.IncrementalBuild pass opts without
+	// PipelineCache set). Without this propagation, loadContent would skip the
+	// ContentCache and loadContentWithCache entirely.
+	if cache != nil && opts.PipelineCache == nil {
+		opts.PipelineCache = cache
+	}
+
 	p := newPipeline(opts)
 
 	// Stage 1: load config. Reuse cached cfg when available (faster).

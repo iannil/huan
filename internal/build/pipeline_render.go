@@ -6,7 +6,10 @@ package build
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/output"
@@ -21,57 +24,77 @@ import (
 // partial output is preferable to no output, and the build log captures
 // every warning for later inspection.
 func (p *pipeline) renderPages() {
-	renderedCount := 0
-	errors := 0
+	maxWorkers := runtime.GOMAXPROCS(0)
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+	var renderedCount atomic.Int64
+	var errors atomic.Int64
+
 	for _, pg := range p.site.Pages {
 		if !p.shouldRender(pg) {
 			continue
 		}
-		tmplName := ResolveTemplateName(p.tmpls, pg)
-		if tmplName == "" {
-			continue
-		}
-		ctx := p.lookup[pg]
-		if ctx == nil {
-			continue
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(pg *content.Page) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		// For section/list rendering, expose pages via .Data.Pages.
-		if pg.Kind == "section" || pg.Kind == "home" {
-			ctx.Data = &tmpl.DataAccessor{
-				Pages: ctx.RegularPages,
-			}
-		}
+			p.renderOnePage(pg, &renderedCount, &errors)
+		}(pg)
+	}
+	wg.Wait()
 
-		html, err := p.renderer.Render(tmplName, ctx)
-		if err != nil {
-			p.logf("  WARN: render %s with %s: %v\n", pg.RelPath, tmplName, err)
-			errors++
-			continue
-		}
+	p.result.PagesRendered = int(renderedCount.Load())
+	p.result.Errors = int(errors.Load())
+}
 
-		// Inject LiveReload (serve mode only).
-		if p.opts.InjectLiveReload && p.opts.LiveReloadURL != "" {
-			html = InjectLiveReload(html, p.opts.LiveReloadURL)
-		}
-
-		outPath := output.URLToFilePath(pg.URL, "")
-		if err := p.writer.Write(outPath, html); err != nil {
-			p.logf("  WARN: write %s: %v\n", pg.URL, err)
-			errors++
-			continue
-		}
-		renderedCount++
-
-		p.maybeWriteMarkdownMirror(pg)
-		p.maybeWriteSectionRSS(pg, ctx)
-
-		// Invoke OnPageRendered hooks
-		p.runOnPageRendered(pg)
+// renderOnePage renders a single page and writes its output. It is safe to
+// call concurrently from multiple goroutines. The writer uses internal
+// locking; all other reads (p.lookup, p.site, p.renderer) are read-only
+// after pipeline setup and are goroutine-safe.
+func (p *pipeline) renderOnePage(pg *content.Page, renderedCount, errors *atomic.Int64) {
+	tmplName := ResolveTemplateName(p.tmpls, pg)
+	if tmplName == "" {
+		return
+	}
+	ctx := p.lookup[pg]
+	if ctx == nil {
+		return
 	}
 
-	p.result.PagesRendered = renderedCount
-	p.result.Errors = errors
+	// For section/list rendering, expose pages via .Data.Pages.
+	if pg.Kind == "section" || pg.Kind == "home" {
+		ctx.Data = &tmpl.DataAccessor{
+			Pages: ctx.RegularPages,
+		}
+	}
+
+	html, err := p.renderer.Render(tmplName, ctx)
+	if err != nil {
+		p.logf("  WARN: render %s with %s: %v\n", pg.RelPath, tmplName, err)
+		errors.Add(1)
+		return
+	}
+
+	// Inject LiveReload (serve mode only).
+	if p.opts.InjectLiveReload && p.opts.LiveReloadURL != "" {
+		html = InjectLiveReload(html, p.opts.LiveReloadURL)
+	}
+
+	outPath := output.URLToFilePath(pg.URL, "")
+	if err := p.writer.Write(outPath, html); err != nil {
+		p.logf("  WARN: write %s: %v\n", pg.URL, err)
+		errors.Add(1)
+		return
+	}
+	renderedCount.Add(1)
+
+	p.maybeWriteMarkdownMirror(pg)
+	p.maybeWriteSectionRSS(pg, ctx)
+
+	// Invoke OnPageRendered hooks
+	p.runOnPageRendered(pg)
 }
 
 // shouldRender reports whether pg passes the draft/future/expired/render-never
