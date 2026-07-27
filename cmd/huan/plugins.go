@@ -9,6 +9,7 @@ import (
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 	"github.com/iannil/huan/internal/seo/htmlinjector"
 	"github.com/iannil/huan/internal/seo/injector"
 	"github.com/iannil/huan/internal/seo/sitemap"
@@ -100,6 +101,9 @@ func capabilityLabels(p plugin.Plugin) []string {
 	}
 	if _, ok := p.(image.ImageProcessor); ok {
 		labels = append(labels, "image")
+	}
+	if _, ok := p.(theme.ThemePlugin); ok {
+		labels = append(labels, "theme")
 	}
 	return labels
 }
