@@ -52,6 +52,11 @@ type Page struct {
 	// Raw markdown body (before rendering)
 	RawContent   string
 
+	// Version number, atomically incremented on each page load.
+	// Used by ContextCache to detect page changes and invalidate cached
+	// template context.
+	Version uint64
+
 	// Tree structure
 	Parent               *Page
 	Pages                []*Page

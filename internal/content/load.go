@@ -6,11 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/iannil/huan/internal/config"
 	"gopkg.in/yaml.v3"
 )
+
+// versionCounter is a global atomic counter used to assign unique version
+// numbers to every loaded Page. ContextCache uses Page.Version to detect
+// when a page has changed and invalidate its cached template context.
+var versionCounter atomic.Uint64
 
 const frontmatterDelim = "---"
 
@@ -127,6 +133,8 @@ func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*
 	if sc, ok := fm["sitemap"].(map[string]interface{}); ok {
 		p.Sitemap.Disable = boolField(sc, "disable")
 	}
+
+	p.Version = versionCounter.Add(1)
 
 	return p, nil
 }
