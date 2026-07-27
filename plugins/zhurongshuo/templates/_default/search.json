@@ -1,0 +1,11 @@
+{{- $.Scratch.Add "index" slice -}}
+{{- range $page := where .Site.RegularPages "Kind" "page" -}}
+    {{- if eq $page.Kind "section" -}}
+    {{- else -}}
+        {{- $.Scratch.Add "index" (dict "title" $page.Title "url" $page.Permalink "content" ($page.Plain | truncate 800) "tags" $page.Params.tags "date" ($page.Date.Format "2006-01-02")) -}}
+    {{- end -}}
+{{- end -}}
+{{- range $page := where .Site.RegularPages "Kind" "section" -}}
+    {{- $.Scratch.Add "index" (dict "title" $page.Title "url" $page.Permalink "content" ($page.Plain | truncate 800) "tags" $page.Params.tags "date" ($page.Date.Format "2006-01-02")) -}}
+{{- end -}}
+{{- $.Scratch.Get "index" | uniq | jsonify -}}

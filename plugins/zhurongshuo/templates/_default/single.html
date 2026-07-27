@@ -1,18 +1,67 @@
-<!DOCTYPE html>
-<html lang="{{ site.Language.LanguageCode }}">
-<head>
-    <meta charset="utf-8">
-    <title>{{ .Title }} | {{ .Site.Title }}</title>
-    <link rel="stylesheet" href="/theme/zhurongshuo/css/main.css">
-</head>
+{{ partial "head.html" . }}
+
 <body>
-    {{ partial "header" . }}
-    <article>
-        <h1>{{ .Title }}</h1>
-        <div class="meta">{{ readingTime .Content }} · {{ .Date.Format "2006-01-02" }}</div>
-        {{ .Content }}
-    </article>
-    {{ partial "footer" . }}
-    <script src="/theme/zhurongshuo/js/theme.js"></script>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            <div class="post_page">
+                <div class="post">
+                    <div class="post_title post_detail_title">
+                        <h2><a href='{{ .RelPermalink }}'>{{ .Title }}</a></h2>
+                        <span class="date">{{ .Date.Format "2006.01.02" }}</span>
+                        <button class="share_post_btn" title="{{ i18n "share_post_btn" }}">
+                            <i class="ri-share-line"></i>
+                        </button>
+                    </div>
+                    <div class="post_content markdown">{{ .Content }}</div>
+                    <div class="post_footer">
+                        {{ with .Params.tags }}
+                        <div class="meta">
+                            <div class="info">
+                                <span class="field tags">
+                                    <i class="ri-stack-line"></i>
+                                    {{ range . }}
+                                    <a href="{{ "tags" | absURL }}/{{ . | urlize }}/">{{ . }}</a>
+                                    {{ end }}
+                                </span>
+                            </div>
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+                <!-- 评论系统 -->
+                {{ if .Site.Params.valine.enable }}
+                {{ partial "comments.html" . }}
+                {{ else }}
+                <div class="doc_comments">{{ template "_internal/disqus.html" . }}</div>
+                {{ end }}
+            </div>
+        </div>
+    </div>
+    <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+    {{ partial "search.html" . }}
+
+    <!-- Share Preview Modal -->
+    <div class="share-modal" style="display:none;">
+        <div class="share-modal-content">
+            <button class="share-modal-close">&times;</button>
+            <h3>{{ i18n "share_modal_title" }}</h3>
+            <div class="share-preview-container">
+                <img id="share-preview-img" alt="{{ i18n "share_modal_title" }}">
+            </div>
+            <button class="share-download-btn">
+                <i class="ri-download-line"></i> {{ i18n "share_download" }}
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="share-loading" style="display:none;">
+        <p>{{ i18n "share_loading" }}</p>
+    </div>
 </body>
+
 </html>

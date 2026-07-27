@@ -1,5 +1,25 @@
-<header>
-    <nav>
-        <a href="/">{{ site.Title }}</a>
-    </nav>
-</header>
+<div class="header">
+    <div class="site_title_container">
+        <div class="site_title">
+            <h1>
+                <a href="{{ .Site.BaseURL }}">
+                    <span class="web-font">{{ .Site.Title }}</span>
+                </a>
+            </h1>
+        </div>
+        <div class="description">
+            <p class="sub_title">{{ with .Site.Params.subTitle }}{{ . }}{{ else }}{{ end }}</p>
+            <div class="my_socials">
+                {{ range sort .Site.Params.Social "weight" }}
+                {{ if and (ne .url "") (not (sectionExcluded $ .url)) }}
+                <a href="{{ .url }}" title="{{ .name }}"><i class="ri-{{ .name }}-line"></i></a>
+                {{ end }}
+                {{ end }}
+                {{ with .OutputFormats.Get "RSS" }}
+                <a href="{{ .RelPermalink }}" type="application/rss+xml" title="rss" target="_blank"><i
+                        class="ri-rss-fill"></i></a>
+                {{ end }}
+            </div>
+        </div>
+    </div>
+</div>

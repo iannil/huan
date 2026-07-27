@@ -1,4 +1,15 @@
-<footer>
-    <p>&copy; {{ now.Year }} {{ site.Title }}</p>
-    {{ darkModeToggle }}
+<footer class="footer">
+    <div class="powered_by">
+        <a href="https://varkai.com">Designed by VarKai, </a>
+        <a href="https://github.com/iannil/huan/">Proudly published with Huan, </a>
+        <!-- <a href="https://zhurongshuo.com/">Since 2020-07-09</a> -->
+    </div>
+
+    <div class="footer_slogan">
+        <span>{{ .Site.Params.footerSlogan }}</span>
+    </div>
+
+    <div class="powered_by" style="margin-top: 10px;font-size: 14px;">
+        <a href="{{ .Site.BaseURL }}">{{ .Site.Params.copyrights }}</a>
+    </div>
 </footer>

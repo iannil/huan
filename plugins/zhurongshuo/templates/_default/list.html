@@ -1,21 +1,32 @@
-<!DOCTYPE html>
-<html lang="{{ site.Language.LanguageCode }}">
-<head>
-    <meta charset="utf-8">
-    <title>{{ .Title }} | {{ .Site.Title }}</title>
-    <link rel="stylesheet" href="/theme/zhurongshuo/css/main.css">
-</head>
+{{ partial "head.html" . }}
+
 <body>
-    {{ partial "header" . }}
-    <main>
-        <h1>{{ .Title }}</h1>
-        <ul>
-        {{ range .Pages }}
-            <li><a href="{{ .URL }}">{{ .Title }}</a></li>
-        {{ end }}
-        </ul>
-    </main>
-    {{ partial "footer" . }}
-    <script src="/theme/zhurongshuo/js/theme.js"></script>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            <div class="list_with_title">
+                {{ range .Data.Pages.GroupByDate "2006" }}
+                <div class="listing_title">{{ .Key }}</div>
+                <div class="listing">
+                    {{ range .Pages }}
+                    <div class="listing_item">
+                        <div class="listing_post">
+                            <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+                            <div class="post_time"><span class="date">{{ .Date.Format "01-02" }}</span></div>
+                        </div>
+                    </div>
+                    {{ end }}
+                </div>
+                {{ end }}
+            </div>
+            <div class="pagination"></div>
+        </div>
+        <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    </div>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+    {{ partial "search.html" . }}
 </body>
+
 </html>

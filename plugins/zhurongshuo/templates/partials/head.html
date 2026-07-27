@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html {{ with .Site.LanguageCode }}lang="{{ . }}" {{ end }}>
+
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="google-site-verification" content="8_xpI-TS3tNV8UPug-Q6Ef3BhKTcy0WOG7dEdAcm2zk" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="author"
+        content="{{ if .Params.author }}{{ .Params.author | safeHTML }}{{ else }}{{ .Site.Params.Author.name | safeHTML }}{{ end }}" />
+
+    <!-- DNS Prefetch & Preconnect for Performance -->
+    <link rel="dns-prefetch" href="//www.googletagmanager.com">
+    <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href="{{ .Permalink }}" />
+    {{ $title := ( .Title ) }}
+    {{ $siteTitle := ( .Site.Title ) }}
+    {{ if .IsHome }}
+    <title>{{ $siteTitle }} {{ if isset .Site.Params "subtitle" }} {{ .Site.Params.Subtitle }}{{ end }}</title>
+    {{ else }}
+    <title>{{ $siteTitle }} {{ $title }}</title>
+    {{ end }}
+
+    <!-- Open Graph Tags -->
+    <meta property="og:title" content="{{ if .IsHome }}{{ $siteTitle }} {{ if isset .Site.Params "subtitle" }}{{ .Site.Params.Subtitle }}{{ end }}{{ else }}{{ $title }}{{ end }}" />
+    <meta property="og:url" content="{{ .Permalink }}" />
+    <meta property="og:site_name" content="{{ .Site.Title }}" />
+    <meta property="og:locale" content="zh_CN" />
+    {{ if .IsPage }}
+    <meta property="og:type" content="article" />
+    <meta property="article:published_time" content="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}" />
+    <meta property="article:modified_time" content="{{ .Lastmod.Format "2006-01-02T15:04:05Z07:00" }}" />
+    {{ if .Params.author }}
+    <meta property="article:author" content="{{ .Params.author }}" />
+    {{ end }}
+    {{ with .Params.tags }}
+    {{ range first 5 . }}
+    <meta property="article:tag" content="{{ . }}" />
+    {{ end }}
+    {{ end }}
+    {{ else }}
+    <meta property="og:type" content="website" />
+    {{ end }}
+
+    <!-- description & keywords -->
+    {{ if .Description }}
+    <meta name="description" content="{{ .Description | safeHTML }}" />
+    <meta property="og:description" content="{{ .Description | safeHTML }}" />
+    {{ else if .IsPage }}
+    <meta name="description" content="{{ .Summary | plainify }}" />
+    <meta property="og:description" content="{{ .Summary | plainify }}" />
+    {{ else if .Site.Params.description }}
+    <meta name="description" content="{{ .Site.Params.description | safeHTML }}" />
+    <meta property="og:description" content="{{ .Site.Params.description | safeHTML }}" />
+    {{ end }}
+
+    <!-- Open Graph Image -->
+    {{ if .Params.image }}
+    <meta property="og:image" content="{{ .Params.image | absURL }}" />
+    {{ else }}
+    <meta property="og:image" content="{{ "images/favicon.ico" | absURL }}" />
+    {{ end }}
+
+    <!-- Twitter Card Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{{ if .IsHome }}{{ $siteTitle }} {{ if isset .Site.Params "subtitle" }}{{ .Site.Params.Subtitle }}{{ end }}{{ else }}{{ $title }}{{ end }}" />
+    {{ if .Description }}
+    <meta name="twitter:description" content="{{ .Description | safeHTML }}" />
+    {{ else if .IsPage }}
+    <meta name="twitter:description" content="{{ .Summary | plainify }}" />
+    {{ else if .Site.Params.description }}
+    <meta name="twitter:description" content="{{ .Site.Params.description | safeHTML }}" />
+    {{ end }}
+    {{ if .Params.image }}
+    <meta name="twitter:image" content="{{ .Params.image | absURL }}" />
+    {{ else }}
+    <meta name="twitter:image" content="{{ "images/favicon.ico" | absURL }}" />
+    {{ end }}
+
+    {{ if .Keywords }}
+    {{ $length := len .Keywords | add -1 }}
+    <meta name="keywords"
+        content="{{ range $index, $element := .Keywords }}{{ $element | safeHTML }}{{ if ne $index $length }}, {{ end }}{{ end }}" />
+    {{ else if .IsHome }}
+    {{ $length := len .Site.Taxonomies.tags }}
+    <meta name="keywords"
+        content="{{ $index := 0 }}{{ range $tag, $element := .Site.Taxonomies.tags }}{{ if ($tag) }}{{ $tag | safeHTML }}{{ end }}{{ $index = $index | add 1 }}{{ if ne $index $length }}, {{ end }}{{ end }}" />
+    {{ else if .Site.Params.keywords }}
+    {{ $length := len .Site.Params.keywords | add -1 }}
+    <meta name="keywords"
+        content="{{ range $index, $element := .Site.Params.keywords }}{{ $element | safeHTML }}{{ if ne $index $length }}, {{ end }}{{ end }}" />
+    {{ end }}
+
+    {{ with .OutputFormats.Get "rss" }}
+    {{ printf `
+    <link rel="%s" type="%s" href="%s" title="%s" />` .Rel .MediaType.Type .Permalink $.Site.Title | safeHTML }}
+    {{ end }}
+
+    <link rel="shortcut icon" href="/theme/zhurongshuo/images/favicon.ico" />
+
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/normalize.css" />
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/zozo.css" />
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/remixicon-custom.css" />
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/remixicon.css" />
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/highlight.css" />
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/search.css" />
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/post-share.css" />
+
+    <!-- custom css -->
+    {{ range .Site.Params.customCSS }}
+    <link rel="stylesheet" href="{{ " css/" | absURL }}{{ . }}" />
+    {{ end }}
+
+    <!-- Structured Data (Schema.org) -->
+    {{ partial "schema.html" . }}
+
+    <!-- i18n: hreflang alternate links for multi-language SEO -->
+    {{ hreflang . }}
+</head>

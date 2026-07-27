@@ -1,0 +1,40 @@
+<script defer src="/theme/zhurongshuo/js/jquery-3.5.1.min.js"></script>
+<script defer src="/theme/zhurongshuo/js/fuse.min.js"></script>
+<link href="/theme/zhurongshuo/css/jquery.fancybox.css" rel="stylesheet">
+<script defer src="/theme/zhurongshuo/js/jquery.fancybox.min.js"></script>
+<script defer src="/theme/zhurongshuo/js/search.js"></script>
+<script defer src="/theme/zhurongshuo/js/zozo.js"></script>
+<script defer src="/theme/zhurongshuo/js/lang-dropdown.js"></script>
+
+<!-- Post Share Feature -->
+<script defer src="/theme/zhurongshuo/js/html2canvas.min.js"></script>
+<script defer src="/theme/zhurongshuo/js/qrcode.min.js"></script>
+<script defer src="/theme/zhurongshuo/js/post-share.js"></script>
+
+{{ if .Site.Params.enableMathJax }}
+{{ partial "mathjax.html" . }}
+{{ end }}
+
+{{ if .Site.Params.googleAnalytics }}
+<!-- Google Analytics - Optimized Lazy Loading -->
+<script>
+  window.GA_MEASUREMENT_ID = '{{ .Site.Params.googleAnalytics }}';
+  window.GA_CONFIG = {
+    enableReadingTime: true,
+    enableScrollDepth: true,
+    enableOutboundLinks: true,
+    enableDownloads: true,
+    lazyLoadTimeout: 3000
+  };
+  window.GA_PAGE_CONTEXT = {
+    path: '{{ .RelPermalink }}',
+    title: '{{ .Title }}',
+    section: '{{ .Section }}'
+  };
+</script>
+<script defer src="/theme/zhurongshuo/js/ga-optimizer.js"></script>
+<script defer src="/theme/zhurongshuo/js/ga-events.js"></script>
+{{ end }}
+
+<!-- Umami Analytics (backup to GA4) -->
+<script defer src="https://umami.rssio.com/script.js" data-website-id="6cad82b9-99b9-439f-be32-4f7e78bde351"></script>

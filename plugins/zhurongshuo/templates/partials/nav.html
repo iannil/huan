@@ -1,0 +1,53 @@
+<div class="nav_container">
+    <div class="site_nav" id="site_nav">
+        <ul>
+            {{ range.Site.Menus.main }}
+            {{ if not (sectionExcluded $ .URL) }}
+            <li>
+                <a href="{{ .URL | safeURL }}">{{ i18n (printf "menu_%s" .Identifier) }}</a>
+            </li>
+            {{ end }}
+            {{ end }}
+        </ul>
+    </div>
+    <div class="menu_icon">
+        <a id="menu_icon"><i class="ri-menu-line"></i></a>
+    </div>
+    {{ if .Site.Config.IsMultiLanguage }}
+    <div class="lang-dropdown" id="lang_dropdown">
+        <button class="lang-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-label="{{ i18n "language_switch_title" }}">
+            <span class="lang-dropdown-target">{{ if eq .PageLanguage "en" }}中{{ else }}EN{{ end }}</span>
+            <i class="ri-arrow-down-s-line lang-dropdown-chevron"></i>
+        </button>
+        <ul class="lang-dropdown-menu" role="menu">
+            {{ $links := translationLinks . }}
+            {{ range .Site.Config.SortedLanguages }}
+            {{ $code := .Code }}
+            {{ $name := .Lang.LanguageName }}
+            {{ $base := replace .Lang.BaseURL "/" "" }}
+            {{ $url := "" }}
+            {{ $isCurrent := false }}
+            {{ range $links }}
+            {{ if eq .Lang $code }}
+            {{ $url = .URL }}
+            {{ $isCurrent = .IsCurrent }}
+            {{ end }}
+            {{ end }}
+            {{ if eq $url "" }}
+            {{ if eq $base "" }}
+            {{ $url = "/" }}
+            {{ else }}
+            {{ $url = printf "/%s/" $base }}
+            {{ end }}
+            {{ end }}
+            <li role="menuitem">
+                <a href="{{ $url }}?setlang={{ $code }}"{{ if $isCurrent }} class="current" aria-current="true"{{ end }} title="{{ i18n "language_switch_title" }}: {{ $name }}">
+                    <span class="lang-dropdown-name">{{ $name }}</span>
+                    <span class="lang-dropdown-code">{{ if eq $code "en" }}EN{{ else }}中{{ end }}</span>
+                </a>
+            </li>
+            {{ end }}
+        </ul>
+    </div>
+    {{ end }}
+</div>
