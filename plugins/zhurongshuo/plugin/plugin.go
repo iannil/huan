@@ -56,3 +56,18 @@ type ThemeHooks interface {
 	BeforeRender(ctx context.Context) error
 	AfterRender(ctx context.Context) error
 }
+
+// ShortcodeProvider is an optional interface that themes can implement
+// to register custom shortcodes.
+type ShortcodeProvider interface {
+	Shortcodes() map[string]ShortcodeHandler
+}
+
+// ShortcodeHandler is a function that renders a shortcode.
+type ShortcodeHandler func(ctx ShortcodeContext) (string, error)
+
+// ShortcodeContext carries the parameters and context for a shortcode invocation.
+type ShortcodeContext struct {
+	Params map[string]string
+	Inner  string
+}

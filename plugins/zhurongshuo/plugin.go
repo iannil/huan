@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"html/template"
 	"io/fs"
@@ -67,6 +68,25 @@ func (t *ZhurongshuoTheme) FuncMap() template.FuncMap {
 		"relatedPosts":   relatedPosts,
 		"toc":            toc,
 		"darkModeToggle": darkModeToggle,
+	}
+}
+
+// BeforeRender implements plugin.ThemeHooks.
+func (t *ZhurongshuoTheme) BeforeRender(ctx context.Context) error {
+	return nil
+}
+
+// AfterRender implements plugin.ThemeHooks.
+func (t *ZhurongshuoTheme) AfterRender(ctx context.Context) error {
+	return nil
+}
+
+// Shortcodes implements plugin.ShortcodeProvider.
+// Returns the shortcode handlers provided by this theme.
+func (t *ZhurongshuoTheme) Shortcodes() map[string]plugin.ShortcodeHandler {
+	return map[string]plugin.ShortcodeHandler{
+		// zhurongshuo 主题暂不提供自定义 shortcode
+		// 内置的 audio/img shortcode 由 huan 引擎提供
 	}
 }
 
