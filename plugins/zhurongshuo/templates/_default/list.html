@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="{{ site.Language.LanguageCode }}">
+<head>
+    <meta charset="utf-8">
+    <title>{{ .Title }} | {{ .Site.Title }}</title>
+    <link rel="stylesheet" href="/theme/zhurongshuo/css/main.css">
+</head>
+<body>
+    {{ partial "header" . }}
+    <main>
+        <h1>{{ .Title }}</h1>
+        <ul>
+        {{ range .Pages }}
+            <li><a href="{{ .URL }}">{{ .Title }}</a></li>
+        {{ end }}
+        </ul>
+    </main>
+    {{ partial "footer" . }}
+    <script src="/theme/zhurongshuo/js/theme.js"></script>
+</body>
+</html>

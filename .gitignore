@@ -14,3 +14,4 @@ skills-lock.json
 # Plugin binaries (built from external repos)
 /plugins/*.so
 /plugins/**/image-pipeline.so
+/zhurongshuo.so
