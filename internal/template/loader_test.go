@@ -1,10 +1,16 @@
 package template
 
 import (
+	"context"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 )
 
 func TestLoader_New(t *testing.T) {
@@ -85,6 +91,115 @@ func TestLoadAllTemplates(t *testing.T) {
 		t.Fatal("expected non-nil template")
 	}
 }
+
+func TestLoadAllTemplates_WithThemeManager(t *testing.T) {
+	tmpDir := t.TempDir()
+	layoutsDir := filepath.Join(tmpDir, "layouts", "_default")
+	os.MkdirAll(layoutsDir, 0755)
+	os.WriteFile(filepath.Join(layoutsDir, "single.html"), []byte("layouts single: {{ .Title }}"), 0644)
+
+	// Set up a theme plugin manager with a mock theme
+	themeReg := plugin.NewRegistry()
+	themeMgr := theme.NewManager(themeReg)
+
+	mockTheme := &mockThemePlugin{
+		name: "test_theme",
+		info: theme.ThemeInfo{Name: "test_theme"},
+		templates: []theme.TemplateEntry{
+			{Path: "index.html", Content: "theme index: {{ .Title }}"},
+			{Path: "_default/single.html", Content: "theme single: {{ .Title }}"},
+		},
+		funcMap: template.FuncMap{
+			"themeFunc": func() string { return "from_theme" },
+		},
+	}
+	_ = themeReg.Register(mockTheme)
+	_ = themeMgr.Activate("test_theme")
+
+	// Load via LoadAllTemplates with theme manager
+	tmpl, err := LoadAllTemplates(tmpDir, "https://example.com/", themeMgr)
+	if err != nil {
+		t.Fatalf("LoadAllTemplates with theme manager: %v", err)
+	}
+	if tmpl == nil {
+		t.Fatal("expected non-nil template")
+	}
+
+	// Verify theme plugin templates are loaded
+	if tpl := tmpl.Lookup("index.html"); tpl == nil {
+		t.Error("expected index.html from theme plugin to be loaded")
+	}
+
+	// Verify layouts/ overrides theme plugin templates
+	if tpl := tmpl.Lookup("_default/single.html"); tpl != nil {
+		// Render to verify it's the layouts version, not the theme plugin version
+		var buf strings.Builder
+		ctx := &Context{Title: "test"}
+		if err := tpl.Execute(&buf, ctx); err != nil {
+			t.Fatalf("execute _default/single.html: %v", err)
+		}
+		expected := "layouts single: test"
+		if buf.String() != expected {
+			t.Errorf("expected %q, got %q", expected, buf.String())
+		}
+	} else {
+		t.Error("expected _default/single.html to be loaded")
+	}
+
+	// Verify theme function is available
+	if tpl := tmpl.Lookup("index.html"); tpl != nil {
+		var buf strings.Builder
+		ctx := &Context{Title: "test"}
+		if err := tpl.Execute(&buf, ctx); err != nil {
+			t.Fatalf("execute index.html: %v", err)
+		}
+		expected := "theme index: test"
+		if buf.String() != expected {
+			t.Errorf("expected %q, got %q", expected, buf.String())
+		}
+	}
+}
+
+func TestNewLoaderWithTheme(t *testing.T) {
+	themeReg := plugin.NewRegistry()
+	themeMgr := theme.NewManager(themeReg)
+
+	mockTheme := &mockThemePlugin{
+		name: "test_theme",
+		info: theme.ThemeInfo{Name: "test_theme"},
+		templates: []theme.TemplateEntry{
+			{Path: "index.html", Content: "theme index: {{ .Title }}"},
+		},
+		funcMap: template.FuncMap{
+			"themeFunc": func() string { return "from_theme" },
+		},
+	}
+	_ = themeReg.Register(mockTheme)
+	_ = themeMgr.Activate("test_theme")
+
+	fm := template.FuncMap{}
+	loader := NewLoaderWithTheme("/tmp/test", "/tmp/test/layouts", fm, themeMgr)
+	if loader == nil {
+		t.Fatal("expected non-nil loader")
+	}
+}
+
+// mockThemePlugin is a test double for theme.ThemePlugin.
+type mockThemePlugin struct {
+	name      string
+	info      theme.ThemeInfo
+	templates []theme.TemplateEntry
+	funcMap   template.FuncMap
+	assets    map[string]string
+}
+
+func (m *mockThemePlugin) Name() string                                     { return m.name }
+func (m *mockThemePlugin) Info() theme.ThemeInfo                            { return m.info }
+func (m *mockThemePlugin) Templates() []theme.TemplateEntry                 { return m.templates }
+func (m *mockThemePlugin) FuncMap() template.FuncMap                        { return m.funcMap }
+func (m *mockThemePlugin) Assets() fs.FS                                    { return nil }
+func (m *mockThemePlugin) Start(ctx context.Context) error                  { return nil }
+func (m *mockThemePlugin) Stop(ctx context.Context) error                   { return nil }
 
 func TestNewScratch(t *testing.T) {
 	s := NewScratch()

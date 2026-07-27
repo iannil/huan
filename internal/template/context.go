@@ -11,6 +11,7 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
+	"github.com/iannil/huan/internal/theme"
 )
 
 // Context is the data object passed to every template.
@@ -935,7 +936,10 @@ func (r *Renderer) Render(templateName string, ctx *Context) (string, error) {
 }
 
 // LoadAllTemplates is a convenience function that loads all templates.
-func LoadAllTemplates(sourceDir, baseURL string) (*template.Template, error) {
+// It accepts an optional theme.Manager to support theme plugin templates.
+// When themeMgr is provided, the loader uses NewLoaderWithTheme; otherwise
+// it falls back to the legacy directory-based theme detection and NewLoader.
+func LoadAllTemplates(sourceDir, baseURL string, themeMgr ...*theme.Manager) (*template.Template, error) {
 	// Determine theme name (look for theme directory)
 	themeName := ""
 	themesDir := filepath.Join(sourceDir, "themes")
@@ -949,6 +953,12 @@ func LoadAllTemplates(sourceDir, baseURL string) (*template.Template, error) {
 	}
 
 	funcMap := FuncMap(baseURL)
-	loader := NewLoader(sourceDir, themeName, funcMap)
+	var loader *Loader
+	if len(themeMgr) > 0 && themeMgr[0] != nil {
+		layoutsDir := filepath.Join(sourceDir, "layouts")
+		loader = NewLoaderWithTheme(sourceDir, layoutsDir, funcMap, themeMgr[0])
+	} else {
+		loader = NewLoader(sourceDir, themeName, funcMap)
+	}
 	return loader.LoadAll()
 }

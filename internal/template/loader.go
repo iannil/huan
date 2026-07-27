@@ -8,13 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/iannil/huan/internal/theme"
 )
 
 // Loader discovers and loads template files from a theme and local layouts.
 type Loader struct {
-	themeDir   string
-	layoutsDir string
-	funcMap    template.FuncMap
+	themeDir     string
+	layoutsDir   string
+	funcMap      template.FuncMap
+	themeManager *theme.Manager // 可选：主题插件管理器
 }
 
 // tmplRef is the currently active template (set to the clone during Render).
@@ -37,17 +40,41 @@ func NewLoader(sourceDir, themeName string, funcMap template.FuncMap) *Loader {
 	}
 }
 
+// NewLoaderWithTheme creates a template loader with theme plugin support.
+// Theme plugin templates are loaded first, then theme directory, then layouts/
+// directory (highest priority). This mirrors the traditional override chain:
+// layouts/ overrides theme dir overrides theme plugin.
+func NewLoaderWithTheme(sourceDir, layoutsDir string, funcMap template.FuncMap, themeMgr *theme.Manager) *Loader {
+	return &Loader{
+		themeDir:     filepath.Join(sourceDir, "themes", "", "layouts"),
+		layoutsDir:   layoutsDir,
+		funcMap:      funcMap,
+		themeManager: themeMgr,
+	}
+}
+
 // LoadAll loads all templates and returns a ready-to-execute *template.Template.
 func (l *Loader) LoadAll() (*template.Template, error) {
-	// Collect template file contents: theme first, then local overrides
+	// Collect template file contents: theme plugin first, then theme dir, then local overrides
 	templates := map[string]string{}
 
+	// 1. Load activated theme plugin templates (lowest priority — can be overridden)
+	if l.themeManager != nil {
+		if tp := l.themeManager.Active(); tp != nil {
+			for _, entry := range tp.Templates() {
+				templates[entry.Path] = entry.Content
+			}
+		}
+	}
+
+	// 2. Load theme directory (medium priority)
 	if _, err := os.Stat(l.themeDir); err == nil {
 		if err := l.walkDir(l.themeDir, templates); err != nil {
 			return nil, fmt.Errorf("load theme: %w", err)
 		}
 	}
 
+	// 3. Load layouts/ directory (highest priority — overrides both theme plugin and theme dir)
 	if _, err := os.Stat(l.layoutsDir); err == nil {
 		if err := l.walkDir(l.layoutsDir, templates); err != nil {
 			return nil, fmt.Errorf("load layouts: %w", err)
@@ -57,6 +84,15 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 	// Create the root template with all functions.
 	// This tmpl is the factory: never Execute it directly. Always Clone() first.
 	tmpl := template.New("").Funcs(l.funcMap)
+
+	// Merge activated theme plugin's FuncMap (theme functions override built-in ones)
+	if l.themeManager != nil {
+		if tp := l.themeManager.Active(); tp != nil {
+			for k, v := range tp.FuncMap() {
+				tmpl.Funcs(template.FuncMap{k: v})
+			}
+		}
+	}
 
 	// partialFunc uses the package-level tmplRef, which Renderer sets to the
 	// current clone before each Execute.
