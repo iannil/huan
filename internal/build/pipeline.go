@@ -309,6 +309,18 @@ func (p *pipeline) renderMarkdownAndTree() error {
 	p.scRegistry = shortcode.NewRegistry()
 	p.md = markdown.NewRenderer(&p.cfg.Markup)
 
+	// Register theme shortcodes if the active theme provides them.
+	if p.themeManager != nil {
+		if tp := p.themeManager.Active(); tp != nil {
+			if sp, ok := tp.(theme.ShortcodeProvider); ok {
+				for name, handler := range sp.Shortcodes() {
+					p.scRegistry.Register(name, handler)
+					p.logf("  shortcode: theme registered %q\n", name)
+				}
+			}
+		}
+	}
+
 	for _, pg := range p.pages {
 		if pg.RawContent == "" {
 			continue
