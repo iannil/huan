@@ -91,6 +91,31 @@ func TestLoader_ScanAndLoad_SkipsNonSOFiles(t *testing.T) {
 	}
 }
 
+func TestShouldLoadInCategory(t *testing.T) {
+	tests := []struct {
+		category string
+		mode     string
+		expected bool
+	}{
+		{"static", "build", true},
+		{"static", "daemon", false},
+		{"dynamic", "build", false},
+		{"dynamic", "daemon", true},
+		{"mixed", "build", true},
+		{"mixed", "daemon", true},
+		{"", "build", false},
+		{"", "daemon", true},
+		{"unknown", "build", false},
+		{"unknown", "daemon", true},
+	}
+	for _, tt := range tests {
+		got := ShouldLoadInCategory(tt.category, tt.mode)
+		if got != tt.expected {
+			t.Errorf("ShouldLoadInCategory(%q, %q) = %v, want %v", tt.category, tt.mode, got, tt.expected)
+		}
+	}
+}
+
 // Note: TestLoader_LoadPlugin_RealSO and TestLoader_ScanAndLoad_RealSO
 // require a valid .so plugin built with the exact same Go version and
 // module state as the test runner. Due to Go plugin system constraints,

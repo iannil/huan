@@ -13,6 +13,30 @@ var (
 	ErrPluginNameConflict = errors.New("plugin: name already registered")
 )
 
+const (
+	CategoryStatic  = "static"
+	CategoryDynamic = "dynamic"
+	CategoryMixed   = "mixed"
+)
+
+// ShouldLoadInCategory 判断给定 category 的插件是否应在当前 mode 下加载。
+// mode 为 "build" 或 "daemon"。
+func ShouldLoadInCategory(pluginCategory, mode string) bool {
+	if pluginCategory == "" {
+		pluginCategory = CategoryDynamic // 默认 dynamic
+	}
+	switch pluginCategory {
+	case CategoryStatic:
+		return mode == "build"
+	case CategoryDynamic:
+		return mode == "daemon"
+	case CategoryMixed:
+		return true
+	default:
+		return mode == "daemon" // 未知 category 默认 dynamic
+	}
+}
+
 // PluginInitFunc is the exported symbol every .so plugin must define.
 // The function receives the plugin's raw config and returns a Plugin instance.
 type PluginInitFunc func(cfg map[string]any) (Plugin, error)
