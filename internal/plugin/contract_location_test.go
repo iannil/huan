@@ -21,13 +21,12 @@ var capabilityContractWhitelist = map[string]string{
 	// satisfaction never crosses a Go .so boundary — the type-identity hazard
 	// does not apply. Reserved/unimplemented.
 	"GRPCPlugin": "gRPC cross-process transport; not subject to the in-process .so type-identity hazard",
-	// Hook (internal/build) is the strongly-typed, in-process build-pipeline
-	// contract: its signatures use *content.Page, which pulls in internal/content
-	// and therefore cannot live under pkg/. The .so-safe counterpart already
-	// exists as pkg/plugin.Hook (same methods, interface{} page refs); .so
-	// plugins import that one. This internal alias is host-only convenience, so
-	// it is not subject to the cross-.so type-identity hazard.
-	"Hook": "internal build-pipeline contract using *content.Page (not pkg-importable); .so-safe counterpart is pkg/plugin.Hook",
+	// internal/build.Hook uses *content.Page (an internal type not importable
+	// from pkg/ or .so modules), so it stays compiled-in only. Its .so-facing
+	// counterpart is pkg/plugin.PostBuildHook (OnOutputWritten only), which the
+	// build pipeline bridges — so .so plugins reach the build via PostBuildHook,
+	// not this interface.
+	"Hook": "internal/build.Hook uses *content.Page (compiled-in only); .so plugins use pkg/plugin.PostBuildHook",
 }
 
 // TestCapabilityContractsLiveInPkg asserts every capability interface — one

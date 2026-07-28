@@ -3,28 +3,18 @@ package plugin
 
 import "context"
 
-// Hook is the capability interface for plugins that participate in the build
-// pipeline. Each method maps to a BuildSite stage.
-//
-// Every method is optional — a plugin that only needs to run after writing
-// output implements OnOutputWritten and returns nil for the others.
-//
-// Hook methods use interface{} for page references to avoid importing the
-// content package, which is not importable from pkg/plugin/ or from .so
-// plugin modules.
-type Hook interface {
+// PostBuildHook is the .so-facing build hook. Only OnOutputWritten crosses a
+// .so boundary usefully: page-mutating hooks would receive an opaque
+// interface{} the plugin cannot inspect (content.Page is not importable from
+// pkg/ or .so plugin modules). Rich page-level hooks stay in internal/build.Hook,
+// which is compiled-in only.
+type PostBuildHook interface {
 	Plugin
 
-	// OnContentLoaded is called after all content files are loaded and parsed.
-	// The plugin receives the full page list and may return a modified list.
-	// Returning nil (or the same slice) is a no-op.
-	OnContentLoaded(ctx context.Context, pages []interface{}) ([]interface{}, error)
-
-	// OnPageRendered is called after each page is rendered to HTML.
-	OnPageRendered(ctx context.Context, page interface{}) error
-
-	// OnOutputWritten is called after all output files are written but before
-	// the build result is finalized. Receives the output directory path for
-	// post-processing.
+	// OnOutputWritten is called after all output files are written, before the
+	// build result is finalized. Receives the output directory for
+	// post-processing (e.g. inject SEO meta, enhance sitemap, inject HTML).
+	// Collection-not-interruption: a returned error logs a warning and does
+	// not abort the build.
 	OnOutputWritten(ctx context.Context, outputDir string) error
 }

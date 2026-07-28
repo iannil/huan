@@ -4,7 +4,7 @@
 // cross-module type assertion problem for interface-based capability discovery.
 //
 // Plugin is the minimal base interface every plugin satisfies. Capability
-// interfaces (e.g. pkg/plugin.Hook, pkg/plugin.ThemePlugin) embed Plugin and
+// interfaces (e.g. pkg/plugin.PostBuildHook, pkg/plugin.ThemePlugin) embed Plugin and
 // add domain-specific methods. The Registry holds plugins keyed by Name();
 // Find[T] returns the subset implementing a given capability.
 package plugin
@@ -100,11 +100,11 @@ func (r *Registry) Names() []string {
 
 // Find returns all registered plugins implementing capability T, in
 // registration order. T is typically a capability interface such as
-// pkg/plugin.Hook or pkg/plugin.ThemePlugin.
+// pkg/plugin.PostBuildHook or pkg/plugin.ThemePlugin.
 //
 // Example:
 //
-//	hooks := plugin.Find[pkgplugin.Hook](registry)
+//	hooks := plugin.Find[pkgplugin.PostBuildHook](registry)
 //	for _, h := range hooks { ... }
 func Find[T any](r *Registry) []T {
 	var out []T

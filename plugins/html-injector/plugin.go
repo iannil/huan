@@ -126,16 +126,6 @@ func (p *HTMLInjector) ConfigSchema() plugin.Schema {
 	return p.cfg.ConfigSchema()
 }
 
-// OnContentLoaded is a no-op for this plugin.
-func (p *HTMLInjector) OnContentLoaded(_ context.Context, pages []any) ([]any, error) {
-	return nil, nil
-}
-
-// OnPageRendered is a no-op for this plugin.
-func (p *HTMLInjector) OnPageRendered(_ context.Context, page any) error {
-	return nil
-}
-
 // OnOutputWritten scans the output directory for HTML files and injects
 // custom head/body HTML snippets.
 func (p *HTMLInjector) OnOutputWritten(ctx context.Context, outputDir string) error {
