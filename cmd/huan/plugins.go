@@ -62,6 +62,46 @@ func pluginDirFromSource(sourceDir string) string {
 	return sourceDir + "/plugins"
 }
 
+// loadConfiguredPlugins loads every huan.yaml-declared plugin that is not
+// already present in the registry, resolving each .so by naming convention
+// ($HUAN_HOME first, then pluginDir — see plugin.Loader.Resolve). Commands
+// select the plugin they need by capability interface (deploy.Deployer,
+// translate.Translator, ...), so NO plugin name is hardcoded in Go — plugin
+// names live only in huan.yaml.
+//
+// Plugins whose .so is missing or fails to initialize are skipped silently:
+// selection is by capability, so an unrelated plugin that can't load must not
+// abort the command.
+func loadConfiguredPlugins(registry *plugin.Registry, pluginDir, sourceDir string, plugins map[string]config.PluginConfig) {
+	loader := plugin.NewLoader(pluginDir)
+	for name, pc := range plugins {
+		if _, exists := registry.Get(name); exists {
+			continue
+		}
+		soPath := loader.Resolve(plugin.SoFileName(name))
+		if soPath == "" {
+			continue
+		}
+		// Copy the plugin config and inject the project root so plugins that
+		// resolve project-relative paths (prompt/glossary files, etc.) work
+		// without the command knowing which plugin needs it.
+		cfgMap := make(map[string]any, len(pc.Config)+1)
+		for k, v := range pc.Config {
+			cfgMap[k] = v
+		}
+		cfgMap["_project_root"] = sourceDir
+
+		p, err := loader.LoadPlugin(soPath, cfgMap)
+		if err != nil {
+			continue
+		}
+		if _, exists := registry.Get(p.Name()); exists {
+			continue
+		}
+		_ = registry.Register(p)
+	}
+}
+
 // capabilityLabels returns the capability interface names a plugin implements.
 // Used by `huan plugin list` to show what each plugin can do.
 func capabilityLabels(p plugin.Plugin) []string {

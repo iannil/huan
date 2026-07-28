@@ -20,6 +20,9 @@
                 {{ $practiceDir := .File.Dir }}
 
                 {{ $practicesData := .Site.Data.practices }}
+                {{/* Language-scoped data: on the en build, override with data/en/practices.yaml
+                     so book title/subtitle/part-titles render in English (mirrors practices/list.html). */}}
+                {{ if eq $.Site.LanguageCode "en" }}{{ with .Site.Data.en }}{{ with .practices }}{{ $practicesData = . }}{{ end }}{{ end }}{{ end }}
                 {{ $practiceInfo := dict }}
                 {{ range $practicesData.collection }}
                     {{ range .practices }}

@@ -80,6 +80,11 @@
 - **公开 API 契约独立于开发标志**（2026-07-22）：`GenerateContentAPI` 强制 `includeDrafts=false`
 - **预构建数据源 + 运行时查询层**（2026-07-22）：内容查询 API 复用 `/api/{section}.json` 数据源
 - **SSE 优先于 WebSocket**（2026-07-22）：单向推送匹配需求，HTTP 原生，浏览器 EventSource 原生支持
+- **插件查找顺序 `$HUAN_HOME`→项目**（2026-07-28）：`internal/plugin.HuanHome()`（默认 `~/.huan`）优先于 `<项目>/plugins`；同名插件高优先级目录胜出。`Loader.Resolve`/`Scan*` 统一走 `searchDirs`
+- **命令按能力发现插件，不硬编码插件名**（2026-07-28）：deploy/translate/image 用 `plugin.Find[Deployer/Translator/ImageProcessor]` + `loadConfiguredPlugins`（加载 yaml 声明插件）挑选；插件名只存在于 huan.yaml
+- **插件 .so 命名/发布约定**（2026-07-28）：文件名 = 配置名下划线→连字符（`internal/plugin.SoFileName`，如 `qwen3_translate`→`qwen3-translate.so`）；编译产物发布到 `release/plugins/`（gitignore，`scripts/build-plugins.sh` 重建）
+- **`.Site.Data` 不按语言作用域**（2026-07-28）：huan 递归加载 `data/`，`data/en/*.yaml` 挂在 `.Site.Data.en.*`；模板需自行按 `$.Site.LanguageCode` 覆盖（见 `practices/list.html`）
+- **catalogSections 会丢弃全部内容页**（2026-07-28）：仅渲染 `_index.<lang>` 索引，用于未翻译章节占位；若章节已翻译并要显示目录，须从 catalogSections 移除该 section
 
 ## 经验教训
 

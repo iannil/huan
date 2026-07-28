@@ -123,3 +123,67 @@ func TestShouldLoadInCategory(t *testing.T) {
 // building the test fixture with:
 //   make -C internal/plugin/testdata/simple_plugin
 // The error handling tests above verify the Loader logic comprehensively.
+
+func TestHuanHome_EnvOverride(t *testing.T) {
+	t.Setenv("HUAN_HOME", "/custom/huan/home")
+	if got := HuanHome(); got != "/custom/huan/home" {
+		t.Errorf("HuanHome() = %q, want /custom/huan/home", got)
+	}
+}
+
+func TestHuanHome_DefaultsToDotHuan(t *testing.T) {
+	t.Setenv("HUAN_HOME", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir available")
+	}
+	want := filepath.Join(home, ".huan")
+	if got := HuanHome(); got != want {
+		t.Errorf("HuanHome() = %q, want %q", got, want)
+	}
+}
+
+func TestLoader_Resolve_PrefersHuanHome(t *testing.T) {
+	huanHome := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HUAN_HOME", huanHome)
+
+	// Same-named .so in both dirs; $HUAN_HOME must win.
+	homeSo := filepath.Join(huanHome, "cloudflare.so")
+	projSo := filepath.Join(projectDir, "cloudflare.so")
+	if err := os.WriteFile(homeSo, []byte("home"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projSo, []byte("proj"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := NewLoader(projectDir)
+	if got := l.Resolve("cloudflare.so"); got != homeSo {
+		t.Errorf("Resolve() = %q, want %q ($HUAN_HOME priority)", got, homeSo)
+	}
+}
+
+func TestLoader_Resolve_FallsBackToProject(t *testing.T) {
+	huanHome := t.TempDir() // exists but empty
+	projectDir := t.TempDir()
+	t.Setenv("HUAN_HOME", huanHome)
+
+	projSo := filepath.Join(projectDir, "qwen3.so")
+	if err := os.WriteFile(projSo, []byte("proj"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := NewLoader(projectDir)
+	if got := l.Resolve("qwen3.so"); got != projSo {
+		t.Errorf("Resolve() = %q, want project fallback %q", got, projSo)
+	}
+}
+
+func TestLoader_Resolve_NotFound(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir())
+	l := NewLoader(t.TempDir())
+	if got := l.Resolve("missing.so"); got != "" {
+		t.Errorf("Resolve() = %q, want empty string when not found", got)
+	}
+}

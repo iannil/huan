@@ -54,9 +54,67 @@ func NewLoader(pluginDir string) *Loader {
 	return &Loader{pluginDir: pluginDir}
 }
 
-// PluginDir returns the plugin directory path.
+// PluginDir returns the project-level plugin directory path. This is the
+// directory the daemon watches for hot-reload and validates reload paths
+// against; it does NOT include $HUAN_HOME (see searchDirs).
 func (l *Loader) PluginDir() string {
 	return l.pluginDir
+}
+
+// HuanHome returns the global huan home directory used for centrally-installed
+// plugins. It honors the $HUAN_HOME environment variable, falling back to
+// ~/.huan. Returns "" only when neither $HUAN_HOME nor a home directory can be
+// determined.
+func HuanHome() string {
+	if h := strings.TrimSpace(os.Getenv("HUAN_HOME")); h != "" {
+		return h
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".huan")
+}
+
+// SoFileName returns the conventional .so file name for a plugin whose config
+// key / Name() is `name`. huan.yaml plugin keys use underscores
+// (e.g. qwen3_translate); the .so files on disk use hyphens
+// (e.g. qwen3-translate.so). Callers derive filenames from config keys via this
+// helper instead of hardcoding plugin file names.
+func SoFileName(name string) string {
+	return strings.ReplaceAll(name, "_", "-") + ".so"
+}
+
+// searchDirs returns the plugin directories to scan, in priority order:
+// $HUAN_HOME (or ~/.huan) first, then the project plugin dir. Empty and
+// duplicate entries are removed. A plugin found in an earlier directory takes
+// precedence over the same-named plugin in a later one.
+func (l *Loader) searchDirs() []string {
+	var dirs []string
+	seen := make(map[string]bool)
+	add := func(d string) {
+		if d == "" || seen[d] {
+			return
+		}
+		seen[d] = true
+		dirs = append(dirs, d)
+	}
+	add(HuanHome())
+	add(l.pluginDir)
+	return dirs
+}
+
+// Resolve returns the filesystem path to a plugin .so identified by its base
+// file name (e.g. "cloudflare.so"), searching $HUAN_HOME first then the
+// project plugin dir. It returns "" when the file exists in none of them.
+func (l *Loader) Resolve(soFile string) string {
+	for _, d := range l.searchDirs() {
+		p := filepath.Join(d, soFile)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return ""
 }
 
 // LoadPlugin opens a .so file, finds the InitPlugin symbol, and calls it.
@@ -110,26 +168,34 @@ type ScanAndLoadResult struct {
 // fail to load are skipped with a warning (logged to stderr). Returns an
 // error only if the pluginDir cannot be read.
 func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
-	entries, err := os.ReadDir(l.pluginDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // directory doesn't exist, no plugins to load
-		}
-		return nil, fmt.Errorf("plugin: scan dir %s: %w", l.pluginDir, err)
-	}
-
 	var results []ScanAndLoadResult
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
-			continue
-		}
-		fullPath := filepath.Join(l.pluginDir, entry.Name())
-		p, err := l.LoadPlugin(fullPath, nil)
+	loaded := make(map[string]bool) // .so file name -> already loaded from a higher-priority dir
+
+	for _, dir := range l.searchDirs() {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
-			continue
+			if os.IsNotExist(err) {
+				continue // directory doesn't exist, try the next one
+			}
+			return nil, fmt.Errorf("plugin: scan dir %s: %w", dir, err)
 		}
-		results = append(results, ScanAndLoadResult{Plugin: p, Path: fullPath})
+
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
+				continue
+			}
+			if loaded[entry.Name()] {
+				continue // same .so already loaded from $HUAN_HOME (higher priority)
+			}
+			fullPath := filepath.Join(dir, entry.Name())
+			p, err := l.LoadPlugin(fullPath, nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
+				continue
+			}
+			loaded[entry.Name()] = true
+			results = append(results, ScanAndLoadResult{Plugin: p, Path: fullPath})
+		}
 	}
 	return results, nil
 }
@@ -138,47 +204,53 @@ func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
 // loads each one, and returns only those whose category (from config)
 // matches one of the given categories.
 func (l *Loader) ScanAndLoadByCategory(pluginConfigs map[string]config.PluginConfig, categories ...string) ([]ScanAndLoadResult, error) {
-	if l.pluginDir == "" {
-		return nil, nil
-	}
-	// Check if directory exists
-	if _, err := os.Stat(l.pluginDir); os.IsNotExist(err) {
-		return nil, nil
-	}
-
-	entries, err := os.ReadDir(l.pluginDir)
-	if err != nil {
-		return nil, fmt.Errorf("plugin: scan dir %s: %w", l.pluginDir, err)
-	}
-
 	var results []ScanAndLoadResult
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
-			continue
-		}
+	loadedNames := make(map[string]bool) // plugin name -> loaded from a higher-priority dir
 
-		// Derive plugin name from filename: "seo-injector.so" -> "seo_injector"
-		// (yaml uses underscores, so files use hyphens)
-		fileName := strings.TrimSuffix(entry.Name(), ".so")
-		pluginName := strings.ReplaceAll(fileName, "-", "_")
-
-		// Check category
-		pc, exists := pluginConfigs[pluginName]
-		if !exists {
-			// Plugin not in config — skip (default dynamic behavior)
-			continue
-		}
-		if !matchCategory(pc.Category, categories) {
-			continue
-		}
-
-		fullPath := filepath.Join(l.pluginDir, entry.Name())
-		p, err := l.LoadPlugin(fullPath, pc.Config)
+	for _, dir := range l.searchDirs() {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
-			continue
+			if os.IsNotExist(err) {
+				continue // directory doesn't exist, try the next one
+			}
+			return nil, fmt.Errorf("plugin: scan dir %s: %w", dir, err)
 		}
-		results = append(results, ScanAndLoadResult{Plugin: p, Path: fullPath})
+
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".so" {
+				continue
+			}
+
+			// Derive plugin name from filename: "seo-injector.so" -> "seo_injector"
+			// (yaml uses underscores, so files use hyphens)
+			fileName := strings.TrimSuffix(entry.Name(), ".so")
+			pluginName := strings.ReplaceAll(fileName, "-", "_")
+
+			// A plugin found in $HUAN_HOME (higher priority) wins over the same
+			// plugin in the project dir — skip the lower-priority duplicate.
+			if loadedNames[pluginName] {
+				continue
+			}
+
+			// Check category
+			pc, exists := pluginConfigs[pluginName]
+			if !exists {
+				// Plugin not in config — skip (default dynamic behavior)
+				continue
+			}
+			if !matchCategory(pc.Category, categories) {
+				continue
+			}
+
+			fullPath := filepath.Join(dir, entry.Name())
+			p, err := l.LoadPlugin(fullPath, pc.Config)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
+				continue
+			}
+			loadedNames[pluginName] = true
+			results = append(results, ScanAndLoadResult{Plugin: p, Path: fullPath})
+		}
 	}
 	return results, nil
 }

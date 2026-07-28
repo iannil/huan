@@ -193,13 +193,21 @@ type mockThemePlugin struct {
 	assets    map[string]string
 }
 
-func (m *mockThemePlugin) Name() string                                     { return m.name }
-func (m *mockThemePlugin) Info() theme.ThemeInfo                            { return m.info }
-func (m *mockThemePlugin) Templates() []theme.TemplateEntry                 { return m.templates }
-func (m *mockThemePlugin) FuncMap() template.FuncMap                        { return m.funcMap }
-func (m *mockThemePlugin) Assets() fs.FS                                    { return nil }
-func (m *mockThemePlugin) Start(ctx context.Context) error                  { return nil }
-func (m *mockThemePlugin) Stop(ctx context.Context) error                   { return nil }
+func (m *mockThemePlugin) Name() string { return m.name }
+func (m *mockThemePlugin) Info() map[string]any {
+	return map[string]any{"Name": m.info.Name, "Version": m.info.Version, "Author": m.info.Author}
+}
+func (m *mockThemePlugin) Templates() []map[string]string {
+	out := make([]map[string]string, 0, len(m.templates))
+	for _, e := range m.templates {
+		out = append(out, map[string]string{"path": e.Path, "content": e.Content})
+	}
+	return out
+}
+func (m *mockThemePlugin) FuncMap() template.FuncMap       { return m.funcMap }
+func (m *mockThemePlugin) Assets() fs.FS                   { return nil }
+func (m *mockThemePlugin) Start(ctx context.Context) error { return nil }
+func (m *mockThemePlugin) Stop(ctx context.Context) error  { return nil }
 
 func TestNewScratch(t *testing.T) {
 	s := NewScratch()

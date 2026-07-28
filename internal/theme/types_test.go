@@ -20,11 +20,31 @@ type mockThemePlugin struct {
 	assets    fs.FS
 }
 
-func (m *mockThemePlugin) Name() string                     { return m.info.Name }
-func (m *mockThemePlugin) Info() theme.ThemeInfo             { return m.info }
-func (m *mockThemePlugin) Templates() []theme.TemplateEntry  { return m.templates }
-func (m *mockThemePlugin) FuncMap() template.FuncMap         { return m.funcMap }
-func (m *mockThemePlugin) Assets() fs.FS                     { return m.assets }
+func (m *mockThemePlugin) Name() string                    { return m.info.Name }
+func (m *mockThemePlugin) Info() map[string]any             { return themeInfoMap(m.info) }
+func (m *mockThemePlugin) Templates() []map[string]string   { return templateEntryMaps(m.templates) }
+func (m *mockThemePlugin) FuncMap() template.FuncMap        { return m.funcMap }
+func (m *mockThemePlugin) Assets() fs.FS                    { return m.assets }
+
+// themeInfoMap converts a ThemeInfo to the map form returned by
+// ThemePlugin.Info() (map[string]any for .so cross-module compatibility).
+func themeInfoMap(i theme.ThemeInfo) map[string]any {
+	return map[string]any{
+		"Name": i.Name, "Version": i.Version, "Author": i.Author,
+		"Description": i.Description, "Screenshot": i.Screenshot,
+		"Tags": i.Tags, "MinHuanVer": i.MinHuanVer,
+	}
+}
+
+// templateEntryMaps converts TemplateEntry values to the map form returned by
+// ThemePlugin.Templates() ([]map[string]string).
+func templateEntryMaps(entries []theme.TemplateEntry) []map[string]string {
+	out := make([]map[string]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, map[string]string{"path": e.Path, "content": e.Content})
+	}
+	return out
+}
 
 // mockThemePluginShortcodes implements both ThemePlugin and ShortcodeProvider.
 type mockThemePluginShortcodes struct {
@@ -35,11 +55,11 @@ type mockThemePluginShortcodes struct {
 	assets    fs.FS
 }
 
-func (m *mockThemePluginShortcodes) Name() string                    { return m.info.Name }
-func (m *mockThemePluginShortcodes) Info() theme.ThemeInfo            { return m.info }
-func (m *mockThemePluginShortcodes) Templates() []theme.TemplateEntry { return m.templates }
-func (m *mockThemePluginShortcodes) FuncMap() template.FuncMap        { return m.funcMap }
-func (m *mockThemePluginShortcodes) Assets() fs.FS                    { return m.assets }
+func (m *mockThemePluginShortcodes) Name() string                   { return m.info.Name }
+func (m *mockThemePluginShortcodes) Info() map[string]any            { return themeInfoMap(m.info) }
+func (m *mockThemePluginShortcodes) Templates() []map[string]string  { return templateEntryMaps(m.templates) }
+func (m *mockThemePluginShortcodes) FuncMap() template.FuncMap       { return m.funcMap }
+func (m *mockThemePluginShortcodes) Assets() fs.FS                   { return m.assets }
 func (m *mockThemePluginShortcodes) Shortcodes() map[string]pkgplugin.ShortcodeHandler {
 	return map[string]pkgplugin.ShortcodeHandler{
 		"audio": func(ctx pkgplugin.ShortcodeContext) (string, error) {

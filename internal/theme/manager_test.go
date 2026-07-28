@@ -13,11 +13,11 @@ type simpleTheme struct {
 	name string
 }
 
-func (s *simpleTheme) Name() string                    { return s.name }
-func (s *simpleTheme) Info() theme.ThemeInfo            { return theme.ThemeInfo{Name: s.name} }
-func (s *simpleTheme) Templates() []theme.TemplateEntry  { return nil }
-func (s *simpleTheme) FuncMap() template.FuncMap         { return nil }
-func (s *simpleTheme) Assets() fs.FS                     { return nil }
+func (s *simpleTheme) Name() string                  { return s.name }
+func (s *simpleTheme) Info() map[string]any           { return map[string]any{"Name": s.name} }
+func (s *simpleTheme) Templates() []map[string]string { return nil }
+func (s *simpleTheme) FuncMap() template.FuncMap      { return nil }
+func (s *simpleTheme) Assets() fs.FS                  { return nil }
 
 func TestManagerActivateDeactivate(t *testing.T) {
 	reg := plugin.NewRegistry()

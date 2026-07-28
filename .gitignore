@@ -11,7 +11,7 @@ web/admin/node_modules/
 .agents/
 .claude/
 skills-lock.json
-# Plugin binaries (built from external repos)
-/plugins/*.so
-/plugins/**/image-pipeline.so
-/zhurongshuo.so
+# Plugin binaries — never tracked. Compiled via scripts/build-plugins.sh into
+# release/plugins/ (also gitignored); resolved at runtime from $HUAN_HOME (~/.huan)
+# then <project>/plugins.
+*.so

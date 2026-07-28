@@ -11,12 +11,22 @@ Qwen3 翻译插件，用于通过本地 Ollama 运行的 Qwen3 模型将 Markdow
 
 ## 编译
 
+推荐用统一脚本编译所有插件到发布目录 `release/plugins/`：
+
 ```bash
-cd plugins/qwen3
-go build -buildmode=plugin -o ../qwen3.so .
+scripts/build-plugins.sh
 ```
 
-产物：`plugins/qwen3.so`
+单独编译本插件（产物名须遵循「配置名下划线→连字符」约定，见 `internal/plugin.SoFileName`）：
+
+```bash
+cd plugins/qwen3
+go build -buildmode=plugin -o ../../release/plugins/qwen3-translate.so .
+```
+
+产物：`release/plugins/qwen3-translate.so`（配置名 `qwen3_translate` → 文件名 `qwen3-translate.so`）。
+
+运行时 `huan` 优先在 `$HUAN_HOME`（默认 `~/.huan`）查找插件，其次是 `<项目>/plugins`。
 
 ## 配置
 
