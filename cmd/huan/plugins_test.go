@@ -46,11 +46,11 @@ var _ image.ImageProcessor = (*stubImageProcessor)(nil)
 
 func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 	cfg := &config.Config{
-		Plugins: map[string]map[string]any{
-			"unknown_thing": {"foo": "bar"},
+		Plugins: map[string]config.PluginConfig{
+			"unknown_thing": {Config: map[string]any{"foo": "bar"}},
 		},
 	}
-	r, err := newPluginRegistry(cfg)
+	r, err := newPluginRegistry(cfg, "")
 	if err != nil {
 		t.Fatalf("unknown plugin should be silently skipped, got error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 
 func TestNewPluginRegistry_EmptyPluginsMap(t *testing.T) {
 	cfg := &config.Config{}
-	r, err := newPluginRegistry(cfg)
+	r, err := newPluginRegistry(cfg, "")
 	if err != nil {
 		t.Fatalf("empty plugins map: %v", err)
 	}

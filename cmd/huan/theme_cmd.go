@@ -31,7 +31,7 @@ func newThemeActivateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			registry, err := newPluginRegistry(cfg)
+			registry, err := newPluginRegistry(cfg, sourceDir)
 			if err != nil {
 				return fmt.Errorf("plugin registry: %w", err)
 			}
@@ -54,7 +54,7 @@ func newThemeDeactivateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			registry, err := newPluginRegistry(cfg)
+			registry, err := newPluginRegistry(cfg, sourceDir)
 			if err != nil {
 				return fmt.Errorf("plugin registry: %w", err)
 			}
@@ -75,7 +75,7 @@ func newThemeListCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			registry, err := newPluginRegistry(cfg)
+			registry, err := newPluginRegistry(cfg, sourceDir)
 			if err != nil {
 				return fmt.Errorf("plugin registry: %w", err)
 			}
@@ -87,7 +87,7 @@ func newThemeListCmd() *cobra.Command {
 			}
 			fmt.Printf("%-20s %-10s %-15s %s\n", "NAME", "VERSION", "AUTHOR", "STATUS")
 			for _, tp := range available {
-				info := tp.Info()
+				info := theme.DecodeInfo(tp.Info())
 				status := "AVAILABLE"
 				if mgr.ActiveName() == info.Name {
 					status = "ACTIVE"
@@ -109,7 +109,7 @@ func newThemeInfoCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			registry, err := newPluginRegistry(cfg)
+			registry, err := newPluginRegistry(cfg, sourceDir)
 			if err != nil {
 				return fmt.Errorf("plugin registry: %w", err)
 			}
@@ -121,7 +121,7 @@ func newThemeInfoCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("plugin %q is not a theme", args[0])
 			}
-			info := tp.Info()
+			info := theme.DecodeInfo(tp.Info())
 			fmt.Printf("Name:        %s\n", info.Name)
 			fmt.Printf("Version:     %s\n", info.Version)
 			fmt.Printf("Author:      %s\n", info.Author)

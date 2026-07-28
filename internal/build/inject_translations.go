@@ -23,10 +23,11 @@ import "github.com/iannil/huan/internal/config"
 //
 // Silently no-ops when the plugin block is absent or has no entry for lang.
 func injectSiteTranslations(cfg *config.Config, lang string) {
-	pluginCfg, ok := cfg.Plugins["qwen3_translate"]
+	pc, ok := cfg.Plugins["qwen3_translate"]
 	if !ok {
 		return
 	}
+	pluginCfg := pc.Config
 	siteTrans, ok := pluginCfg["site_translations"].(map[string]interface{})
 	if !ok {
 		return

@@ -74,7 +74,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	registry, err := newPluginRegistry(cfg)
+	registry, err := newPluginRegistry(cfg, sourceDir)
 	if err != nil {
 		return fmt.Errorf("plugin registry: %w", err)
 	}
@@ -89,7 +89,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		}
 		soPath := filepath.Join(pluginDir, "qwen3.so")
 		loader := plugin.NewLoader(pluginDir)
-		pluginCfg := cfg.Plugins["qwen3_translate"]
+		pluginCfg := cfg.Plugins["qwen3_translate"].Config
 		if pluginCfg == nil {
 			pluginCfg = make(map[string]any)
 		}
@@ -150,7 +150,8 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 
 	// Load glossary from configured glossary_file (relative to sourceDir)
 	glossary := make(map[string]string)
-	if rawQCfg, ok := cfg.Plugins["qwen3_translate"]; ok {
+	if rawPC, ok := cfg.Plugins["qwen3_translate"]; ok {
+		rawQCfg := rawPC.Config
 		if gf, ok := rawQCfg["glossary_file"].(string); ok && gf != "" {
 			full := gf
 			if !filepath.IsAbs(full) {

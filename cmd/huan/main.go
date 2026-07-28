@@ -7,6 +7,7 @@ import (
 
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/theme"
 	"github.com/spf13/cobra"
 )
 
@@ -81,6 +82,15 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		baseURLOverride = bu
 	}
 
+	// Create plugin registry and theme manager
+	reg, _ := newPluginRegistry(cfg, sourceDir)
+	themeMgr := theme.NewManager(reg)
+	if cfg.Theme != "" {
+		if err := themeMgr.Activate(cfg.Theme); err != nil {
+			fmt.Fprintf(os.Stderr, "huan: theme activate %q: %v\n", cfg.Theme, err)
+		}
+	}
+
 	// Multi-language dispatch: when huan.yaml declares a languages: block,
 	// route through BuildMultiSite which renders each language under its
 	// baseURL prefix. Single-language configs use the existing BuildSite path.
@@ -93,6 +103,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			IncludeExpired:   includeExpired,
 			BaseURLOverride:  baseURLOverride,
 			MinifyOverride:   minifyOverride,
+			PluginRegistry:   reg,
+			ThemeManager:     themeMgr,
 		})
 		if err != nil {
 			return err
@@ -100,7 +112,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		fmt.Println(build.SummarizeMultiSite(multiResult))
 
 		// Run image pipeline after build if configured
-		reg, _ := newPluginRegistry(cfg)
 		if err := runImagePipeline(cfg, sourceDir, outputDir, reg); err != nil {
 			return fmt.Errorf("after build: %w", err)
 		}
@@ -115,13 +126,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		IncludeExpired:   includeExpired,
 		BaseURLOverride:  baseURLOverride,
 		MinifyOverride:   minifyOverride,
+		PluginRegistry:   reg,
+		ThemeManager:     themeMgr,
 	})
 	if err != nil {
 		return err
 	}
 
 	// Run image pipeline after build if configured
-	reg2, _ := newPluginRegistry(cfg)
-	return runImagePipeline(cfg, sourceDir, outputDir, reg2)
+	return runImagePipeline(cfg, sourceDir, outputDir, reg)
 }
 

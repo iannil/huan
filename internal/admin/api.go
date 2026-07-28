@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 )
 
 // apiHandlerConfig holds the constructor inputs for apiHandler. Split into
@@ -25,6 +26,7 @@ type apiHandlerConfig struct {
 	serveURL       string
 	audit          *AuditLogger
 	pluginManager  *plugin.LifecycleManager
+	themeManager   *theme.Manager
 }
 
 // apiHandler holds the contentOps and registers API routes.
@@ -39,6 +41,7 @@ type apiHandler struct {
 	staticDir     string
 	audit         *AuditLogger
 	pluginManager *plugin.LifecycleManager
+	themeManager  *theme.Manager
 }
 
 func newAPIHandler(cfg apiHandlerConfig) *apiHandler {
@@ -53,6 +56,7 @@ func newAPIHandler(cfg apiHandlerConfig) *apiHandler {
 		staticDir:     cfg.staticDir,
 		audit:         cfg.audit,
 		pluginManager: cfg.pluginManager,
+		themeManager:  cfg.themeManager,
 	}
 }
 
@@ -103,6 +107,12 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.unloadPlugin(w, r)
 	case path == "plugins/reload" && r.Method == http.MethodPost:
 		h.reloadPlugin(w, r)
+	case path == "theme" && r.Method == http.MethodGet:
+		h.listThemes(w, r)
+	case path == "theme/activate" && r.Method == http.MethodPost:
+		h.activateTheme(w, r)
+	case path == "theme/deactivate" && r.Method == http.MethodPost:
+		h.deactivateTheme(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, APIError{Error: "not found"})
 	}
@@ -478,6 +488,63 @@ func (h *apiHandler) reloadPlugin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, PluginManageResponse{Status: "reloaded"})
 }
 
+// listThemes returns all available theme plugins with their metadata.
+func (h *apiHandler) listThemes(w http.ResponseWriter, r *http.Request) {
+	if h.themeManager == nil {
+		writeJSON(w, http.StatusOK, ThemeListResponse{Themes: []ThemeInfo{}})
+		return
+	}
+	available := h.themeManager.ListAvailable()
+	active := h.themeManager.ActiveName()
+	themes := make([]ThemeInfo, 0, len(available))
+	for _, tp := range available {
+		rawInfo := tp.Info()
+		themes = append(themes, ThemeInfo{
+			Name:        valStr(rawInfo["Name"]),
+			Version:     valStr(rawInfo["Version"]),
+			Author:      valStr(rawInfo["Author"]),
+			Description: valStr(rawInfo["Description"]),
+			Active:      valStr(rawInfo["Name"]) == active,
+			Templates:   len(tp.Templates()),
+			Funcs:       len(tp.FuncMap()),
+		})
+	}
+	writeJSON(w, http.StatusOK, ThemeListResponse{
+		Themes: themes,
+		Active: active,
+	})
+}
+
+// activateTheme activates a theme plugin by name.
+func (h *apiHandler) activateTheme(w http.ResponseWriter, r *http.Request) {
+	if h.themeManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, APIError{Error: "theme manager unavailable"})
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: "invalid request"})
+		return
+	}
+	if err := h.themeManager.Activate(req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIError{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "theme": req.Name})
+}
+
+// deactivateTheme deactivates the current active theme.
+func (h *apiHandler) deactivateTheme(w http.ResponseWriter, r *http.Request) {
+	if h.themeManager == nil {
+		writeJSON(w, http.StatusServiceUnavailable, APIError{Error: "theme manager unavailable"})
+		return
+	}
+	h.themeManager.Deactivate()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // auditLog is a nil-safe wrapper: if audit logger is unset (e.g., in tests
 // with no memoryDir), the call is a no-op. Errors are logged via the
 // server's logf but never propagate to the HTTP response — a failed audit
@@ -501,4 +568,16 @@ func safeSHA(filePath string) string {
 		return ""
 	}
 	return sha
+}
+
+
+// valStr extracts a string value from an interface{} for safe map access.
+func valStr(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }

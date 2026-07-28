@@ -3,6 +3,8 @@ package plugin
 import (
 	"strings"
 	"testing"
+
+	"github.com/iannil/huan/internal/config"
 )
 
 type testSchemaPlugin struct {
@@ -82,9 +84,9 @@ func TestValidateConfig_EmptyRaw(t *testing.T) {
 func TestValidateRawConfigs_UnknownPluginWarning(t *testing.T) {
 	registry := NewRegistry()
 	_ = registry.Register(&testSchemaPlugin{name: "known", schema: Schema{}})
-	rawConfigs := map[string]map[string]any{
-		"known":  {"foo": "bar"},
-		"unknown": {"x": "y"},
+	rawConfigs := map[string]config.PluginConfig{
+		"known":  {Config: map[string]any{"foo": "bar"}},
+		"unknown": {Config: map[string]any{"x": "y"}},
 	}
 	errs, warns := ValidateRawConfigs(registry, rawConfigs)
 	if len(errs) != 0 {
@@ -102,8 +104,8 @@ func TestValidateRawConfigs_SkipNoSchema(t *testing.T) {
 	// A plugin that doesn't implement SchemaProvider should be skipped
 	registry := NewRegistry()
 	_ = registry.Register(&stubPlugin{name: "noschema"})
-	rawConfigs := map[string]map[string]any{
-		"noschema": {"foo": "bar"},
+	rawConfigs := map[string]config.PluginConfig{
+		"noschema": {Config: map[string]any{"foo": "bar"}},
 	}
 	errs, warns := ValidateRawConfigs(registry, rawConfigs)
 	if len(errs) != 0 || len(warns) != 0 {

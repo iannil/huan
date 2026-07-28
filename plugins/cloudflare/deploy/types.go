@@ -12,7 +12,7 @@ package deploy
 import (
 	"context"
 
-	"github.com/iannil/huan-plugin-cloudflare/plugin"
+	"github.com/iannil/huan/pkg/plugin"
 )
 
 // Deployer is the capability interface for plugins that publish build output.

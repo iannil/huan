@@ -5,7 +5,17 @@ import (
 	"time"
 )
 
-// Config is the root configuration loaded from huan.yaml.
+// PluginConfig is the configuration for a single plugin entry in huan.yaml.
+type PluginConfig struct {
+	Category string         `yaml:"category"` // "static" | "dynamic" | "mixed", empty = dynamic
+	Config   map[string]any `yaml:",inline"`
+}
+
+// RawConfig returns the plugin's raw config map (excluding the category field).
+// Provides backward compatibility for code that previously received map[string]any.
+func (p PluginConfig) RawConfig() map[string]any {
+	return p.Config
+}
 type Config struct {
 	BaseURL      string            `yaml:"baseURL"`
 	Title        string            `yaml:"title"`
@@ -31,7 +41,7 @@ type Config struct {
 	RSS          RSSConfig         `yaml:"rss"`
 	Outputs      OutputsConfig     `yaml:"outputs"`
 	AI           AIConfig          `yaml:"ai"`
-	Plugins      map[string]map[string]any `yaml:"plugins"`
+	Plugins      map[string]PluginConfig `yaml:"plugins"`
 	Theme        string                    `yaml:"theme"`
 
 	// Computed (not from YAML)

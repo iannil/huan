@@ -10,14 +10,20 @@ import (
 // ThemePlugin is the core capability interface for theme plugins.
 // Themes provide templates, template functions, and static assets
 // for site rendering.
+//
+// Note: Methods use interface{} and built-in types (not concrete structs)
+// so that .so plugins loaded via Go's plugin.Open can satisfy this
+// interface across module boundaries. Concrete struct types would be
+// different named types in each module and fail type assertions.
 type ThemePlugin interface {
 	Plugin
 
-	// Info returns the theme's metadata.
-	Info() ThemeInfo
+	// Info returns the theme's metadata as a key-value map.
+	Info() map[string]any
 
 	// Templates returns the list of templates the theme provides.
-	Templates() []TemplateEntry
+	// Each entry has "path" and "content" keys.
+	Templates() []map[string]string
 
 	// FuncMap returns the theme's custom template functions.
 	FuncMap() template.FuncMap

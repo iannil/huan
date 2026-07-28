@@ -159,4 +159,6 @@ type FieldSchema struct {
 	Required    bool   // true = 必填，启动时校验
 	Default     any    // 默认值（Required=false 时生效）
 	Description string // 人类可读的说明
+	Sensitive   bool   // true = 在 CLI info 中 mask 为 ***
+	EnvVarHint  string // 建议的环境变量名，仅用于文档提示
 }

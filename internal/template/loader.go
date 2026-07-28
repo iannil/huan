@@ -62,7 +62,7 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 	if l.themeManager != nil {
 		if tp := l.themeManager.Active(); tp != nil {
 			for _, entry := range tp.Templates() {
-				templates[entry.Path] = entry.Content
+				templates[entry["path"]] = entry["content"]
 			}
 		}
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/iannil/huan/internal/taxonomy"
 	"github.com/iannil/huan/internal/theme"
 	tmpl "github.com/iannil/huan/internal/template"
+	pkgplugin "github.com/iannil/huan/pkg/plugin"
 )
 
 // pipeline holds the accumulated state across build stages. Each stage is a
@@ -314,7 +315,12 @@ func (p *pipeline) renderMarkdownAndTree() error {
 		if tp := p.themeManager.Active(); tp != nil {
 			if sp, ok := tp.(theme.ShortcodeProvider); ok {
 				for name, handler := range sp.Shortcodes() {
-					p.scRegistry.Register(name, handler)
+					// Convert pkgplugin.ShortcodeHandler to shortcode.Handler:
+					// the plugin-layer handler receives a simpler context (Params + Inner).
+					h := handler
+					p.scRegistry.Register(name, func(ctx *shortcode.Context) (string, error) {
+						return h(pkgplugin.ShortcodeContext{Params: ctx.Params, Inner: ctx.Inner})
+					})
 					p.logf("  shortcode: theme registered %q\n", name)
 				}
 			}

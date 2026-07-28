@@ -25,7 +25,7 @@ func TestRunImagePipeline_NotConfigured(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		Plugins: map[string]map[string]any{}, // no image_pipeline
+		Plugins: map[string]config.PluginConfig{}, // no image_pipeline
 	}
 
 	err := runImagePipeline(cfg, sourceDir, outputDir, plugin.NewRegistry())
@@ -53,8 +53,8 @@ func TestRunImagePipeline_ConfiguredButPluginMissing(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		Plugins: map[string]map[string]any{
-			"image_pipeline": {"quality": 85},
+		Plugins: map[string]config.PluginConfig{
+			"image_pipeline": {Config: map[string]any{"quality": 85}},
 		},
 	}
 

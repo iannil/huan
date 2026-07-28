@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"sort"
 
-	"github.com/iannil/huan-plugin-zhurongshuo/plugin"
+	"github.com/iannil/huan/pkg/plugin"
 )
 
 //go:embed templates/*
@@ -26,22 +26,22 @@ type ZhurongshuoTheme struct{}
 func (t *ZhurongshuoTheme) Name() string { return "zhurongshuo" }
 
 // Info returns the theme's metadata.
-func (t *ZhurongshuoTheme) Info() plugin.ThemeInfo {
-	return plugin.ThemeInfo{
-		Name:        "zhurongshuo",
-		Version:     "0.1.0",
-		Author:      "iannil",
-		Description: "祝融说官方主题 — 中文内容排版优化",
-		Tags:        []string{"blog", "chinese", "philosophy"},
-		MinHuanVer:  "v0.7.0",
+func (t *ZhurongshuoTheme) Info() map[string]any {
+	return map[string]any{
+		"Name":        "zhurongshuo",
+		"Version":     "0.1.0",
+		"Author":      "iannil",
+		"Description": "祝融说官方主题 — 中文内容排版优化",
+		"Tags":        []string{"blog", "chinese", "philosophy"},
+		"MinHuanVer":  "v0.7.0",
 	}
 }
 
 // Templates returns all embedded template files.
 // The "templates/" prefix is stripped from the path so that
 // e.g. "templates/index.html" becomes "index.html".
-func (t *ZhurongshuoTheme) Templates() []plugin.TemplateEntry {
-	var entries []plugin.TemplateEntry
+func (t *ZhurongshuoTheme) Templates() []map[string]string {
+	var entries []map[string]string
 	fs.WalkDir(templateFS, "templates", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -51,13 +51,13 @@ func (t *ZhurongshuoTheme) Templates() []plugin.TemplateEntry {
 		}
 		data, _ := templateFS.ReadFile(path)
 		relPath := path[len("templates/"):]
-		entries = append(entries, plugin.TemplateEntry{
-			Path:    relPath,
-			Content: string(data),
+		entries = append(entries, map[string]string{
+			"path":    relPath,
+			"content": string(data),
 		})
 		return nil
 	})
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	sort.Slice(entries, func(i, j int) bool { return entries[i]["path"] < entries[j]["path"] })
 	return entries
 }
 

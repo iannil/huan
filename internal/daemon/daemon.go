@@ -20,6 +20,7 @@ import (
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 	"github.com/iannil/huan/internal/translate"
 )
 
@@ -38,6 +39,7 @@ type Options struct {
 	PluginDir      string           // plugin directory (default: <sourceDir>/plugins)
 	DisablePlugin  bool             // disable plugin loading
 	PluginRegistry *plugin.Registry // compiled plugins registry (optional)
+	ThemeManager   *theme.Manager   // theme manager (optional)
 }
 
 // Daemon holds the long-running server state.
@@ -52,6 +54,7 @@ type Daemon struct {
 	health        *HealthChecker
 	metrics       *MetricsCollector
 	pluginManager *plugin.LifecycleManager
+	themeManager  *theme.Manager
 	tmpDir        string
 	httpSrv       *http.Server
 }
@@ -109,6 +112,25 @@ func Run(opts Options) error {
 		log.Println("daemon: content query API disabled (ai.contentAPI not set)")
 	}
 
+	// 6.75 Init ThemeManager from config
+	d.themeManager = opts.ThemeManager
+	if d.themeManager == nil {
+		// Create a ThemeManager even without a plugin registry — Activate
+		// will fail gracefully if the theme plugin is not found.
+		registry := opts.PluginRegistry
+		if registry == nil {
+			registry = plugin.NewRegistry()
+		}
+		d.themeManager = theme.NewManager(registry)
+	}
+	if cfg.Theme != "" {
+		if err := d.themeManager.Activate(cfg.Theme); err != nil {
+			log.Printf("daemon: theme activate %q: %v", cfg.Theme, err)
+		} else {
+			log.Printf("daemon: theme %q activated", cfg.Theme)
+		}
+	}
+
 	// 7. Initialize Builder
 	// Create the PipelineCache up-front so BuildSite can populate it during
 	// the initial full build. Subsequent incremental builds reuse it.
@@ -124,6 +146,7 @@ func Run(opts Options) error {
 		Logf:          log.Printf,
 		PipelineCache: pipelineCache,
 		ContentIndex:  contentIdx,
+		ThemeManager:  d.themeManager,
 		OnAfterBuild: func(r *build.Result) error {
 			// PipelineCache is populated by BuildSite via build.Options.PipelineCache.
 			return nil
@@ -163,6 +186,9 @@ func Run(opts Options) error {
 			if _, ok := p.(image.ImageProcessor); ok {
 				caps = append(caps, "image")
 			}
+			if _, ok := p.(theme.ThemePlugin); ok {
+				caps = append(caps, "theme")
+			}
 			if len(caps) == 0 {
 				return ""
 			}
@@ -189,9 +215,8 @@ func Run(opts Options) error {
 		Token:         "", // Uses env var HUAN_ADMIN_TOKEN
 		MemoryDir:     filepath.Join(opts.SourceDir, "memory", "daily"),
 		PluginManager: d.pluginManager,
-	})
-
-	// Init SSEHub (real-time push via /api/v1/events)
+		ThemeManager:  d.themeManager,
+		})
 	sseHub := sse.NewSSEHub(log.Printf)
 	sseHub.SubscribeBus(d.bus)
 	sseWatchCtx, sseWatchCancel := context.WithCancel(context.Background())

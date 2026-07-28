@@ -101,3 +101,20 @@ type PluginManageResponse struct {
 type APIError struct {
 	Error string `json:"error"`
 }
+
+// ThemeListResponse wraps the theme listing API response.
+type ThemeListResponse struct {
+	Themes []ThemeInfo `json:"themes"`
+	Active string      `json:"active"`
+}
+
+// ThemeInfo describes a single theme plugin for the admin API.
+type ThemeInfo struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
+	Active      bool   `json:"active"`
+	Templates   int    `json:"templates"`
+	Funcs       int    `json:"funcs"`
+}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/iannil/huan/internal/config"
 )
 
 // ValidateConfig checks raw config against the schema. Returns a list of
@@ -99,8 +101,9 @@ func checkType(name, key, expectedType string, val any) string {
 // ValidateRawConfigs validates all plugin configs against their schemas.
 // Returns errors and warnings separately. Plugins that don't implement
 // SchemaProvider are skipped.
-func ValidateRawConfigs(registry *Registry, rawConfigs map[string]map[string]any) (errors, warnings []string) {
-	for name, raw := range rawConfigs {
+func ValidateRawConfigs(registry *Registry, rawConfigs map[string]config.PluginConfig) (errors, warnings []string) {
+	for name, pc := range rawConfigs {
+		raw := stripReservedFields(pc.Config)
 		p, ok := registry.Get(name)
 		if !ok {
 			warnings = append(warnings, fmt.Sprintf("plugin %q: declared in yaml but not compiled-in (will be loaded from .so at runtime if available)", name))
@@ -120,4 +123,20 @@ func ValidateRawConfigs(registry *Registry, rawConfigs map[string]map[string]any
 		}
 	}
 	return errors, warnings
+}
+
+// stripReservedFields removes PluginConfig-level fields (like "category")
+// that are not part of the plugin's own config schema.
+func stripReservedFields(raw map[string]any) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	out := make(map[string]any, len(raw))
+	for k, v := range raw {
+		if k == "category" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }

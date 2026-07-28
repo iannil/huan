@@ -5,78 +5,47 @@ import (
 	"os"
 	"strings"
 
+	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
-	"github.com/iannil/huan/internal/seo/htmlinjector"
-	"github.com/iannil/huan/internal/seo/injector"
-	"github.com/iannil/huan/internal/seo/sitemap"
 	"github.com/iannil/huan/internal/translate"
 )
 
 // newPluginRegistry is the composition root for the unified plugin system
-// (ADR 0003 §7). It instantiates each plugin declared in cfg.Plugins via its
-// typed constructor and registers it with a fresh Registry.
+// (ADR 0003 §7). It loads all .so plugins from the plugins/ directory that
+// are declared in huan.yaml with category "static" or "mixed", registers
+// them with a fresh Registry, and validates their configs against schemas.
 //
-// Adding a compiled-in plugin = add a case to this switch + import the
-// plugin package. This file is the only place that knows about all available
-// compiled-in plugins.
+// Plugins with category "dynamic" are excluded — they are loaded at runtime
+// by the daemon's LifecycleManager.
 //
-// Unknown plugins declared in yaml are silently skipped at compile time — they
-// will be loaded at runtime by the LifecycleManager's .so scanner. Warnings
-// are printed to stderr for unknown plugins and config validation issues.
-// Validation errors (missing required fields, type mismatches) fail fast.
-func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
+// Unknown plugins declared in yaml (not found as .so files) are silently
+// skipped at compile time.
+func newPluginRegistry(cfg *config.Config, sourceDir string) (*plugin.Registry, error) {
 	r := plugin.NewRegistry()
-	for name := range cfg.Plugins {
-		switch name {
-		// ### Compiled-in plugins ###
-		case "seo_injector":
-			raw := cfg.Plugins[name]
-			pluginCfg, err := injector.ParseConfig(raw)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-			if err := r.Register(injector.New(pluginCfg)); err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-		// Add `case "name":` here for plugins compiled into the binary.
-		// Example:
-		//   case "cloudflare":
-		//       cfCfg, err := cloudflare.ParseConfig(raw)
-		//       if err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
-		//       if err := r.Register(cloudflare.New(cfCfg)); err != nil { return nil, fmt.Errorf("plugin %s: %w", name, err) }
-		case "html_injector":
-			raw := cfg.Plugins[name]
-			pluginCfg, err := htmlinjector.ParseConfig(raw)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-			if err := r.Register(htmlinjector.New(pluginCfg)); err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-		case "sitemap_enhancer":
-			raw := cfg.Plugins[name]
-			pluginCfg, err := sitemap.ParseConfig(raw)
-			if err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
-			if err := r.Register(sitemap.New(pluginCfg)); err != nil {
-				return nil, fmt.Errorf("plugin %s: %w", name, err)
-			}
+	pluginDir := pluginDirFromSource(sourceDir)
+	loader := plugin.NewLoader(pluginDir)
 
-		// ### .so plugins (handled at runtime by LifecycleManager) ###
-		default:
-			// .so plugin — will be loaded from the plugins/ directory at
-			// runtime. Silently skip at compile time.
+	// Scan and load all .so files, filter by category
+	results, err := loader.ScanAndLoadByCategory(cfg.Plugins, plugin.CategoryStatic, plugin.CategoryMixed)
+	if err != nil {
+		return nil, fmt.Errorf("plugin: scan static plugins: %w", err)
+	}
+	for _, result := range results {
+		name := result.Plugin.Name()
+		if _, exists := r.Get(name); exists {
+			fmt.Fprintf(os.Stderr, "huan: plugin %q: name conflict, skipping\n", name)
+			continue
+		}
+		if err := r.Register(result.Plugin); err != nil {
+			fmt.Fprintf(os.Stderr, "huan: plugin %q: register error: %v\n", name, err)
 		}
 	}
 
-	// Validate configs against schemas for compiled-in plugins.
-	// Unknown plugins (declared in yaml but not registered) produce warnings.
-	// Validation errors (missing required, type mismatch) fail fast.
+	// Validate configs against schemas
 	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins); len(errs) > 0 || len(warns) > 0 {
 		for _, w := range warns {
 			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
@@ -85,8 +54,12 @@ func newPluginRegistry(cfg *config.Config) (*plugin.Registry, error) {
 			return nil, fmt.Errorf("plugin config errors:\n  - %s", strings.Join(errs, "\n  - "))
 		}
 	}
-
 	return r, nil
+}
+
+// pluginDirFromSource returns the plugins directory path relative to sourceDir.
+func pluginDirFromSource(sourceDir string) string {
+	return sourceDir + "/plugins"
 }
 
 // capabilityLabels returns the capability interface names a plugin implements.
@@ -104,6 +77,9 @@ func capabilityLabels(p plugin.Plugin) []string {
 	}
 	if _, ok := p.(theme.ThemePlugin); ok {
 		labels = append(labels, "theme")
+	}
+	if _, ok := p.(build.Hook); ok {
+		labels = append(labels, "hook")
 	}
 	return labels
 }

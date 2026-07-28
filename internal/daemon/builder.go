@@ -15,6 +15,7 @@ import (
 	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/theme"
 )
 
 // BuilderOptions configures the Builder.
@@ -41,6 +42,10 @@ type BuilderOptions struct {
 	// so the /api/v1/* query API serves fresh data. Optional: when nil, the
 	// reload hook is skipped.
 	ContentIndex *contentindex.ContentIndex
+
+	// ThemeManager, if non-nil, is passed to build.Options.ThemeManager
+	// for full builds, incremental builds, and JIT rendering.
+	ThemeManager *theme.Manager
 }
 
 // Builder manages the full build and incremental update pipeline.
@@ -49,11 +54,12 @@ type Builder struct {
 	busy         atomic.Bool
 	pending      atomic.Bool
 	renderPageFn build.RenderPageFunc // captured from AfterBuild for JIT use
+	themeManager *theme.Manager
 }
 
 // NewBuilder creates a new Builder.
 func NewBuilder(opts BuilderOptions) *Builder {
-	return &Builder{opts: opts}
+	return &Builder{opts: opts, themeManager: opts.ThemeManager}
 }
 
 // FullBuild runs the complete 8-stage build pipeline.
@@ -82,6 +88,7 @@ func (b *Builder) executeFullBuild(ctx context.Context) error {
 		IncludeDrafts: b.opts.BuildDrafts,
 		Logf:          b.opts.Logf,
 		PipelineCache: b.opts.PipelineCache,
+		ThemeManager:  b.themeManager,
 		AfterBuild: func(r *build.Result, fn build.RenderPageFunc) error {
 			renderPageFn = fn // capture for later JIT use
 			if b.opts.OnAfterBuild != nil {

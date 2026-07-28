@@ -5,7 +5,7 @@ package translate
 import (
 	"context"
 
-	"github.com/iannil/huan-plugin-qwen3/plugin"
+	"github.com/iannil/huan/pkg/plugin"
 )
 
 // Translator is the capability interface for plugins that translate content

@@ -64,7 +64,7 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	registry, err := newPluginRegistry(cfg)
+	registry, err := newPluginRegistry(cfg, sourceDir)
 	if err != nil {
 		return fmt.Errorf("plugin registry: %w", err)
 	}
@@ -79,7 +79,7 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 		}
 		soPath := filepath.Join(pluginDir, "cloudflare.so")
 		loader := plugin.NewLoader(pluginDir)
-		pluginCfg := cfg.Plugins["cloudflare"]
+		pluginCfg := cfg.Plugins["cloudflare"].Config
 		p, err := loader.LoadPlugin(soPath, pluginCfg)
 		if err != nil {
 			return fmt.Errorf("cloudflare plugin not found (not compiled in and no .so loaded): %w", err)

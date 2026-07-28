@@ -22,7 +22,7 @@ import (
 // i18nFunc reads the right bundle), and BEFORE any template that calls
 // `i18n` is executed.
 func (p *pipeline) setupTemplatesAndWriter() error {
-	tmpls, err := tmpl.LoadAllTemplates(p.opts.SourceDir, p.cfg.BaseURL)
+	tmpls, err := tmpl.LoadAllTemplates(p.opts.SourceDir, p.cfg.BaseURL, p.themeManager)
 	if err != nil {
 		return err
 	}

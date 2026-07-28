@@ -1,42 +1,43 @@
-# Task 2 Report: HTML 注入器插件集成 — Plugin + 注册
+# Task 2 Report: 扩展 Loader 支持按 Category 加载
 
 **Status:** Completed
 
-**Date:** 2026-07-24
+**Date:** 2026-07-27
 
 ## Summary
 
-Integrated the HTML injector core (Task 1) into the huan plugin system as a compiled-in plugin implementing `build.Hook` and `plugin.SchemaProvider`.
+在 `internal/plugin/loader.go` 中添加了三个 Category 常量和 `ShouldLoadInCategory` 辅助函数，并在 `internal/plugin/loader_test.go` 中添加了完整的 table-driven 测试。
 
 ## Files Modified
 
-1. **`internal/seo/htmlinjector/plugin.go`** — Added `HTMLInjector` struct with:
-   - `New(cfg *Config)` constructor
-   - `Name()` returning `"html_injector"`
-   - `ConfigSchema()` returning the schema from cfg
-   - `OnContentLoaded` (no-op, returns nil)
-   - `OnPageRendered` — calls `InjectHTML` on `page.Content`, updates via `template.HTML` if changed
-   - `OnOutputWritten` (no-op, returns nil)
-   - Compile-time interface assertions for `plugin.Plugin` and `plugin.SchemaProvider`
+1. **`internal/plugin/loader.go`** — 新增：
+   - `CategoryStatic = "static"` 常量
+   - `CategoryDynamic = "dynamic"` 常量
+   - `CategoryMixed = "mixed"` 常量
+   - `ShouldLoadInCategory(pluginCategory, mode string) bool` 函数
 
-2. **`internal/seo/htmlinjector/plugin_test.go`** — Added 3 tests:
-   - `TestNewHTMLInjector` — verifies `Name()` returns `"html_injector"`
-   - `TestHTMLInjector_OnPageRendered` — verifies script injection into page content
-   - `TestHTMLInjector_HooksReturnNil` — verifies no-op hooks return nil without error
+2. **`internal/plugin/loader_test.go`** — 新增：
+   - `TestShouldLoadInCategory` — 覆盖 10 个 case：static/build, static/daemon, dynamic/build, dynamic/daemon, mixed/build, mixed/daemon, 空/build, 空/daemon, unknown/build, unknown/daemon
 
-3. **`cmd/huan/plugins.go`** — Registered `html_injector` case in `newPluginRegistry` switch, added `import "github.com/iannil/huan/internal/seo/htmlinjector"`
+## Category 加载规则
+
+| category | build 时 | daemon 时 |
+|----------|----------|-----------|
+| static   | 加载     | 不加载    |
+| dynamic  | 不加载   | 加载      |
+| mixed    | 加载     | 加载      |
+| 空       | 不加载   | 加载 (默认 dynamic) |
+| unknown  | 不加载   | 加载 (默认 dynamic) |
 
 ## Test Results
 
 ```
-go test ./internal/seo/htmlinjector/ ./cmd/huan/ -v  => ALL PASS (14 htmlinjector tests + 45 cmd/huan tests)
-go build ./cmd/huan/                                   => success
+go test ./internal/plugin/ -v  => ALL PASS (48 tests)
+go build ./...                  => success
 ```
 
-## Key Decision
+## Commit
 
-`HTMLInjector.OnPageRendered` uses `template.HTML` (from `html/template` package) for the content assignment, matching the `content.Page.Content` field type. The existing `content` package does not define a `content.HTML` type alias.
-
-## Concerns
-
-None.
+```
+4b31f8f feat(plugin): add category constants and ShouldLoadInCategory
+```

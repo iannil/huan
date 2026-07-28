@@ -6,6 +6,7 @@ import (
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/daemon"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 	"github.com/spf13/cobra"
 )
 
@@ -38,9 +39,17 @@ A long-running process that serves the site as a backend service.`,
 		// Register compiled plugins into a shared registry
 		var plugRegistry *plugin.Registry
 		if !disablePlugin {
-			plugRegistry, err = newPluginRegistry(cfg)
+			plugRegistry, err = newPluginRegistry(cfg, sourceDir)
 			if err != nil {
 				return fmt.Errorf("daemon: register compiled plugins: %w", err)
+			}
+		}
+
+		// Create ThemeManager from the plugin registry
+		themeMgr := theme.NewManager(plugRegistry)
+		if cfg.Theme != "" {
+			if err := themeMgr.Activate(cfg.Theme); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "huan: theme activate %q: %v\n", cfg.Theme, err)
 			}
 		}
 
@@ -56,6 +65,7 @@ A long-running process that serves the site as a backend service.`,
 			PluginDir:      pluginDir,
 			DisablePlugin:  disablePlugin,
 			PluginRegistry: plugRegistry,
+			ThemeManager:   themeMgr,
 		})
 	},
 }

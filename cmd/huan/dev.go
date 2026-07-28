@@ -12,6 +12,7 @@ import (
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/dev"
+	"github.com/iannil/huan/internal/theme"
 	"github.com/spf13/cobra"
 )
 
@@ -93,6 +94,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
 	}
 
+	// Create PluginRegistry and ThemeManager, auto-activate from config
+	reg, _ := newPluginRegistry(cfg, sourceDir)
+	buildOpts.PluginRegistry = reg
+	themeMgr := theme.NewManager(reg)
+	if cfg.Theme != "" {
+		if err := themeMgr.Activate(cfg.Theme); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "huan: theme activate %q: %v\n", cfg.Theme, err)
+		}
+	}
+	buildOpts.ThemeManager = themeMgr
+
 	runBuild := func(opts build.Options) error {
 		if cfg.IsMultiLanguage() {
 			res, err := build.BuildMultiSite(opts)
@@ -107,7 +119,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 			}
 		}
 		// Run image pipeline after build if configured
-		reg, _ := newPluginRegistry(cfg)
+		reg, _ := newPluginRegistry(cfg, sourceDir)
 		if err := runImagePipeline(cfg, sourceDir, opts.OutputDir, reg); err != nil {
 			return fmt.Errorf("image pipeline: %w", err)
 		}

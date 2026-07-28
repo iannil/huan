@@ -2,7 +2,10 @@ module github.com/iannil/huan-plugin-cloudflare
 
 go 1.26.2
 
+replace github.com/iannil/huan => ../../
+
 require (
+	github.com/iannil/huan v0.0.0
 	github.com/minio/minio-go/v7 v7.2.0
 	github.com/zeebo/blake3 v0.2.4
 	gopkg.in/yaml.v3 v3.0.1

@@ -18,10 +18,11 @@ import (
 // registers it into the provided registry so that it can be discovered via
 // plugin.Find[image.ImageProcessor].
 func runImagePipeline(cfg *config.Config, sourceDir, outputDir string, registry *plugin.Registry) error {
-	raw, ok := cfg.Plugins["image_pipeline"]
+	pc, ok := cfg.Plugins["image_pipeline"]
 	if !ok {
 		return nil // not configured
 	}
+	raw := pc.Config
 
 	// Check if already registered (e.g. by LifecycleManager)
 	processors := plugin.Find[image.ImageProcessor](registry)

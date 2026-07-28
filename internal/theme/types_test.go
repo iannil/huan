@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/iannil/huan/internal/plugin"
-	"github.com/iannil/huan/internal/shortcode"
 	"github.com/iannil/huan/internal/theme"
+	pkgplugin "github.com/iannil/huan/pkg/plugin"
 )
 
 // mockThemePlugin implements theme.ThemePlugin for testing.
@@ -40,9 +40,9 @@ func (m *mockThemePluginShortcodes) Info() theme.ThemeInfo            { return m
 func (m *mockThemePluginShortcodes) Templates() []theme.TemplateEntry { return m.templates }
 func (m *mockThemePluginShortcodes) FuncMap() template.FuncMap        { return m.funcMap }
 func (m *mockThemePluginShortcodes) Assets() fs.FS                    { return m.assets }
-func (m *mockThemePluginShortcodes) Shortcodes() map[string]shortcode.Handler {
-	return map[string]shortcode.Handler{
-		"audio": func(ctx *shortcode.Context) (string, error) {
+func (m *mockThemePluginShortcodes) Shortcodes() map[string]pkgplugin.ShortcodeHandler {
+	return map[string]pkgplugin.ShortcodeHandler{
+		"audio": func(ctx pkgplugin.ShortcodeContext) (string, error) {
 			return "<audio>overridden</audio>", nil
 		},
 	}
@@ -138,7 +138,7 @@ func TestShortcodeProviderInterface(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'audio' shortcode handler")
 	}
-	out, err := handler(&shortcode.Context{})
+	out, err := handler(pkgplugin.ShortcodeContext{})
 	if err != nil {
 		t.Errorf("handler returned error: %v", err)
 	}

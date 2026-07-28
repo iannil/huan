@@ -2,65 +2,87 @@
 // plugin system. Themes are plugins that provide templates, template functions,
 // and static assets for site rendering.
 //
-// ThemePlugin embeds plugin.Plugin and adds theme-specific methods. ThemeHooks
-// is an optional interface themes can implement to hook into the render lifecycle.
+// All types are aliased from pkg/plugin so .so plugins share the same type identity.
 package theme
 
 import (
-	"context"
-	"html/template"
-	"io/fs"
-
-	"github.com/iannil/huan/internal/plugin"
-	"github.com/iannil/huan/internal/shortcode"
+	pkgplugin "github.com/iannil/huan/pkg/plugin"
 )
 
-// ThemePlugin is the core capability interface for theme plugins.
-type ThemePlugin interface {
-	plugin.Plugin
+// All types are aliased from pkg/plugin so .so plugins share the same type identity.
+type ThemePlugin = pkgplugin.ThemePlugin
+type ThemeHooks = pkgplugin.ThemeHooks
+type ShortcodeProvider = pkgplugin.ShortcodeProvider
 
-	// Info returns the theme's metadata.
-	Info() ThemeInfo
-
-	// Templates returns the list of templates the theme provides.
-	Templates() []TemplateEntry
-
-	// FuncMap returns the theme's custom template functions.
-	FuncMap() template.FuncMap
-
-	// Assets returns the theme's static asset filesystem.
-	Assets() fs.FS
-}
-
-// ThemeInfo carries theme metadata.
+// ThemeInfo is a helper type for accessing theme metadata from a map.
+// The ThemePlugin.Info() method returns map[string]any for cross-module
+// compatibility. Use DecodeInfo() to parse it.
 type ThemeInfo struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Author      string   `json:"author"`
-	Description string   `json:"description"`
-	Screenshot  string   `json:"screenshot,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	MinHuanVer  string   `json:"minHuanVer,omitempty"`
+	Name        string
+	Version     string
+	Author      string
+	Description string
+	Screenshot  string
+	Tags        []string
+	MinHuanVer  string
 }
 
-// TemplateEntry describes a single template file.
+// DecodeInfo parses a map returned by ThemePlugin.Info() into ThemeInfo.
+func DecodeInfo(m map[string]any) ThemeInfo {
+	return ThemeInfo{
+		Name:        toString(m["Name"]),
+		Version:     toString(m["Version"]),
+		Author:      toString(m["Author"]),
+		Description: toString(m["Description"]),
+		Screenshot:  toString(m["Screenshot"]),
+		Tags:        toStringSlice(m["Tags"]),
+		MinHuanVer:  toString(m["MinHuanVer"]),
+	}
+}
+
+// TemplateEntry is a helper type for accessing template data from a map.
 type TemplateEntry struct {
-	Path    string // Logical path, e.g. "index.html"
-	Content string // Template content
+	Path    string
+	Content string
 }
 
-// ThemeHooks is an optional interface that themes can implement to inject
-// lifecycle hooks into the render pipeline.
-type ThemeHooks interface {
-	BeforeRender(ctx context.Context) error
-	AfterRender(ctx context.Context) error
+// DecodeTemplates parses template entries returned by ThemePlugin.Templates().
+func DecodeTemplates(entries []map[string]string) []TemplateEntry {
+	out := make([]TemplateEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, TemplateEntry{
+			Path:    e["path"],
+			Content: e["content"],
+		})
+	}
+	return out
 }
 
-// ShortcodeProvider is an optional interface that themes can implement to
-// provide or override shortcode handlers.
-type ShortcodeProvider interface {
-	// Shortcodes returns a map of shortcode name to handler.
-	// These handlers are registered in the shortcode registry,
-	// overriding any built-in handlers with the same name.
-	Shortcodes() map[string]shortcode.Handler
+func toString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func toStringSlice(v any) []string {
+	if v == nil {
+		return nil
+	}
+	if s, ok := v.([]string); ok {
+		return s
+	}
+	if arr, ok := v.([]any); ok {
+		out := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }

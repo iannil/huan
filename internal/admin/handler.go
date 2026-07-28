@@ -12,6 +12,7 @@ import (
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/theme"
 )
 
 //go:embed dist/*
@@ -30,6 +31,7 @@ type HandlerOptions struct {
 	Token      string // required; gates all /admin/api/* requests (L2)
 	MemoryDir  string // optional; if empty, audit log is disabled
 	PluginManager *plugin.LifecycleManager
+	ThemeManager  *theme.Manager
 }
 
 // NewHandler creates an http.Handler for the admin panel (SPA + API).
@@ -46,15 +48,16 @@ func NewHandler(opts HandlerOptions) http.Handler {
 	contentDir := filepath.Join(opts.SourceDir, "content")
 	staticDir := filepath.Join(opts.SourceDir, "static")
 	api := newAPIHandler(apiHandlerConfig{
-		contentDir: contentDir,
-		staticDir:  staticDir,
-		sourceDir:  opts.SourceDir,
-		rebuild:    opts.Rebuild,
-		siteTitle:  opts.Cfg.Title,
-		baseURL:    opts.Cfg.BaseURL,
-		serveURL:   opts.ServeURL,
-		audit:      NewAuditLogger(opts.MemoryDir),
-			pluginManager: opts.PluginManager,
+		contentDir:    contentDir,
+		staticDir:     staticDir,
+		sourceDir:     opts.SourceDir,
+		rebuild:       opts.Rebuild,
+		siteTitle:     opts.Cfg.Title,
+		baseURL:       opts.Cfg.BaseURL,
+		serveURL:      opts.ServeURL,
+		audit:         NewAuditLogger(opts.MemoryDir),
+		pluginManager: opts.PluginManager,
+		themeManager:  opts.ThemeManager,
 	})
 	apiWithAuth := TokenMiddleware(api, opts.Token)
 	mux.Handle("/admin/api/", apiWithAuth)
@@ -121,10 +124,10 @@ func servePlaceholder() http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>huan admin</title></head><body>
-<h1>huan admin</h1>
-<p>Admin UI not built. Run:</p>
-<pre><code>cd web/admin && npm install && npm run build
-cd .. && go build -o huan ./cmd/huan</code></pre>
-</body></html>`))
+	<h1>huan admin</h1>
+	<p>Admin UI not built. Run:</p>
+	<pre><code>cd web/admin && npm install && npm run build
+	cd .. && go build -o huan ./cmd/huan</code></pre>
+	</body></html>`))
 	}
 }
