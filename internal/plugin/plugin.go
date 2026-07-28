@@ -25,6 +25,7 @@ type Plugin = pkgplugin.Plugin
 type PluginMeta = pkgplugin.PluginMeta
 type MetadataProvider = pkgplugin.MetadataProvider
 type SchemaProvider = pkgplugin.SchemaProvider
+type PostBuildHook = pkgplugin.PostBuildHook
 type Schema = pkgplugin.Schema
 type FieldSchema = pkgplugin.FieldSchema
 
