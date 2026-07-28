@@ -7,7 +7,7 @@ func InitPlugin(cfg map[string]any) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &HTMLInjector{cfg: *parsedCfg}, nil
+	return New(parsedCfg), nil
 }
 
 func main() {}
