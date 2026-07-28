@@ -104,18 +104,25 @@ func (p *pipeline) runOnPageRendered(pg *content.Page) {
 	}
 }
 
-// runOnOutputWritten invokes any registered build.Hook.OnOutputWritten plugins.
+// runOnOutputWritten invokes registered build.Hook and pkg/plugin.PostBuildHook
+// plugins after output is written. build.Hook (compiled-in, rich pages) takes
+// precedence; .so plugins reach the pipeline via PostBuildHook. Collection-not-
+// interruption: failures log a warning but do not abort.
 func (p *pipeline) runOnOutputWritten() {
 	if p.opts.PluginRegistry == nil {
 		return
 	}
 	for _, h := range p.opts.PluginRegistry.All() {
-		hook, ok := h.(Hook)
-		if !ok {
+		if hook, ok := h.(Hook); ok {
+			if err := hook.OnOutputWritten(context.Background(), p.opts.OutputDir); err != nil {
+				p.logf("  WARN: hook %s OnOutputWritten: %v\n", hook.Name(), err)
+			}
 			continue
 		}
-		if err := hook.OnOutputWritten(context.Background(), p.opts.OutputDir); err != nil {
-			p.logf("  WARN: hook %s OnOutputWritten: %v\n", hook.Name(), err)
+		if pbh, ok := h.(pkgplugin.PostBuildHook); ok {
+			if err := pbh.OnOutputWritten(context.Background(), p.opts.OutputDir); err != nil {
+				p.logf("  WARN: hook %s OnOutputWritten: %v\n", pbh.Name(), err)
+			}
 		}
 	}
 }

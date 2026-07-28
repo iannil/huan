@@ -149,6 +149,8 @@ func capabilityLabels(p plugin.Plugin) []string {
 	}
 	if _, ok := p.(build.Hook); ok {
 		labels = append(labels, "hook")
+	} else if _, ok := p.(plugin.PostBuildHook); ok {
+		labels = append(labels, "hook")
 	}
 	return labels
 }
