@@ -67,6 +67,7 @@ func TestLifecycleManager_List_MetadataProvider(t *testing.T) {
 }
 
 func TestLifecycleManager_Start_CompiledPlugins(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
 	registry := NewRegistry()
 	bus := eventbus.NewChannelBus()
 	defer bus.Close()

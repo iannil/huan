@@ -45,8 +45,12 @@ func newPluginRegistry(cfg *config.Config, sourceDir string) (*plugin.Registry, 
 		}
 	}
 
-	// Validate configs against schemas
-	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins); len(errs) > 0 || len(warns) > 0 {
+	// Validate configs against schemas. A plugin declared in yaml but not in
+	// this build-stage registry (dynamic plugins) is fine as long as its .so
+	// is resolvable — it will be loaded at runtime — so only warn on a truly
+	// missing .so.
+	soExists := func(name string) bool { return loader.Resolve(plugin.SoFileName(name)) != "" }
+	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins, soExists); len(errs) > 0 || len(warns) > 0 {
 		for _, w := range warns {
 			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
 		}

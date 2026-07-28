@@ -45,6 +45,7 @@ func TestLoader_LoadPlugin_NilConfig(t *testing.T) {
 }
 
 func TestLoader_ScanAndLoad_DirNotExist(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
 	l := NewLoader("/nonexistent/plugin/dir")
 	results, err := l.ScanAndLoad()
 	if err != nil {
@@ -56,6 +57,7 @@ func TestLoader_ScanAndLoad_DirNotExist(t *testing.T) {
 }
 
 func TestLoader_ScanAndLoad_EmptyDir(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
 	tmpDir := t.TempDir()
 	l := NewLoader(tmpDir)
 	results, err := l.ScanAndLoad()
@@ -68,6 +70,7 @@ func TestLoader_ScanAndLoad_EmptyDir(t *testing.T) {
 }
 
 func TestLoader_ScanAndLoad_SkipsNonSOFiles(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
 	tmpDir := t.TempDir()
 	// Create non-.so files
 	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("doc"), 0644); err != nil {

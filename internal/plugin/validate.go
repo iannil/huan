@@ -101,12 +101,25 @@ func checkType(name, key, expectedType string, val any) string {
 // ValidateRawConfigs validates all plugin configs against their schemas.
 // Returns errors and warnings separately. Plugins that don't implement
 // SchemaProvider are skipped.
-func ValidateRawConfigs(registry *Registry, rawConfigs map[string]config.PluginConfig) (errors, warnings []string) {
+//
+// soExists reports whether a plugin's .so file is resolvable on disk (e.g.
+// via Loader.Resolve). A plugin declared in yaml but absent from `registry`
+// is not necessarily a problem: build-stage registries deliberately exclude
+// dynamic plugins (deploy/translate/…), which the daemon or a command loads
+// from their .so at runtime. So a missing-from-registry plugin only warrants
+// a warning when its .so is genuinely absent. When soExists is nil, every
+// missing-from-registry plugin is treated as having no .so (warn).
+func ValidateRawConfigs(registry *Registry, rawConfigs map[string]config.PluginConfig, soExists func(name string) bool) (errors, warnings []string) {
 	for name, pc := range rawConfigs {
 		raw := stripReservedFields(pc.Config)
 		p, ok := registry.Get(name)
 		if !ok {
-			warnings = append(warnings, fmt.Sprintf("plugin %q: declared in yaml but not compiled-in (will be loaded from .so at runtime if available)", name))
+			// Its .so is resolvable — it will be loaded at runtime by the
+			// daemon/command. Stay silent (expected, not a failure).
+			if soExists != nil && soExists(name) {
+				continue
+			}
+			warnings = append(warnings, fmt.Sprintf("plugin %q: declared in yaml but no .so found in $HUAN_HOME or plugins/", name))
 			continue
 		}
 		sp, ok := p.(SchemaProvider)

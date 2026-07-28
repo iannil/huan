@@ -81,22 +81,43 @@ func TestValidateConfig_EmptyRaw(t *testing.T) {
 	}
 }
 
-func TestValidateRawConfigs_UnknownPluginWarning(t *testing.T) {
+// soMissing reports every plugin's .so as absent — used to exercise the
+// "genuinely missing .so" warning path.
+func soMissing(string) bool { return false }
+
+// soPresent reports every plugin's .so as resolvable — used to exercise the
+// "loaded at runtime, stay silent" path.
+func soPresent(string) bool { return true }
+
+func TestValidateRawConfigs_MissingSoWarning(t *testing.T) {
 	registry := NewRegistry()
 	_ = registry.Register(&testSchemaPlugin{name: "known", schema: Schema{}})
 	rawConfigs := map[string]config.PluginConfig{
-		"known":  {Config: map[string]any{"foo": "bar"}},
+		"known":   {Config: map[string]any{"foo": "bar"}},
 		"unknown": {Config: map[string]any{"x": "y"}},
 	}
-	errs, warns := ValidateRawConfigs(registry, rawConfigs)
+	errs, warns := ValidateRawConfigs(registry, rawConfigs, soMissing)
 	if len(errs) != 0 {
 		t.Errorf("expected 0 errors, got %v", errs)
 	}
 	if len(warns) == 0 {
-		t.Fatal("expected warning for unknown plugin")
+		t.Fatal("expected warning for plugin whose .so is missing")
 	}
 	if !strings.Contains(warns[0], "unknown") {
 		t.Errorf("warn = %q, want mention 'unknown'", warns[0])
+	}
+}
+
+// A plugin not in this stage's registry but whose .so IS resolvable is loaded
+// at runtime by the daemon/command — it must NOT produce a warning.
+func TestValidateRawConfigs_ResolvableSoSilent(t *testing.T) {
+	registry := NewRegistry()
+	rawConfigs := map[string]config.PluginConfig{
+		"cloudflare": {Config: map[string]any{"x": "y"}},
+	}
+	errs, warns := ValidateRawConfigs(registry, rawConfigs, soPresent)
+	if len(errs) != 0 || len(warns) != 0 {
+		t.Errorf("expected no issues for plugin with resolvable .so, got errs=%v warns=%v", errs, warns)
 	}
 }
 
@@ -107,7 +128,7 @@ func TestValidateRawConfigs_SkipNoSchema(t *testing.T) {
 	rawConfigs := map[string]config.PluginConfig{
 		"noschema": {Config: map[string]any{"foo": "bar"}},
 	}
-	errs, warns := ValidateRawConfigs(registry, rawConfigs)
+	errs, warns := ValidateRawConfigs(registry, rawConfigs, soMissing)
 	if len(errs) != 0 || len(warns) != 0 {
 		t.Errorf("expected no issues for plugin without schema, got errs=%v warns=%v", errs, warns)
 	}
