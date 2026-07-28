@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/iannil/huan-plugin-qwen3/observability"
-	"github.com/iannil/huan-plugin-qwen3/translate"
+	"github.com/iannil/huan/pkg/translate"
 )
 
 // Plugin is the Qwen3 translate plugin. It implements both plugin.Plugin

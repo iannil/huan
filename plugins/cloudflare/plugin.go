@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/iannil/huan-plugin-cloudflare/deploy"
+	"github.com/iannil/huan/pkg/deploy"
 	"github.com/iannil/huan-plugin-cloudflare/observability"
 )
 

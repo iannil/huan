@@ -1,5 +1,19 @@
-// Package translate defines the Translator capability interface for huan plugins.
-// This is a self-contained copy of internal/translate/types.go for plugin isolation.
+// Package translate defines the Translator capability contract for huan's
+// unified plugin system (see docs/adr/0003-unified-plugin-system.md and
+// docs/adr/0008-translator-capability-qwen3-plugin.md).
+//
+// It lives under pkg/ — NOT internal/ — on purpose: out-of-tree .so plugins
+// (separate Go modules like github.com/iannil/huan-plugin-qwen3) must import
+// the SAME Translator/Request/Response types as the huan host binary. Go
+// interface satisfaction requires identical named types (same import path), so
+// a plugin that carried its own copy of these types would NOT satisfy the
+// host's Translator interface across the .so boundary. Sharing the contract
+// here (mirroring pkg/plugin.Plugin and pkg/deploy) makes translators
+// discoverable via plugin.Find[translate.Translator] regardless of whether they
+// are compiled-in or loaded from a .so.
+//
+// internal/translate re-exports these as type aliases so existing
+// huan-internal call sites keep using translate.Request/Response unchanged.
 package translate
 
 import (
@@ -11,6 +25,11 @@ import (
 // Translator is the capability interface for plugins that translate content
 // between languages. It embeds plugin.Plugin (so translators are discoverable
 // as base plugins) and adds Translate.
+//
+// A plugin implementing Translator registers under a unique Name (e.g.
+// "qwen3_translate") and is queried via:
+//
+//	translators := plugin.Find[translate.Translator](registry)
 type Translator interface {
 	plugin.Plugin
 
@@ -89,17 +108,21 @@ type QualityResult struct {
 	// <title>...</title><body>...</body>. HARD check.
 	XMLParse bool `json:"xml_parse"`
 
-	// LanguageDetection is true when the output is >= 80% (configurable)
+	// LanguageDetection is true when the output is ≥ 80% (configurable)
 	// the target language. HARD check.
 	LanguageDetection bool `json:"language_detection"`
 
 	// MarkdownStructure is true when heading/list/link/image counts in
-	// the output match the source +/- tolerance (configurable). HARD check.
+	// the output match the source ± tolerance (configurable). HARD check.
 	MarkdownStructure bool `json:"markdown_structure"`
 
 	// FormatPurity is true when the output body contains no markdown-
 	// equivalent HTML block tags (h1-h6, p, ul, ol, li, pre, blockquote,
 	// table, tr, td, th, etc.). HARD check.
+	//
+	// Qwen3-Next-80B has a strong prior to convert markdown to HTML on
+	// long zh→en inputs. Since the sidecar contract is `.en.md` (markdown,
+	// not HTML), this check rejects such outputs and triggers retry.
 	FormatPurity bool `json:"format_purity"`
 
 	// LengthRatio is body_words / source_words. Outside [0.5, 2.5]
@@ -111,7 +134,9 @@ type QualityResult struct {
 	GlossaryCompliance bool `json:"glossary_compliance"`
 
 	// ResidualCJK is true when the output prose (outside code blocks/spans)
-	// contains no more than the configured number of CJK runes. Soft check.
+	// contains no more than the configured number of CJK runes. Catches
+	// per-term drops that the fraction-based LanguageDetection check misses
+	// (e.g. "state-level博弈" in an otherwise-English document). Soft check.
 	ResidualCJK bool `json:"residual_cjk"`
 
 	// RetryCount is the number of retries triggered by quality failures.

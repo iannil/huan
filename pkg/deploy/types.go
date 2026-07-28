@@ -1,12 +1,18 @@
-// Package deploy defines the Deployer capability interface — the first
-// concrete capability in huan's unified plugin system (see
-// docs/adr/0003-unified-plugin-system.md). Plugins that publish build output
-// to a remote target (Cloudflare Pages, future netlify/s3/etc.) implement
-// Deployer.
+// Package deploy defines the Deployer capability contract for huan's unified
+// plugin system (see docs/adr/0003-unified-plugin-system.md).
 //
-// This package owns only the capability contract + shared types (Options,
-// Report). Each deployer implementation lives in its own subpackage
-// (e.g. internal/deploy/cloudflare).
+// It lives under pkg/ — NOT internal/ — on purpose: out-of-tree .so plugins
+// (separate Go modules like github.com/iannil/huan-plugin-cloudflare) must
+// import the SAME Deployer/Options/Report types as the huan host binary.
+// Go interface satisfaction requires identical named types (same import path),
+// so a plugin that carried its own copy of these types would NOT satisfy the
+// host's Deployer interface across the .so boundary. Sharing the contract here
+// (mirroring pkg/plugin.Plugin) makes deployers discoverable via
+// plugin.Find[deploy.Deployer] regardless of whether they are compiled-in or
+// loaded from a .so.
+//
+// internal/deploy re-exports these as type aliases so existing huan-internal
+// call sites keep using deploy.Options/Report unchanged.
 package deploy
 
 import (
@@ -22,7 +28,7 @@ import (
 // A plugin implementing Deployer registers under a unique Name (e.g.
 // "cloudflare") and is queried via:
 //
-//	deployers := plugin.Find[*deploy.Deployer](registry)
+//	deployers := plugin.Find[deploy.Deployer](registry)
 type Deployer interface {
 	plugin.Plugin
 
@@ -80,7 +86,7 @@ type PagesOptions struct {
 	// CommitSHA and CommitMessage attach git metadata to the deployment. When
 	// empty, the deployer may fall back to inferring from git; if still empty,
 	// Cloudflare accepts the deployment without commit metadata.
-	CommitSHA    string
+	CommitSHA     string
 	CommitMessage string
 }
 
