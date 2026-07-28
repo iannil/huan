@@ -141,16 +141,6 @@ func (p *SitemapEnhancer) ConfigSchema() plugin.Schema {
 	return p.cfg.ConfigSchema()
 }
 
-// OnContentLoaded is a no-op for this plugin.
-func (p *SitemapEnhancer) OnContentLoaded(_ context.Context, pages []any) ([]any, error) {
-	return nil, nil
-}
-
-// OnPageRendered is a no-op for this plugin.
-func (p *SitemapEnhancer) OnPageRendered(_ context.Context, page any) error {
-	return nil
-}
-
 // OnOutputWritten enhances the sitemap.xml in the output directory.
 func (p *SitemapEnhancer) OnOutputWritten(ctx context.Context, outputDir string) error {
 	sitemapPath := filepath.Join(outputDir, "sitemap.xml")

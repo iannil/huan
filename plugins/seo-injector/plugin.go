@@ -120,16 +120,6 @@ func (p *SEOInjector) PluginMetadata() plugin.PluginMeta {
 	}
 }
 
-// OnContentLoaded is a no-op for this plugin.
-func (p *SEOInjector) OnContentLoaded(_ context.Context, pages []any) ([]any, error) {
-	return nil, nil
-}
-
-// OnPageRendered is a no-op for this plugin.
-func (p *SEOInjector) OnPageRendered(_ context.Context, page any) error {
-	return nil
-}
-
 // OnOutputWritten scans the output directory for HTML files and injects missing SEO meta tags.
 func (p *SEOInjector) OnOutputWritten(ctx context.Context, outputDir string) error {
 	entries, err := filepath.Glob(filepath.Join(outputDir, "**/*.html"))
