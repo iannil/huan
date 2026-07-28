@@ -71,6 +71,7 @@ host 侧单元测试（`internal/plugin/contract_location_test.go`），用 `go/
 ## 后续 / 待办（本 epic 未处理，留痕）
 
 - **`Hook` 运行期接线缺口（同类 bug，本 epic 范围外）**：`internal/build/pipeline.go:75` 把 hooks **类型断言**为 `internal/build.Hook`（`[]*content.Page`），而已发布的 `.so` 插件（seo-injector / sitemap-enhancer / html-injector）实现的是 `pkg/plugin.Hook`（`[]any`）。二者是**结构不同的接口**，宿主侧**无适配器桥接**，故这些 `.so` 插件的 hook **很可能从未被构建管线调用**。这是与本 epic 收敛的 `ImageProcessor` **同一 bug 类**（契约类型不一致），但方向是**运行期接线**而非契约位置，故不在本 epic 范围（本 epic 只收敛 ImageProcessor + 加护栏）。建议作为**独立后续计划**处理：要么加宿主侧桥接 adapter（`internal/build.Hook` ↔ `pkg/plugin.Hook`），要么统一两个 Hook 接口。届时可从白名单移除 `Hook`（白名单注释「Keep this list shrinking」已隐含此意图）。
+  - ✅ 已由 [ADR 0014](0014-hook-contract-split.md) 解决（2026-07-28）：`pkg/plugin.Hook`→`PostBuildHook`（仅 `OnOutputWritten`），pipeline `runOnOutputWritten` 桥接，三插件（seo-injector / sitemap-enhancer / html-injector）生效。选择**契约拆分**而非双向 adapter：页面级钩子跨 `.so` 本质无用，故只暴露真正可跨界的 `OnOutputWritten`。`Hook` 白名单项保留（`internal/build.Hook` 仍是编译期富页面钩子），注释已更新以澄清其 `.so` 对应物现为 `pkg/plugin.PostBuildHook`。
 
 ## 非目标（Out of Scope / YAGNI）
 
