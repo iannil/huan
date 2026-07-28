@@ -7,7 +7,7 @@ func InitPlugin(cfg map[string]any) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SEOInjector{cfg: *parsedCfg}, nil
+	return New(parsedCfg), nil
 }
 
 func main() {}
