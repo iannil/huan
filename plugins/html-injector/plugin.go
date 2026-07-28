@@ -3,12 +3,31 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/iannil/huan/pkg/plugin"
 )
+
+// collectHTMLFiles walks outputDir recursively and returns every .html file at
+// any depth (root level included). It replaces filepath.Glob("**/*.html"),
+// which — because Go's Glob has no recursive ** — matched only files exactly
+// one directory deep, silently skipping root and nested pages.
+func collectHTMLFiles(outputDir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".html") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
 
 // Config is the HTML injector configuration from huan.yaml plugins.html_injector.*
 type Config struct {
@@ -138,9 +157,9 @@ func (p *HTMLInjector) OnOutputWritten(ctx context.Context, outputDir string) er
 		return nil
 	}
 
-	entries, err := filepath.Glob(filepath.Join(outputDir, "**/*.html"))
+	entries, err := collectHTMLFiles(outputDir)
 	if err != nil {
-		p.logf("html-injector: glob %s: %v\n", outputDir, err)
+		p.logf("html-injector: scan %s: %v\n", outputDir, err)
 		return nil
 	}
 

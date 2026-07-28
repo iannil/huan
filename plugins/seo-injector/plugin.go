@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,24 @@ import (
 	"github.com/iannil/huan/pkg/plugin"
 	"golang.org/x/net/html"
 )
+
+// collectHTMLFiles walks outputDir recursively and returns every .html file at
+// any depth (root level included). It replaces filepath.Glob("**/*.html"),
+// which — because Go's Glob has no recursive ** — matched only files exactly
+// one directory deep, silently skipping root and nested pages.
+func collectHTMLFiles(outputDir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".html") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
 
 // Config is the SEO injector configuration from huan.yaml plugins.seo_injector.*
 type Config struct {
@@ -122,9 +141,9 @@ func (p *SEOInjector) PluginMetadata() plugin.PluginMeta {
 
 // OnOutputWritten scans the output directory for HTML files and injects missing SEO meta tags.
 func (p *SEOInjector) OnOutputWritten(ctx context.Context, outputDir string) error {
-	entries, err := filepath.Glob(filepath.Join(outputDir, "**/*.html"))
+	entries, err := collectHTMLFiles(outputDir)
 	if err != nil {
-		p.logf("seo-injector: glob %s: %v\n", outputDir, err)
+		p.logf("seo-injector: scan %s: %v\n", outputDir, err)
 		return nil // collection-not-interruption: log warning, don't abort
 	}
 
