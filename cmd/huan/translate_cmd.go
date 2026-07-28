@@ -98,7 +98,11 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		// no translator plugin is configured, exit cleanly with a friendly
 		// message rather than erroring out, so the deploy chain stays resilient
 		// for operators who don't use i18n translation.
-		fmt.Fprintln(os.Stderr, "translate: no translator plugin configured; skipping (declare a translator plugin under huan.yaml plugins to enable)")
+		if hint := diagnoseCapabilityGap(registry, "translate.Translator"); hint != "" {
+			fmt.Fprintf(os.Stderr, "translate: %s\n", hint)
+		} else {
+			fmt.Fprintln(os.Stderr, "translate: no translator plugin configured; skipping (declare a translator plugin under huan.yaml plugins to enable)")
+		}
 		return nil
 	}
 

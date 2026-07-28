@@ -1,20 +1,12 @@
-// Package image defines the ImageProcessor capability interface for image
-// pipeline plugins. Plugins that process images during build (compress,
-// resize, format conversion) implement ImageProcessor.
+// Package image re-exports the ImageProcessor capability contract from
+// pkg/image via a type alias, so existing internal call sites keep importing
+// internal/image while the real type lives in pkg/ (shared with .so plugins).
 package image
 
-import (
-	"github.com/iannil/huan/internal/plugin"
-)
+import pkgimage "github.com/iannil/huan/pkg/image"
 
-// ImageProcessor is the capability interface for plugins that process images
-// during the build pipeline. It embeds plugin.Plugin and adds Process.
-type ImageProcessor interface {
-	plugin.Plugin
-
-	// Process compresses, converts, and resizes images in the output directory.
-	// outputDir is the build output directory (publishDir).
-	// sourceDir is the project root (for config resolution).
-	// Returns an error if processing cannot proceed.
-	Process(outputDir, sourceDir string) error
-}
+// ImageProcessor is an alias of pkg/image.ImageProcessor. Both names denote the
+// exact same type, so .so plugins importing pkg/image and internal code
+// importing internal/image satisfy one identical interface across the .so
+// boundary.
+type ImageProcessor = pkgimage.ImageProcessor

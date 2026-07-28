@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-07-25（**文档整理完成**：Hugo 源码从仓库彻底删除、技术方案归档、CURRENT_STATE.md 和 INDEX.md 全面更新、冗余文档清理）
+> 最近更新：2026-07-28（**插件契约主动收敛**：ImageProcessor 迁 pkg/image、diagnoseCapabilityGap 诊断 + TestCapabilityContractsLiveInPkg 护栏，见 ADR 0013）
 
 ## 用户偏好
 
@@ -85,6 +85,7 @@
 - **插件 .so 命名/发布约定**（2026-07-28）：文件名 = 配置名下划线→连字符（`internal/plugin.SoFileName`，如 `qwen3_translate`→`qwen3-translate.so`）；编译产物发布到 `release/plugins/`（gitignore，`scripts/build-plugins.sh` 重建）
 - **`.Site.Data` 不按语言作用域**（2026-07-28）：huan 递归加载 `data/`，`data/en/*.yaml` 挂在 `.Site.Data.en.*`；模板需自行按 `$.Site.LanguageCode` 覆盖（见 `practices/list.html`）
 - **catalogSections 会丢弃全部内容页**（2026-07-28）：仅渲染 `_index.<lang>` 索引，用于未翻译章节占位；若章节已翻译并要显示目录，须从 catalogSections 移除该 section
+- **能力契约一律置于 `pkg/`**（2026-07-28，ADR 0013）：所有 embed `plugin.Plugin` 且跨 `.so` 边界的能力契约必须在 `pkg/`（Deployer/Translator/ImageProcessor/ThemePlugin），`internal/` 仅用类型别名回填以保调用点零改动。护栏二道：`TestCapabilityContractsLiveInPkg`（go/ast 扫描，`internal/` 新增同类契约即 CI 红）+ `diagnoseCapabilityGap`（`Find[T]` 落空且 registry 非空时枚举已加载插件、指向 contract mismatch，替代裸 `no X available`）。插件侧加编译期断言（如 image-pipeline `var _ pkgimage.ImageProcessor`）实现 host+plugin 同源锁步。白名单例外 3 项：`EventSubscriber`（引用 internal eventbus、无 .so 用者、不 embed Plugin，YAGNI 推迟、纯留痕）、`GRPCPlugin`（gRPC 跨进程，不受 .so 类型同一性约束）、`Hook`（`internal/build.Hook` 用 `[]*content.Page` 无法迁 pkg/，.so 安全版 `pkg/plugin.Hook` 用 `[]any` 已存在）。**后续待办（同类 bug，未修）**：`internal/build/pipeline.go:75` 断言 `internal/build.Hook`（`[]*content.Page`），而已发布 .so 插件实现 `pkg/plugin.Hook`（`[]any`）——结构不同接口、无桥接 adapter，这些插件 hook 很可能从未被构建管线调用；候选独立后续计划（加桥接 adapter 或统一两个 Hook 接口）。
 
 ## 经验教训
 

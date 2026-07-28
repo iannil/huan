@@ -84,6 +84,9 @@ func runDeployCloudflare(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(deployers) == 0 {
+		if hint := diagnoseCapabilityGap(registry, "deploy.Deployer"); hint != "" {
+			return fmt.Errorf("no deployer plugin available: %s", hint)
+		}
 		return fmt.Errorf("no deployer plugin available (declare a deployer plugin under huan.yaml plugins)")
 	}
 

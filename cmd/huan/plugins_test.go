@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/iannil/huan/internal/config"
@@ -122,3 +123,33 @@ type multiCapPlugin struct {
 }
 
 func (m *multiCapPlugin) Name() string { return "multi" }
+
+// baseOnlyPlugin satisfies only the base Plugin interface — it deliberately
+// does NOT satisfy any capability, simulating a .so plugin whose contract
+// diverged from the host (so Find[Deployer] returns nothing).
+type baseOnlyPlugin struct{}
+
+func (baseOnlyPlugin) Name() string { return "faux" }
+
+func TestDiagnoseCapabilityGap(t *testing.T) {
+	// Empty registry => genuine "nothing configured", no root-cause hint.
+	if got := diagnoseCapabilityGap(plugin.NewRegistry(), "deploy.Deployer"); got != "" {
+		t.Fatalf("empty registry: want \"\", got %q", got)
+	}
+
+	// A plugin is loaded but satisfies no capability => root-cause diagnostic.
+	reg := plugin.NewRegistry()
+	if err := reg.Register(baseOnlyPlugin{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	got := diagnoseCapabilityGap(reg, "deploy.Deployer")
+	if !strings.Contains(got, "faux") {
+		t.Errorf("diagnostic should name the loaded plugin; got %q", got)
+	}
+	if !strings.Contains(got, "contract mismatch") {
+		t.Errorf("diagnostic should point at contract mismatch; got %q", got)
+	}
+	if !strings.Contains(got, "deploy.Deployer") {
+		t.Errorf("diagnostic should name the wanted capability; got %q", got)
+	}
+}

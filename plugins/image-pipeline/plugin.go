@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+
+	pkgimage "github.com/iannil/huan/pkg/image"
 )
 
 // ImagePipelinePlugin processes images during build: compress, convert
@@ -9,6 +11,13 @@ import (
 type ImagePipelinePlugin struct {
 	cfg Config
 }
+
+// Compile-time proof that ImagePipelinePlugin satisfies the shared host
+// contract. If Process's signature ever diverges from pkg/image (e.g. a config
+// struct is added), this fails at plugin build time — catching the mismatch
+// before it becomes a silent runtime "no image processor" like the 2026-07-28
+// deploy/translate bugs.
+var _ pkgimage.ImageProcessor = (*ImagePipelinePlugin)(nil)
 
 // Name returns the plugin identifier.
 func (p *ImagePipelinePlugin) Name() string { return "image_pipeline" }

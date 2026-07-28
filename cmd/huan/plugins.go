@@ -106,6 +106,31 @@ func loadConfiguredPlugins(registry *plugin.Registry, pluginDir, sourceDir strin
 	}
 }
 
+// diagnoseCapabilityGap explains why a capability lookup came up empty. When no
+// plugin is loaded it returns "" (a genuine "not configured" case the caller
+// should report plainly). When plugins ARE loaded but none satisfy the wanted
+// capability, it lists each plugin with the capabilities it actually satisfies,
+// so an operator can spot the plugin that should provide `capability` but shows
+// [none] — the signature of a .so/host contract mismatch (see 2026-07-28).
+func diagnoseCapabilityGap(registry *plugin.Registry, capability string) string {
+	plugins := registry.All()
+	if len(plugins) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(plugins))
+	for _, p := range plugins {
+		labels := capabilityLabels(p)
+		if len(labels) == 0 {
+			labels = []string{"none"}
+		}
+		parts = append(parts, fmt.Sprintf("%s[%s]", p.Name(), strings.Join(labels, ",")))
+	}
+	return fmt.Sprintf(
+		"%d plugin(s) loaded, none satisfy %s: %s; a plugin that should provide it but shows [none] indicates a .so/host contract mismatch — rebuild plugins against current pkg/ contracts (scripts/build-plugins.sh && cp release/plugins/*.so \"$HUAN_HOME\")",
+		len(plugins), capability, strings.Join(parts, ", "),
+	)
+}
+
 // capabilityLabels returns the capability interface names a plugin implements.
 // Used by `huan plugin list` to show what each plugin can do.
 func capabilityLabels(p plugin.Plugin) []string {
