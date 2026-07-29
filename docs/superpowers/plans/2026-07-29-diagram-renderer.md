@@ -303,7 +303,17 @@ git commit -m "feat(diagram-renderer): config parsing and schema"
 
 ### Task 2: Source extraction from chroma blocks
 
+> **Plan amendment (2026-07-29, human-approved):** The original spec §6 assumed
+> chroma emits `data-lang="mermaid"`. It does NOT: `renderer.go`'s `guessSyntax`
+> path overwrites a declared-but-unhighlightable fence language with the guessed
+> lexer's name, so ` ```mermaid ` emits `data-lang="fallback"`. Fix chosen:
+> preserve the author's declared fence language (Approach A stays intact; this is
+> arguably a latent bug — Hugo keeps the declared language). Mermaid/PlantUML/etc.
+> are absent from the Hugo equivalence reference site, so output-equivalence is
+> unaffected. This one core change is added to this task as **Step 0**.
+
 **Files:**
+- Modify: `internal/markdown/renderer.go` (guessSyntax branch — preserve declared language)
 - Create: `plugins/diagram-renderer/extract.go`
 - Test: `plugins/diagram-renderer/extract_test.go`
 
@@ -313,6 +323,34 @@ git commit -m "feat(diagram-renderer): config parsing and schema"
   - `type diagramBlock struct { Full string; Lang string; Source string }` — `Full` is the entire `<div class="highlight">…</div>` substring to be replaced; `Lang` is the `data-lang`; `Source` is the recovered raw diagram source.
   - `func findDiagramBlocks(htmlSrc string, languages []string) []diagramBlock`
   - `func extractSource(codeInner string) string` — strips `<span>` tags and unescapes entities.
+
+- [ ] **Step 0: Preserve declared fence language in renderer.go**
+
+In `internal/markdown/renderer.go`, inside `renderFencedCodeBlock`, the
+`guessSyntax` branch currently always overwrites `langStr`. Change it to only
+adopt the guessed lexer's name when the fence declared NO language:
+
+```go
+	if lexer == nil && r.guessSyntax {
+		lexer = lexers.Analyse(code)
+		if lexer == nil {
+			lexer = lexers.Fallback
+		}
+		// Preserve an explicitly-declared fence language in the emitted
+		// data-lang/class. Hugo keeps the author's declared language even
+		// when it has no lexer to highlight it (e.g. mermaid). Only adopt the
+		// guessed lexer's name when the fence declared no language at all.
+		if langStr == "" {
+			langStr = strings.ToLower(lexer.Config().Name)
+		}
+	}
+```
+
+Then run the FULL existing markdown suite to confirm no regression:
+`go test ./internal/markdown/ -v`. Known-language fences (go, python) are
+unaffected (their `lexers.Get` succeeds, skipping this branch). If any existing
+test asserted the old relabel-to-guess behavior for a declared-but-unknown
+fence, report it — do not silently change the test.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1261,8 +1299,17 @@ git commit -m "feat(diagram-renderer): plugin orchestration and InitPlugin"
 
 ### Task 7: Build wiring, Docker Kroki, and docs
 
+> **Plan amendment (2026-07-29, human-approved):** Packaging = Option A. The
+> plugin stays in the ROOT module (no own `go.mod`) so its Task 2 golden test can
+> import `internal/markdown`. Consequence: `scripts/build-plugins.sh` currently
+> skips dirs without `go.mod` (`[ -f "$dir/go.mod" ] || continue`) and MUST be
+> generalized to also build root-module plugin dirs. Audit confirmed every
+> existing plugin has BOTH a `go.mod` and a `Name()`, and only diagram-renderer
+> lacks `go.mod` — so gating on `Name()` (already computed in the script) instead
+> of `go.mod` is safe and changes no existing plugin's behavior.
+
 **Files:**
-- Verify (no edit expected): `scripts/build-plugins.sh` (convention-based; auto-discovers the new dir).
+- Modify: `scripts/build-plugins.sh` (gate build on `Name()` presence, not `go.mod`)
 - Create: `deploy/kroki/docker-compose.yml`
 - Create: `docs/plugins/diagram-renderer.md`
 
@@ -1270,10 +1317,21 @@ git commit -m "feat(diagram-renderer): plugin orchestration and InitPlugin"
 - Consumes: the built `diagram-renderer.so` from Task 6.
 - Produces: runnable Kroki stack + user-facing enablement docs.
 
-- [ ] **Step 1: Confirm the build script picks up the new plugin**
+- [ ] **Step 1: Generalize build-plugins.sh to build root-module plugins**
 
-Run: `bash scripts/build-plugins.sh 2>&1 | grep -i diagram || echo "NOT BUILT"`
-Expected: a line showing `diagram-renderer.so` was built (the script iterates every `plugins/*` dir). If it prints `NOT BUILT`, read `scripts/build-plugins.sh` to see how dirs are discovered and confirm the new dir isn't excluded by an allowlist; only then adjust.
+The current loop skips any dir without `go.mod`, silently excluding the
+root-module diagram-renderer. Remove ONLY the `[ -f "$dir/go.mod" ] || continue`
+line so the existing `Name()` grep (and its empty-name skip) decides
+buildability. Add a short comment explaining that both self-contained-module
+plugins and root-module plugins (no `go.mod`, part of the huan module — needed
+when the plugin imports `internal/*` for its tests) build identically via
+`cd dir && go build -buildmode=plugin`. Everything else in the loop is unchanged.
+
+Then verify ALL plugins still build, into a temp dir:
+`bash scripts/build-plugins.sh /tmp/huan-plugins-verify`
+Expect a `building diagram-renderer -> diagram-renderer.so` line, a final
+`built 8 plugin(s)` count, and `/tmp/huan-plugins-verify/diagram-renderer.so`
+present. If any previously-building plugin now fails, STOP and report.
 
 - [ ] **Step 2: Create the Kroki Docker stack**
 
