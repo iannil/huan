@@ -1,0 +1,16 @@
+services:
+  kroki:
+    image: yuzutech/kroki
+    ports: ["8000:8000"]
+    environment:
+      KROKI_MERMAID_HOST: kroki-mermaid
+    networks: [huan_net]
+    depends_on: [kroki-mermaid]
+  kroki-mermaid:
+    image: yuzutech/kroki-mermaid
+    expose: ["8002"]
+    networks: [huan_net]
+
+networks:
+  huan_net:
+    name: huan_net

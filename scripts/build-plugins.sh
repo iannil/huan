@@ -22,7 +22,13 @@ mkdir -p "$OUT_DIR"
 
 built=0
 for dir in "$ROOT"/plugins/*/; do
-  [ -f "$dir/go.mod" ] || continue
+  # Gate buildability on Name() presence, not go.mod. Two plugin shapes build
+  # identically here via `cd dir && go build -buildmode=plugin`:
+  #   - self-contained-module plugins: have their own go.mod;
+  #   - root-module plugins: no go.mod, part of the huan module (needed when the
+  #     plugin imports internal/* for its tests, e.g. diagram-renderer).
+  # Every existing plugin has both a go.mod and a Name(); only the root-module
+  # diagram-renderer lacks go.mod, so the empty-name skip below is the safe gate.
   name="$(dir="$dir" grep -hoE 'Name\(\) string \{ return "[^"]+"' "$dir"*.go 2>/dev/null | head -1 | sed -E 's/.*return "([^"]+)".*/\1/')"
   if [ -z "$name" ]; then
     echo "skip: $(basename "$dir") (no Name() found)" >&2
