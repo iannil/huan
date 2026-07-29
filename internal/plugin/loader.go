@@ -86,9 +86,9 @@ func SoFileName(name string) string {
 }
 
 // searchDirs returns the plugin directories to scan, in priority order:
-// $HUAN_HOME (or ~/.huan) first, then the project plugin dir. Empty and
-// duplicate entries are removed. A plugin found in an earlier directory takes
-// precedence over the same-named plugin in a later one.
+// $HUAN_HOME/plugins (or ~/.huan/plugins) first, then the project plugin dir.
+// Empty and duplicate entries are removed. A plugin found in an earlier
+// directory takes precedence over the same-named plugin in a later one.
 func (l *Loader) searchDirs() []string {
 	var dirs []string
 	seen := make(map[string]bool)
@@ -99,7 +99,9 @@ func (l *Loader) searchDirs() []string {
 		seen[d] = true
 		dirs = append(dirs, d)
 	}
-	add(HuanHome())
+	if hh := HuanHome(); hh != "" {
+		add(filepath.Join(hh, "plugins"))
+	}
 	add(l.pluginDir)
 	return dirs
 }

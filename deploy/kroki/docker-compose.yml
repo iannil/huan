@@ -1,7 +1,7 @@
 services:
   kroki:
     image: yuzutech/kroki
-    ports: ["8000:8000"]
+    ports: ["1314:8000"]
     environment:
       KROKI_MERMAID_HOST: kroki-mermaid
     networks: [huan_net]

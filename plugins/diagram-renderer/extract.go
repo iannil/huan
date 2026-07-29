@@ -19,7 +19,7 @@ type diagramBlock struct {
 // and inner <code> content. The renderer emits:
 //   <div class="highlight"><pre ...><code class="language-X" data-lang="X">…</code></pre></div>
 var highlightBlockRe = regexp.MustCompile(
-	`(?s)<div class="highlight">.*?<code[^>]*\sdata-lang="([^"]+)"[^>]*>(.*?)</code>.*?</div>`)
+	`(?s)<div class="?highlight"?>.*?<code[^>]*\sdata-lang="?([^"\s>]+)"?[^>]*>(.*?)</code>.*?</div>`)
 
 // spanTagRe matches any opening or closing <span> tag chroma inserts.
 var spanTagRe = regexp.MustCompile(`</?span[^>]*>`)
