@@ -23,16 +23,16 @@ diagram-renderer 与其它插件不同：它**没有独立的 `go.mod`**，作�
 plugins:
   diagram_renderer:
     enabled: true
-    kroki_url: "http://localhost:8000"            # 自托管 Kroki 端点
+    krokiUrl: "http://localhost:8000"            # 自托管 Kroki 端点
     languages: [mermaid, plantuml, graphviz, d2]  # 允许列表，改这里即扩展
-    cache_dir: ".huan/cache/diagrams"
-    timeout_ms: 5000
+    cacheDir: ".huan/cache/diagrams"
+    timeoutMs: 5000
     fallback:
       mode: client                                # client | codeblock | fail
-      mermaid_js: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
-    figure_class: "diagram"                        # 输出 <figure> 的基础 class
-    include_kinds: []                              # 复用 html-injector 的 kind 过滤语义
-    exclude_kinds: []
+      mermaidJs: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
+    figureClass: "diagram"                        # 输出 <figure> 的基础 class
+    includeKinds: []                              # 复用 html-injector 的 kind 过滤语义
+    excludeKinds: []
 ```
 
 字段说明：
@@ -40,15 +40,15 @@ plugins:
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enabled` | `false` | 开关插件 |
-| `kroki_url` | `http://localhost:8000` | 自托管 Kroki 端点 |
+| `krokiUrl` | `http://localhost:8000` | 自托管 Kroki 端点 |
 | `languages` | `[mermaid, plantuml, graphviz, d2]` | 允许渲染的图表语言 |
-| `cache_dir` | `.huan/cache/diagrams` | SVG 缓存目录 |
-| `timeout_ms` | `5000` | 单次 Kroki 请求超时（毫秒） |
+| `cacheDir` | `.huan/cache/diagrams` | SVG 缓存目录 |
+| `timeoutMs` | `5000` | 单次 Kroki 请求超时（毫秒） |
 | `fallback.mode` | `client` | 渲染失败时的降级策略：`client` / `codeblock` / `fail` |
-| `fallback.mermaid_js` | jsDelivr mermaid@11 | `client` 模式注入的 mermaid.js URL |
-| `figure_class` | `diagram` | 输出 `<figure>` 的基础 class |
-| `include_kinds` | `[]` | 仅对这些 page kind 渲染（复用 html-injector 过滤语义） |
-| `exclude_kinds` | `[]` | 跳过这些 page kind |
+| `fallback.mermaidJs` | jsDelivr mermaid@11 | `client` 模式注入的 mermaid.js URL |
+| `figureClass` | `diagram` | 输出 `<figure>` 的基础 class |
+| `includeKinds` | `[]` | 仅对这些 page kind 渲染（复用 html-injector 过滤语义） |
+| `excludeKinds` | `[]` | 跳过这些 page kind |
 
 ## 启动 Kroki
 
@@ -69,7 +69,7 @@ docker compose -f deploy/kroki/docker-compose.yml down
 当 Kroki 不可达、超时或返回错误时，插件按 `fallback.mode` 处理，**不会让 `huan build` 失败**：
 
 - `client`（默认）——把图表块替换为 `<pre class="mermaid">…</pre>`，并**每页一次**注入一段
-  `mermaid.js`（`fallback.mermaid_js`）脚本，交给浏览器端渲染。
+  `mermaid.js`（`fallback.mermaidJs`）脚本，交给浏览器端渲染。
 - `codeblock` —— 保留为普通代码块，不做任何图表渲染。
 - `fail` —— 保留原始块（等价于不改动该块）；首版实现下同样**不 abort** 整个构建。
 
@@ -85,7 +85,7 @@ docker compose -f deploy/kroki/docker-compose.yml down
    plugins:
      diagram_renderer:
        enabled: true
-       kroki_url: "http://localhost:8000"
+       krokiUrl: "http://localhost:8000"
        languages: [mermaid, plantuml, graphviz, d2]
    ```
 

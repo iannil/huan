@@ -69,23 +69,23 @@ plugins/diagram-renderer/
 plugins:
   diagram_renderer:
     enabled: true
-    kroki_url: "http://localhost:8000"            # 自托管 Kroki 端点
+    krokiUrl: "http://localhost:8000"             # 自托管 Kroki 端点
     languages: [mermaid, plantuml, graphviz, d2]  # 允许列表，改这里即扩展
-    cache_dir: ".huan/cache/diagrams"
-    timeout_ms: 5000
+    cacheDir: ".huan/cache/diagrams"
+    timeoutMs: 5000
     fallback:
       mode: client                                # client | codeblock | fail
-      mermaid_js: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
-    figure_class: "diagram"                        # 输出 <figure> 的基础 class
-    include_kinds: []                              # 复用 html-injector 的 kind 过滤语义
-    exclude_kinds: []
+      mermaidJs: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
+    figureClass: "diagram"                        # 输出 <figure> 的基础 class
+    includeKinds: []                              # 复用 html-injector 的 kind 过滤语义
+    excludeKinds: []
 ```
 
 `Config` 结构体字段与上一一对应；`ConfigSchema()` 为每个字段声明
 （`string` / `bool` / `int` / `string_slice`），接入现有插件校验链路。
 `DefaultConfig()`：`enabled=false`、`languages=[mermaid,plantuml,graphviz,d2]`、
-`kroki_url=http://localhost:8000`、`cache_dir=.huan/cache/diagrams`、
-`timeout_ms=5000`、`fallback.mode=client`、`figure_class=diagram`。
+`krokiUrl=http://localhost:8000`、`cacheDir=.huan/cache/diagrams`、
+`timeoutMs=5000`、`fallback.mode=client`、`figureClass=diagram`。
 
 ## 5. 核心流程 `OnOutputWritten(ctx, outputDir)`
 
