@@ -142,7 +142,13 @@ func (r *chromaCodeBlockRenderer) renderFencedCodeBlock(
 		if lexer == nil {
 			lexer = lexers.Fallback
 		}
-		langStr = strings.ToLower(lexer.Config().Name)
+		// Preserve an explicitly-declared fence language in the emitted
+		// data-lang/class. Hugo keeps the author's declared language even
+		// when it has no lexer to highlight it (e.g. mermaid). Only adopt the
+		// guessed lexer's name when the fence declared no language at all.
+		if langStr == "" {
+			langStr = strings.ToLower(lexer.Config().Name)
+		}
 	}
 
 	style := styles.Get(r.style)
