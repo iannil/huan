@@ -1,0 +1,224 @@
+# =============================================================================
+# huan.example.yaml — huan 配置文件参考（全量字段）
+# =============================================================================
+# 复制为 huan.yaml 后按需修改。所有带 ${VAR:-default} 的值均支持环境变量
+# 插值（参考 internal/config/interpolate.go）。
+
+# ---------- 核心站点设置 ----------
+
+baseURL: https://example.com/
+title: 示例站点
+languageCode: zh-cn
+publishDir: docs                     # 输出目录
+paginate: 10                         # 列表页分页数
+minify: true                         # 输出 HTML 压缩
+hasCJKLanguage: true                 # 启用中日韩语言感知
+summaryLength: 120                   # 自动摘要截取字数
+enableEmoji: true                    # 展开 emoji shortcode
+defaultContentLanguage: zh-cn        # 默认内容语言
+
+# ---------- i18n / 多语言 ----------
+
+languages:
+  zh-cn:
+    weight: 1
+    languageName: 中文
+    baseURL: ""                      # 空 = 使用站点 baseURL
+  en:
+    weight: 2
+    languageName: English
+    baseURL: /en                     # 相对路径前缀
+    excludeSections: [hidden]        # 该语言排除的 section
+    neutralSections: [gallery]       # 该语言无需翻译的 section
+
+# ---------- 作者 ----------
+
+author:
+  name: 作者名称
+
+# ---------- 模板参数（{{ .Site.Params.xxx }} 访问） ----------
+
+params:
+  subTitle: 副标题或口号
+  footerSlogan: 页脚标语
+  keywords: [关键词1, 关键词2]
+  description: 站点描述
+  copyrights: Copyright © 2010-2026 示例站点 All Rights Reserved.
+  enableMathJax: true                # 启用 MathJax（主题内判断）
+  enableSummary: true                # 启用摘要生成
+  mainSections: [posts, blog]        # 主要内容 Section
+  googleAnalytics: G-XXXXXXXXXX      # GA4 Measurement ID
+  cdnURL: https://cdn.example.com    # 静态资源 CDN
+  author:                           # 用于模板
+    name: 作者名称
+
+# ---------- 菜单 ----------
+
+menu:
+  main:
+    - name: 首页
+      weight: 10
+      identifier: home
+      url: /
+    - name: 归档
+      weight: 30
+      identifier: archive
+      url: /posts/
+    - name: 关于
+      weight: 50
+      identifier: about
+      url: /about/
+
+# ---------- 社交链接 ----------
+
+social:
+  - name: github
+    url: https://github.com/example
+    weight: 10
+  - name: twitter
+    url: https://twitter.com/example
+    weight: 20
+
+# ---------- Markdown 渲染（goldmark） ----------
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true                   # 允许内联 HTML
+    extensions:
+      typographer: false             # 启用印刷级标点替换
+
+# ---------- Sitemap ----------
+
+sitemap:
+  changefreq: weekly
+  filename: sitemap.xml
+  priority: 0.5
+
+# ---------- RSS ----------
+
+rss:
+  limit: 20
+
+# ---------- 输出格式 ----------
+
+outputs:
+  home:    [HTML, RSS, SearchIndex]
+  page:    [HTML]
+  section: [HTML, RSS]
+  taxonomy: [HTML, RSS]
+  term:    [HTML, RSS]
+
+# ---------- AI 友好输出 ----------
+
+ai:
+  llmsTxt: true                      # 生成 /llms.txt
+  contentAPI: true                   # 生成 /content.json
+  markdownMirror: true               # 输出内容页 Markdown 副本
+
+# ---------- 主题 ----------
+
+theme: <theme-name>
+
+# ---------- 插件 ----------
+
+plugins:
+  # ---- diagram-renderer — 构建时图表渲染（Mermaid/PlantUML/GraphViz/D2 → 内联 SVG） ----
+  diagram_renderer:
+    category: static
+    enabled: true
+    krokiUrl: "http://localhost:8000"            # 自托管 Kroki 端点
+    languages: [mermaid, plantuml, graphviz, d2]  # 允许列表
+    cacheDir: ".huan/cache/diagrams"
+    timeoutMs: 5000
+    fallback:
+      mode: client                                # client | codeblock | fail
+      mermaidJs: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
+    figureClass: "diagram"
+    includeKinds: []
+    excludeKinds: []
+
+  # ---- seo-injector — SEO 元标签注入（OG / Twitter Card） ----
+  seo_injector:
+    category: static
+    descriptionMaxLength: 160
+    defaultOGImage: ""
+    injectOG: true
+    injectTwitter: true
+
+  # ---- html-injector — 自定义 HTML 片段注入 ----
+  html_injector:
+    category: static
+    head: []                         # 注入到 </head> 前的内容
+    bodyEnd: []                      # 注入到 </body> 前的内容
+    includeKinds: []                 # 仅对指定 page kind 注入
+    excludeKinds: []                 # 跳过指定 page kind
+
+  # ---- sitemap-enhancer — Sitemap 优先级/频率增强 ----
+  sitemap_enhancer:
+    category: static
+    defaultPriority:
+      home: 1.0
+      page: 0.8
+      section: 0.6
+      taxonomy: 0.5
+      term: 0.4
+    defaultChangefreq:
+      home: daily
+      page: weekly
+      section: weekly
+      taxonomy: weekly
+      term: monthly
+
+  # ---- zhurongshuo — 祝融说主题插件（特定站点专属） ----
+  zhurongshuo:
+    category: static
+
+  # ---- qwen3_translate — 本地 LLM 翻译（i18n 构建） ----
+  qwen3_translate:
+    endpoint: http://localhost:11434
+    model: qwen3:14b
+    fallback_model: qwen3:7b
+    timeout_seconds: 600
+    concurrency: 1
+    system_prompt_file: i18n/translate-prompt-zh-en.md
+    glossary_file: i18n/terms.yaml
+    quality:
+      length_ratio_min: 0.5
+      length_ratio_max: 3.5
+      target_language_threshold: 0.8
+      markdown_structure_tolerance: 3
+      enforce_glossary: true
+      retry_on_violation: 1
+    site_translations:
+      en:
+        subTitle: FORM NOT VOID, MIND NO CORE
+        description: DESCRIPTION TEXT
+        keywords: [Keyword1, Keyword2]
+        footerSlogan: FOOTER SLOGAN
+
+  # ---- image-pipeline — 图像处理（缩放、格式转换、srcset） ----
+  image_pipeline:
+    category: static
+
+  # ---- cloudflare — 部署到 Cloudflare（Pages + Workers + R2） ----
+  cloudflare:
+    accountId: ${CLOUDFLARE_ACCOUNT_ID:-}
+    apiToken: ${CLOUDFLARE_API_TOKEN:-}
+    pages:
+      project: my-project
+      branch: master
+    r2:
+      accessKeyId: ${CLOUDFLARE_R2_ACCESS_KEY_ID:-}
+      secretAccessKey: ${CLOUDFLARE_R2_SECRET_ACCESS_KEY:-}
+      bucket: my-bucket
+      sync:
+        - from: static/images
+          to: images/
+    workers:
+      - name: i18n-router
+        script: workers/i18n-router.js
+        compatibilityDate: "2024-12-01"
+        routes:
+          - pattern: example.com/*
+            zone: example.com
