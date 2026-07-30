@@ -83,7 +83,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create plugin registry and theme manager
-	reg, _ := newPluginRegistry(cfg, sourceDir)
+	reg, _ := newPluginRegistry(cfg, sourceDir, "")
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {
 		if err := themeMgr.Activate(cfg.Theme); err != nil {

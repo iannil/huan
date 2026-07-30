@@ -74,7 +74,7 @@ func runTranslateQwen3(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	registry, err := newPluginRegistry(cfg, sourceDir)
+	registry, err := newPluginRegistry(cfg, sourceDir, "")
 	if err != nil {
 		return fmt.Errorf("plugin registry: %w", err)
 	}

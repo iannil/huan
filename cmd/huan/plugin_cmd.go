@@ -34,7 +34,7 @@ func newPluginListCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			registry, err := newPluginRegistry(cfg, sourceDir)
+			registry, err := newPluginRegistry(cfg, sourceDir, "")
 			if err != nil {
 				return fmt.Errorf("plugin registry: %w", err)
 			}
@@ -64,7 +64,7 @@ func newPluginInfoCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
-			registry, err := newPluginRegistry(cfg, sourceDir)
+			registry, err := newPluginRegistry(cfg, sourceDir, "")
 			if err != nil {
 				return fmt.Errorf("plugin registry: %w", err)
 			}

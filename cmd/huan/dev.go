@@ -95,7 +95,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create PluginRegistry and ThemeManager, auto-activate from config
-	reg, _ := newPluginRegistry(cfg, sourceDir)
+	reg, _ := newPluginRegistry(cfg, sourceDir, "")
 	buildOpts.PluginRegistry = reg
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {
@@ -119,7 +119,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 			}
 		}
 		// Run image pipeline after build if configured
-		reg, _ := newPluginRegistry(cfg, sourceDir)
+		reg, _ := newPluginRegistry(cfg, sourceDir, "")
 		if err := runImagePipeline(sourceDir, opts.OutputDir, reg); err != nil {
 			return fmt.Errorf("image pipeline: %w", err)
 		}

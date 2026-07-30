@@ -51,7 +51,7 @@ func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 			"unknown_thing": {Config: map[string]any{"foo": "bar"}},
 		},
 	}
-	r, err := newPluginRegistry(cfg, "")
+	r, err := newPluginRegistry(cfg, "", "")
 	if err != nil {
 		t.Fatalf("unknown plugin should be silently skipped, got error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 
 func TestNewPluginRegistry_EmptyPluginsMap(t *testing.T) {
 	cfg := &config.Config{}
-	r, err := newPluginRegistry(cfg, "")
+	r, err := newPluginRegistry(cfg, "", "")
 	if err != nil {
 		t.Fatalf("empty plugins map: %v", err)
 	}

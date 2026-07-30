@@ -24,9 +24,12 @@ import (
 //
 // Unknown plugins declared in yaml (not found as .so files) are silently
 // skipped at compile time.
-func newPluginRegistry(cfg *config.Config, sourceDir string) (*plugin.Registry, error) {
+func newPluginRegistry(cfg *config.Config, sourceDir string, pluginDirOverride string) (*plugin.Registry, error) {
 	r := plugin.NewRegistry()
 	pluginDir := pluginDirFromSource(sourceDir)
+	if pluginDirOverride != "" {
+		pluginDir = pluginDirOverride
+	}
 	loader := plugin.NewLoader(pluginDir)
 
 	// Scan and load all .so files, filter by category

@@ -39,7 +39,7 @@ A long-running process that serves the site as a backend service.`,
 		// Register compiled plugins into a shared registry
 		var plugRegistry *plugin.Registry
 		if !disablePlugin {
-			plugRegistry, err = newPluginRegistry(cfg, sourceDir)
+			plugRegistry, err = newPluginRegistry(cfg, sourceDir, "")
 			if err != nil {
 				return fmt.Errorf("daemon: register compiled plugins: %w", err)
 			}
