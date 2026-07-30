@@ -36,6 +36,7 @@ func main() {
 	buildCmd.Flags().StringP("destination", "d", "", "filesystem path to write files to (overrides publishDir)")
 	buildCmd.Flags().StringP("baseURL", "b", "", "hostname to the root (overrides baseURL)")
 	buildCmd.Flags().Bool("minify", false, "minify output (overrides config)")
+	buildCmd.Flags().String("plugins", "", "path to plugins directory (overrides sourceDir/plugins/)")
 
 	// serveCmd is the deprecated alias for devCmd.
 	// Kept for backward compatibility; removed in the next major version.
@@ -83,7 +84,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create plugin registry and theme manager
-	reg, _ := newPluginRegistry(cfg, sourceDir, "")
+	pluginsDir, _ := cmd.Flags().GetString("plugins")
+	reg, _ := newPluginRegistry(cfg, sourceDir, pluginsDir)
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {
 		if err := themeMgr.Activate(cfg.Theme); err != nil {
