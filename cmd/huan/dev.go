@@ -32,6 +32,7 @@ func init() {
 	devCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
 	devCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 	devCmd.Flags().String("adminDev", "", "admin UI Vite dev server URL (e.g. http://localhost:5173) for hot reload")
+	devCmd.Flags().String("plugins", "", "path to plugins directory (overrides sourceDir/plugins/)")
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
@@ -42,6 +43,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	debounce, _ := cmd.Flags().GetDuration("debounce")
 	includeDrafts, _ := cmd.Flags().GetBool("buildDrafts")
 	adminDevURL, _ := cmd.Flags().GetString("adminDev")
+	pluginsDir, _ := cmd.Flags().GetString("plugins")
 
 	cfg, err := config.Load(sourceDir)
 	if err != nil {
@@ -95,7 +97,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create PluginRegistry and ThemeManager, auto-activate from config
-	reg, _ := newPluginRegistry(cfg, sourceDir, "")
+	reg, _ := newPluginRegistry(cfg, sourceDir, pluginsDir)
 	buildOpts.PluginRegistry = reg
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {
@@ -119,7 +121,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 			}
 		}
 		// Run image pipeline after build if configured
-		reg, _ := newPluginRegistry(cfg, sourceDir, "")
+		reg, _ := newPluginRegistry(cfg, sourceDir, pluginsDir)
 		if err := runImagePipeline(sourceDir, opts.OutputDir, reg); err != nil {
 			return fmt.Errorf("image pipeline: %w", err)
 		}
