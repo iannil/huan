@@ -60,6 +60,24 @@ func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 	}
 }
 
+func TestNewPluginRegistry_PluginDirOverride(t *testing.T) {
+	// Set pluginDirOverride to a temp dir that exists but has no .so files.
+	// The function should succeed (no plugins found, but no error).
+	overrideDir := t.TempDir()
+	cfg := &config.Config{
+		Plugins: map[string]config.PluginConfig{
+			"nonexistent_plugin": {Config: map[string]any{"key": "val"}},
+		},
+	}
+	r, err := newPluginRegistry(cfg, "", overrideDir)
+	if err != nil {
+		t.Fatalf("newPluginRegistry with override dir should succeed, got error: %v", err)
+	}
+	if len(r.All()) != 0 {
+		t.Errorf("got %d plugins, want 0 (empty override dir)", len(r.All()))
+	}
+}
+
 func TestNewPluginRegistry_EmptyPluginsMap(t *testing.T) {
 	cfg := &config.Config{}
 	r, err := newPluginRegistry(cfg, "", "")
