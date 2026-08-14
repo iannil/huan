@@ -123,7 +123,7 @@ tests:
 
 ### 鉴权注入
 
-`${token}` 是 runbook 层保留变量：daemon/dev 在 loopbind 下启动时 token 打印到 stderr，runbook 规定从启动日志捕获，用例只引用不负责获取。
+`${token}` 是 runbook 层保留变量：daemon/dev 在 loopback bind 下启动时 token 打印到 stderr，runbook 规定从启动日志捕获，用例只引用不负责获取。
 
 ### 示例（粒度基准）
 
@@ -136,7 +136,7 @@ steps:
     body: { section: posts, filename: crud-001.md, title: "CRUD测试文章" }
     expect:
       status: 201
-      body: { title: "CRUD测试文章" }
+      body: { relPath: "posts/crud-001.md" }
   - action: fs.assert
     path: content/posts/crud-001.md
     contains: "title: CRUD测试文章"
