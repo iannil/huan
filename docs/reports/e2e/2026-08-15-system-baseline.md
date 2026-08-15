@@ -69,7 +69,7 @@ browser 旅程（agent-browser 实走；截图存 `docs/reports/e2e/assets/20260
 | 4 | draft 泄露进 sitemap/RSS/列表聚合渲染（仅「单页不落盘」「公开 JSON API 排除」两条防线有效） | P1（内容安全） | **未修**（FIXTURES.md minimal 偏差 1 记录在案；bld-004/pub-006/sr-001 按「防线有效+偏差显式断言」口径覆盖） | Task 2 发现；本基线 sr-001 复现（首页含草稿链接） |
 | 5 | en 文章 `relPath` 丢语言后缀——admin 列表 API 的语言路径归一 bug，浏览器删 en 文章必 500 | P1 | **已修**（Task 2，fix-e2e-found-bugs，2026-08-15）：前端操作 key（选择/删除/草稿切换/编辑跳转）改用 `filePath` 真实文件名，en 删除 200；后端对语言中性 `relPath` 误删请求 500 并报真实语言变体名（绝不猜删）。bc-007 新增 en 旅程验证 | Task 10 发现；本基线 bc-002..004 按绕开口径全过 |
 | 6 | Settings 页 `hasChanges` ref 不重渲染（表单改脏状态 UI 不刷新） | P2 | **已修** fix-e2e-found-bugs Task 3（useRef→useState）；bs-002 断言扩回「保存按钮修改后立即启用」 | Task 10 发现 |
-| 7 | dev 模式无 pluginManager（`/admin/api/plugins` 恒 `{"status":"plugin manager unavailable"}`，200 而非 503）；daemon build 不传 PluginRegistry（serve 页面无插件注入）；`$HUAN_HOME` 陈旧 .so 毒化连带拒绝项目本地同名插件 | 观察 | **未修**（RUNBOOK §4.3/§9 与 FIXTURES 偏差记录在案；plugins-admin 定 daemon、注入断言只对 CLI build） | Task 3/8 观察；本基线 plug 套件与 RUNBOOK 隔离约定即其对策 |
+| 7 | dev 无 pluginManager（200 伪 unavailable）；daemon build 不传 PluginRegistry（serve 页无插件注入）；`$HUAN_HOME` 陈旧 .so 加载失败 | 观察 | **已修/定性**：dev 传 manager + listPlugins nil 改 503（fix Task 4）；daemon build 传 registry 见 fix Task 5；`$HUAN_HOME` 失配定性为 Go plugin 跨树 buildid 固有限制（见 fix Task 6，非 bug） | Task 3/8 观察 |
 
 未修项 4-7 均已在 FIXTURES.md / 套件头注释 / RUNBOOK 显式记录，不是回归缺口而是「已知状态」；修复请另立任务并同步 FIXTURES.md。
 

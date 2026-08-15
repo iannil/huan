@@ -382,7 +382,7 @@ func (h *apiHandler) updateSettingsYaml(w http.ResponseWriter, r *http.Request) 
 // listPlugins returns all registered plugins.
 func (h *apiHandler) listPlugins(w http.ResponseWriter, r *http.Request) {
 	if h.pluginManager == nil {
-		writeJSON(w, http.StatusOK, PluginManageResponse{Status: "plugin manager unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, APIError{Error: "plugin manager unavailable"})
 		return
 	}
 	plugins := h.pluginManager.List()

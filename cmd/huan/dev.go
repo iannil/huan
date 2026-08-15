@@ -12,6 +12,7 @@ import (
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/dev"
+	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
 	"github.com/spf13/cobra"
 )
@@ -193,14 +194,25 @@ func runDev(cmd *cobra.Command, args []string) error {
 	fmt.Println("Press Ctrl+C to stop")
 
 	serveURL := fmt.Sprintf("http://%s:%s/", browserHost, port)
+	// Plugin lifecycle manager for the admin API (list/load/unload/reload),
+	// sharing the build registry and watching the same plugin dir. daemon
+	// passes a real event bus; dev has no cross-PID bus so nil is fine
+	// (LifecycleManager tolerates nil bus for these operations).
+	pluginLoader := plugin.NewLoader(pluginDirFromSource(sourceDir))
+	if pluginsDir != "" {
+		pluginLoader = plugin.NewLoader(pluginsDir)
+	}
+	adminPluginMgr := plugin.NewLifecycleManager(reg, pluginLoader, nil)
 	adminHandler := admin.NewHandler(admin.HandlerOptions{
-		Cfg:       cfg,
-		SourceDir: sourceDir,
-		Rebuild:   doRebuild,
-		ServeURL:  serveURL,
-		BindAddr:  bind,
-		Token:     token,
-		MemoryDir: filepath.Join(sourceDir, "memory", "daily"),
+		Cfg:           cfg,
+		SourceDir:     sourceDir,
+		Rebuild:       doRebuild,
+		ServeURL:      serveURL,
+		BindAddr:      bind,
+		Token:         token,
+		MemoryDir:     filepath.Join(sourceDir, "memory", "daily"),
+		PluginManager: adminPluginMgr,
+		ThemeManager:  themeMgr,
 	})
 	if adminDevURL != "" {
 		fmt.Printf("Admin UI dev mode: proxying to %s\n", adminDevURL)

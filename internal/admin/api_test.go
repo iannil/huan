@@ -449,16 +449,16 @@ func TestAPI_ListPlugins_NilManager_ReturnsUnavailable(t *testing.T) {
 	h, _ := newTestAPIHandler(t) // no pluginManager
 
 	rec := doJSON(t, h, http.MethodGet, "/admin/api/plugins", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 
-	var resp PluginManageResponse
+	var resp map[string]string
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Status != "plugin manager unavailable" {
-		t.Errorf("expected unavailable status, got %q", resp.Status)
+	if resp["error"] != "plugin manager unavailable" {
+		t.Errorf("expected unavailable error, got %q", resp["error"])
 	}
 }
 
@@ -587,16 +587,16 @@ func TestAdminAPI_PluginEndpoints_NoManager(t *testing.T) {
 		t.Fatalf("GET /plugins: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("GET /plugins without manager: want 200, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("GET /plugins without manager: want 503, got %d", resp.StatusCode)
 	}
 
-	var listResp PluginManageResponse
+	var listResp map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
 		t.Fatalf("decode list response: %v", err)
 	}
-	if listResp.Status != "plugin manager unavailable" {
-		t.Errorf("list status = %q, want 'plugin manager unavailable'", listResp.Status)
+	if listResp["error"] != "plugin manager unavailable" {
+		t.Errorf("list error = %q, want 'plugin manager unavailable'", listResp["error"])
 	}
 
 	// POST /plugins/load - returns 503
@@ -645,5 +645,20 @@ func TestDeleteContent_LanguageNeutralRelPath_ReportsRealFile(t *testing.T) {
 	// The real file must survive.
 	if _, err := os.Stat(filepath.Join(src, "content", "posts", "hello.en.md")); err != nil {
 		t.Error("real file was deleted")
+	}
+}
+
+// TestListPlugins_NoManager_Returns503 verifies the nil-manager branch now
+// signals unavailability with 503 instead of 200 — a 200 body saying
+// "unavailable" is indistinguishable from success for naive callers.
+func TestListPlugins_NoManager_Returns503(t *testing.T) {
+	h, _ := newTestAPIHandler(t) // constructed without a plugin manager
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/plugins", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
 	}
 }

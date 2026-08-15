@@ -128,7 +128,7 @@ token 同 `${token}`（Task 1 修复后 daemon 的 `HUAN_ADMIN_TOKEN` env 生效
 | `/health` | **无**（404） | 有 |
 | `/api/v1/*` 公开 API | **无**（404） | 有 |
 | SSE `/api/v1/events` | **无** | 有（心跳 15s） |
-| `/admin/api/plugins` | 返回 `{"status":"plugin manager unavailable"}` | 正常 list |
+| `/admin/api/plugins` | 有（Task 4 修复后 dev 也初始化 manager） | 有 |
 
 ### 4.4 停止单实例
 
@@ -222,7 +222,7 @@ curl -s -H "Authorization: Bearer $token" ${base}/admin/api/status \
 | dev 打 `/health` 404 | dev 无此挂载（§4.3） | dev 探活打 `/` |
 | SSE 命令卡死 | macOS 无 `timeout` 命令 | curl 一律加 `--max-time N`（patterns.md 模式 1） |
 | 端口被占 | 上一 run 未 teardown | 先 `pkill -f "huan-e2e/huan"` 再起 |
-| daemon /admin/api/plugins 不可用断言失败 | dev 无 pluginManager（§4.3） | 该端点断言换 daemon 实例（+5 端口偏移） |
+| dev /admin/api/plugins 空返回 | dev 的 plugins 目录无 .so 或未声明 | 与 daemon 一样需先现场编译 .so（patterns §7）+ huan.yaml 声明（Task 4 后 dev 已有 manager） |
 
 ---
 

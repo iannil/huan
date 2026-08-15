@@ -5,12 +5,12 @@
 #       simple-plugin.so）、unload 后 list 回读、reload 热替换、同名二次
 #       load 409 冲突、theme 列表与 activate/deactivate 旅程。
 #
-# runtime 决策（实测 2026-08-15，以实测为准——简报原定 dev，实测推翻）：
-#   dev 模式 /admin/api/plugins 恒返回 {"status":"plugin manager unavailable"}
-#   （dev 不初始化 pluginManager，cmd/huan/dev.go 不传 PluginManager；
-#   api.go listPlugins 对 nil manager 短路 200）。**全套件跑 daemon**
-#   （plugins-admin 段 +5 偏移端口 13295，RUNBOOK §3「daemon 附加实例」
-#   与 §9 坑表「该端点断言换 daemon 实例」约定）。
+# runtime 决策（实测 2026-08-15）：
+#   【fix-e2e-found-bugs Task 4 后更新】dev 现也初始化 pluginManager（dev.go 复用
+#   build registry 构造 LifecycleManager）+ listPlugins nil 分支改 503（不再是 200
+#   unavailable 伪成功）。故 dev@13290 与 daemon@13295 均可跑本套件；实测保留
+#   daemon 主跑（= Task 4 修复前的口径），套件头启动命令仍用 daemon@13295。
+#   历史注记（修复前）：dev 恒返回 unavailable（api.go listPlugins 对 nil 短路 200）。
 #   附带收益：daemon 是唯一有 SSE + 插件事件的形态，与 sse-events 套件互补。
 #
 # fixture: with-plugins · 端口: 13295（plugins-admin 段 13290 内 +5 偏移，daemon 实例）
