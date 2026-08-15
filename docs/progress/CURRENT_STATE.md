@@ -311,4 +311,15 @@ v0.5.0 交付 gate 1-5（2026-06-30）→ 等 90 天 → **v1.0.0（2026-09-11 �
 
 全部回归通过（`go test ./...` 32 包绿；22 个 YAML syntax ok；受影响套件抽样——bld-004 sitemap 零 draft、daemon serve 注入 og:×4——实测通过）。相关 FIXTURES.md 偏差条目与基线 bug 清单已同步标「已修」/「定性」。
 
+### 2026-08-15 全量逐例实跑（非抽样）
+
+报告：[`docs/reports/e2e/2026-08-15-full-run.md`](../reports/e2e/2026-08-15-full-run.md)——`go test ./...` 32 包 + E2E **全部 117 例逐例实跑**（API 79 + CLI 15 + browser 23 旅程，agent-browser 实走）。
+
+**结果：115/117 PASS，1 PARTIAL（bs-002），0 FAIL。** 与抽样基线（90/90）对照补全覆盖。
+
+全量实跑新发现（前序抽样基线未见，建议另立修复）：
+- **bs-002 PARTIAL**：Settings 改标题保存后 Dashboard 顶栏/概览仍显示旧站名——`status.title` 是 handler 构造时静态副本（api.go:38 siteTitle），settings PUT 的 async rebuild 不刷新该缓存（P2 真实 UI bug）
+- **多语言编辑器顶栏文件路径显示 `.zh-CN.zh-CN.md` 双后缀**：ContentEdit 直渲染 `detail.filePath`，服务端 `realFilePath` 在 relPath 已含语言后缀时重复叠加（P2 显示 bug，保存走 relPath 安全）
+- **内嵌 SPA bundle 时效**：E2E 前必须重建 `web/admin` dist，否则测到过期 UI（执行契约，非引擎 bug）
+
 ---
