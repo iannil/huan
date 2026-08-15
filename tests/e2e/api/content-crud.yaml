@@ -1,0 +1,493 @@
+# 套件：content-crud —— /admin/api/content 增删改查与审计
+#
+# 目的：验证内容 CRUD 全链路——创建（含 .md 补全/特殊字符标题/重复创建）、
+#       读取（含 404）、更新（含并发 PUT 最后写赢）、删除（含不存在）、
+#       draft 计数联动、多语言 siblings 查询、ADR 0011 L4 审计落盘。
+#
+# runtime: dev · fixture: minimal（crud-009 用 multilang 覆盖）· 端口: 13220（RUNBOOK §3）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13220 --bind 127.0.0.1），探活打 /。
+#           crud-009 需另起 multilang fixture 拷贝 + dev 实例（同段 +5 偏移 13225）。
+#
+# 期望值出处：FIXTURES.md minimal（total=3, drafts=1 等）+ 本套件 2026-08-15 实测校准：
+#   - POST /admin/api/content 的请求体是 {section, filename, title, draft}（types.go
+#     CreateContentRequest）——不带 frontmatter/rawContent 字段，date/draft 由服务端生成。
+#   - section 缺省时文件落在 content/ 根（relPath 无 posts/ 前缀）；要 posts/ 必须显式
+#     传 section: "posts"。
+#   - 重复创建（crud-007）实测：500 + {"error":"file already exists: <绝对路径>"}，
+#     绝不覆盖（content.go create 先 os.Stat 再写）。实测日期 2026-08-15。
+#   - PUT/DELETE 目标不存在实测也是 500（非 404）：handler 统一把 ops 层 error 映射为
+#     StatusInternalServerError；仅 GET 走 404 分支。
+#   - 审计写入 $site/memory/daily/<YYYY-MM-DD>.md（dev 的 memoryDir，Task 1 探针确认
+#     dev.go:203），小节含 action/path/sha256 三行。
+#
+# 已知偏差对照：无 draft 泄露类断言（本套件不触公开聚合）；错误码 500 vs 404 的口径
+# 差异按实测断言并在用例内注明（见 crud-004/007 注释）。
+suite: content-crud
+module: admin-content-crud
+fixture: minimal
+runtime: dev
+tests:
+  - id: crud-001
+    name: 创建文章并落盘可回读
+    severity: P0
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          section: posts          # 缺省则落 content/ 根；显式 posts 才有 posts/ 前缀
+          filename: crud-001
+          title: E2E 创建测试
+          draft: false
+        expect:
+          status: 201
+          body:
+            relPath: posts/crud-001.md
+            title: E2E 创建测试
+            section: posts
+            draft: false
+      - action: fs.assert              # 硬规则 2：写操作后必跟 fs.assert（frontmatter 断言）
+        path: $site/content/posts/crud-001.md
+        exists: true
+        contains: "title: E2E 创建测试"
+      - action: fs.assert              # draft 字段落盘断言（fs.assert 的 contains 单值，双断言拆两步）
+        path: $site/content/posts/crud-001.md
+        contains: "draft: false"
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/crud-001.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            relPath: posts/crud-001.md
+            frontmatter:
+              title: E2E 创建测试
+              draft: false
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/crud-001.md
+
+  - id: crud-002
+    name: 缺 title 创建返回 400
+    severity: P0
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-002-no-title }
+        expect:
+          status: 400
+          body: { error: "title and filename are required" }
+      - action: fs.assert              # 硬规则 2（负向）：失败的创建不得落盘
+        path: $site/content/posts/crud-002-no-title.md
+        exists: false
+
+  - id: crud-003
+    name: 非法 JSON 创建返回 400 invalid JSON
+    severity: P1
+    # 请求体是原始字符串（非合法 JSON）。错误串后缀带 encoding/json 细节，
+    # 断言只取稳定前缀 "invalid JSON"。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}", Content-Type: application/json }
+        body: '{invalid json'
+        expect:
+          status: 400
+          body: { error: { matches: "^invalid JSON: .*" } }
+      - action: fs.assert              # 硬规则 2（负向）：失败的创建不得落盘
+        path: $site/content/posts/crud-003-badjson.md
+        exists: false
+
+  - id: crud-004
+    name: GET 不存在的文章返回 404
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/never-exist-e2e.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 404
+          body: { error: { matches: "^read file: .*no such file or directory" } }
+
+  - id: crud-005
+    name: PUT 更新 frontmatter 与 rawContent 后落盘双断言
+    severity: P0
+    preconditions:
+      - crud-001    # 依赖其创建的 posts/crud-001.md（其 cleanup 在套件 teardown 阶段才回滚）
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/content/posts/crud-001.md
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          frontmatter:
+            title: E2E 更新后标题
+            date: "2026-08-15"
+            tags: [e2e, 更新]
+          rawContent: |
+            更新后的正文。
+            第二行。
+        expect:
+          status: 200
+          body:
+            relPath: posts/crud-001.md
+            frontmatter:
+              title: E2E 更新后标题
+            rawContent: |
+              更新后的正文。
+              第二行。
+      - action: fs.assert              # 硬规则 2：双断言（frontmatter + 正文都落盘）
+        path: $site/content/posts/crud-001.md
+        exists: true
+        contains: "title: E2E 更新后标题"
+        matches: "更新后的正文。\\n第二行。"   # 正文按序落盘（fs.assert 单 contains，多断言用 contains+matches 组合）
+
+  - id: crud-006
+    name: DELETE 文章返回 200 且文件消失
+    severity: P0
+    preconditions:
+      - crud-001
+    steps:
+      - action: http
+        method: DELETE
+        path: /admin/api/content/posts/crud-001.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { status: deleted }
+      - action: fs.assert              # 硬规则 2：断言文件不存在
+        path: $site/content/posts/crud-001.md
+        exists: false
+
+  - id: crud-007
+    name: 重复创建同 filename 报错不覆盖
+    severity: P0
+    # 实测（2026-08-15，worktree e2e-test-system，minimal/dev@13200）：
+    #   第 1 次 POST {"section":"posts","filename":"crud-007-dup",...} → 201 posts/crud-007-dup.md
+    #   第 2 次同 filename POST → 500 {"error":"file already exists: <site>/content/posts/crud-007-dup.md"}
+    #   回读文件标题仍为第 1 次的值（未覆盖）。
+    # 结论：错误路径而非覆盖；状态码是 500（api.go 把 ops 层 create error 统一映射
+    # StatusInternalServerError）。error 含站点绝对路径，断言用 matches 前缀。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-007-dup, title: 第一次创建, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/crud-007-dup.md }
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/crud-007-dup.md
+        exists: true
+        contains: "title: 第一次创建"
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-007-dup, title: 第二次创建, draft: false }
+        expect:
+          status: 500
+          body: { error: { matches: "^file already exists: .*/content/posts/crud-007-dup\\.md$" } }
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/crud-007-dup.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { frontmatter: { title: 第一次创建 } }   # 原文件未被覆盖
+      - action: fs.assert              # 硬规则 2（终态）：第二次创建未生效，文件仍是第一版
+        path: $site/content/posts/crud-007-dup.md
+        contains: "title: 第一次创建"
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/crud-007-dup.md
+
+  - id: crud-008
+    name: draft 文章创建后 status.drafts+1
+    severity: P1
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-008-draft, title: E2E 草稿, draft: true }
+        expect:
+          status: 201
+          body:
+            relPath: posts/crud-008-draft.md
+            draft: true
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/crud-008-draft.md
+        exists: true
+        contains: "draft: true"
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 4      # FIXTURES.md 初始 3 + 1
+            drafts: 2     # FIXTURES.md 初始 1 + 1
+            published: 2  # 不变
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/crud-008-draft.md
+
+  - id: crud-009
+    name: languages 查询返回翻译伙伴（multilang fixture）
+    severity: P1
+    # fixture 覆盖：本用例换 multilang 拷贝起独立 dev 实例（端口 13225 = 本段 +5 偏移）。
+    # 执行指引（RUNBOOK §2/§4.1 同法，fixture 换 multilang）：
+    #   cp -r tests/e2e/fixtures/multilang $site-ml && mkdir -p $site-ml/.huan-home
+    #   HUAN_ADMIN_TOKEN=$token HUAN_HOME=$site-ml/.huan-home \
+    #     $bin dev -s $site-ml --port 13225 --bind 127.0.0.1 &   # 探活打 /
+    # 期望值出处：FIXTURES.md「multilang › GET /admin/api/content/{relPath}/languages 期望」。
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/hello.zh-cn.md/languages
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            current: zh-cn
+            siblings.0.language: en
+            siblings.0.relPath: posts/hello.en.md
+            siblings.0.title: Hello (EN)
+            siblings.0.draft: false
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/zh-only.zh-cn.md/languages
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            current: zh-cn
+            siblings: []        # 无翻译伙伴
+
+  - id: crud-010
+    name: 创建后审计日志落盘 content.create 与 sha 片段
+    severity: P1
+    # 审计路径：$site/memory/daily/<今日>.md（dev 的 memoryDir，dev.go:203）。
+    # 审计格式（patterns.md §5 / internal/admin/audit.go）：
+    #   ### admin audit (HH:MM:SS) / - **action**: `content.create` /
+    #   - **path**: `posts/...` / - **sha256**: _new_ → `<64-hex>`
+    # sha 断言：与落盘文件现算 sha256 前 8 位比对——
+    #   shasum -a 256 $site/content/posts/crud-010-audit.md | cut -c1-8
+    #   grep "$(…前8位)" $site/memory/daily/$(date +%Y-%m-%d).md
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-010-audit, title: 审计验证文章, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/crud-010-audit.md }
+      - action: fs.assert              # 硬规则 2：文件落盘
+        path: $site/content/posts/crud-010-audit.md
+        exists: true
+      - action: fs.assert              # 审计：action 行 + sha 形态（fs.assert 单 contains，多断言拆步）
+        path: $site/memory/daily/<今日>.md
+        exists: true
+        contains: "action: `content.create`"
+      - action: fs.assert              # 审计：path 行
+        path: $site/memory/daily/<今日>.md
+        contains: "path: `posts/crud-010-audit.md`"
+      - action: fs.assert              # 审计：sha256 行（create 无 before-SHA，after 为 64-hex，断前 8 位）
+        path: $site/memory/daily/<今日>.md
+        matches: "sha256.*_new_ → `[0-9a-f]{8}"
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/crud-010-audit.md
+
+  - id: crud-011
+    name: title 含特殊字符（引号/中文/emoji）正确往返
+    severity: P2
+    # 实测（2026-08-15）：落盘 YAML 对含引号/emoji 的 title 加双引号转义
+    # （title: "引号\"中文\"与 emoji \U0001F389 测试"），HTTP 回读还原原文。
+    # 落盘断言只验 title: 前缀（转义形式是实现细节），往返正确性由回读断言保证。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          section: posts
+          filename: crud-011-special
+          title: "引号\"中文\"与 emoji 🎉 测试"
+          draft: false
+        expect:
+          status: 201
+          body:
+            relPath: posts/crud-011-special.md
+            title: "引号\"中文\"与 emoji 🎉 测试"
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/crud-011-special.md
+        exists: true
+        contains: "title:"
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/crud-011-special.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            frontmatter:
+              title: "引号\"中文\"与 emoji 🎉 测试"
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/crud-011-special.md
+
+  - id: crud-012
+    name: filename 不带 .md 后缀自动补全
+    severity: P2
+    # 实测（2026-08-15）：POST filename="crud-012-raw"（无扩展名）→
+    # 201 relPath=posts/crud-012-raw.md（content.go create 自动 += ".md"）。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-012-raw, title: 补全测试, draft: false }
+        expect:
+          status: 201
+          body:
+            relPath: posts/crud-012-raw.md
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/crud-012-raw.md
+        exists: true
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/crud-012-raw.md
+
+  - id: crud-013
+    name: 并发 PUT x5 最后写赢且审计 5 行
+    severity: P1
+    # 并行动作无法用顺序 http step 表达，schema 也无 loop 语义——按 patterns.md §3
+    # 的命令模式作为执行指引，终态断言仍用 http/fs step：
+    #   for i in 1 2 3 4 5; do
+    #     curl -s -X PUT -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    #       -d "{\"frontmatter\":{\"title\":\"并发-$i\"},\"rawContent\":\"并发正文 $i\\n\"}" \
+    #       ${base}/admin/api/content/posts/concurrent-target.md &> $artifacts/put-$i.txt &
+    #   done; wait
+    # 实测（2026-08-15）：5 个 PUT 全部 200，终态 title 收敛到五版本之一（本次实测
+    # 为 并发-5，但胜者顺序非契约，断言只验终态属于集合）；审计 +5 行 content.update。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: concurrent-target, title: 并发初始, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/concurrent-target.md }
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/concurrent-target.md
+        exists: true
+      # —— 以下 5 个 PUT 标注为并行执行（patterns.md §3 命令模式）——
+      - action: http                   # 并行 PUT #1（执行指引见上）
+        method: PUT
+        path: /admin/api/content/posts/concurrent-target.md
+        headers: { Authorization: "Bearer ${token}" }
+        body: { frontmatter: { title: 并发-1 }, rawContent: 并发正文 1 }
+        parallel: true
+        expect:
+          status: 200
+          body: { relPath: posts/concurrent-target.md }
+      - action: http                   # 并行 PUT #2
+        method: PUT
+        path: /admin/api/content/posts/concurrent-target.md
+        headers: { Authorization: "Bearer ${token}" }
+        body: { frontmatter: { title: 并发-2 }, rawContent: 并发正文 2 }
+        parallel: true
+        expect:
+          status: 200
+          body: { relPath: posts/concurrent-target.md }
+      - action: http                   # 并行 PUT #3
+        method: PUT
+        path: /admin/api/content/posts/concurrent-target.md
+        headers: { Authorization: "Bearer ${token}" }
+        body: { frontmatter: { title: 并发-3 }, rawContent: 并发正文 3 }
+        parallel: true
+        expect:
+          status: 200
+          body: { relPath: posts/concurrent-target.md }
+      - action: http                   # 并行 PUT #4
+        method: PUT
+        path: /admin/api/content/posts/concurrent-target.md
+        headers: { Authorization: "Bearer ${token}" }
+        body: { frontmatter: { title: 并发-4 }, rawContent: 并发正文 4 }
+        parallel: true
+        expect:
+          status: 200
+          body: { relPath: posts/concurrent-target.md }
+      - action: http                   # 并行 PUT #5
+        method: PUT
+        path: /admin/api/content/posts/concurrent-target.md
+        headers: { Authorization: "Bearer ${token}" }
+        body: { frontmatter: { title: 并发-5 }, rawContent: 并发正文 5 }
+        parallel: true
+        expect:
+          status: 200
+          body: { relPath: posts/concurrent-target.md }
+      - action: http                   # 终态：标题属于五版本之一（最后写赢，胜者不作断言）
+        method: GET
+        path: /admin/api/content/posts/concurrent-target.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            frontmatter.title: { matches: "^并发-[1-5]$" }
+      - action: fs.assert              # 审计：5 次 PUT → 5 行 content.update（patterns.md §5）
+        path: $site/memory/daily/<今日>.md
+        exists: true
+        matches: "(- \\*\\*action\\*\\*: `content\\.update`[\\s\\S]*){5}"
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/concurrent-target.md
+
+  - id: crud-014
+    name: 创建后立即 DELETE 再 GET 终态 404
+    severity: P1
+    # 竞争终态一致性：同一 relPath 的 create→delete→read 串行链路，
+    # 最终读必须 404（实测 2026-08-15：delete=200, get-after=404）。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: crud-014-tmp, title: 临时文章, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/crud-014-tmp.md }
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/crud-014-tmp.md
+        exists: true
+      - action: http
+        method: DELETE
+        path: /admin/api/content/posts/crud-014-tmp.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { status: deleted }
+      - action: fs.assert              # 硬规则 2：DELETE 后文件消失
+        path: $site/content/posts/crud-014-tmp.md
+        exists: false
+      - action: http
+        method: GET
+        path: /admin/api/content/posts/crud-014-tmp.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 404
+          body: { error: { matches: "^read file: .*no such file or directory" } }

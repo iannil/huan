@@ -1,0 +1,141 @@
+# 套件：status —— /admin/api/status 站点统计
+#
+# 目的：验证 status 端点的全字段初始值、写操作（创建内容/上传媒体）后的计数变化、
+#       recentContent 的 date 降序排序。
+#
+# runtime: dev · fixture: minimal · 端口: 13210（RUNBOOK §3 端口表 status 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13210 --bind 127.0.0.1），探活打 /。
+#
+# 期望值出处：全部引用 FIXTURES.md「minimal › GET /admin/api/status 期望」：
+#   total=3, published=2, drafts=1, sections=2, sectionBreakdown={"_root":1,"posts":2},
+#   languages=[], mediaCount=1, recentContent 降序=草稿文章→你好 huan→关于,
+#   title="huan E2E 最小站", baseURL="http://127.0.0.1:1313/"；serveURL 随端口变化不断言具体值。
+#
+# 实测校准（2026-08-15，worktree e2e-test-system）：
+#   - 创建 1 篇（draft=false，date=创建时刻）后：total=4, published=3, drafts=1 不变，
+#     且新文章因 date 最新排 recentContent[0]（实测 4 条：最新→草稿→你好 huan→关于）。
+#   - 上传 1 个媒体文件后 mediaCount 1→2。
+suite: status
+module: admin-status
+fixture: minimal
+runtime: dev
+tests:
+  - id: stat-001
+    name: 初始统计全字段等于 FIXTURES 常量
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 3
+            published: 2
+            drafts: 1
+            sections: 2
+            languages: []
+            mediaCount: 1
+            sectionBreakdown: { _root: 1, posts: 2 }
+            recentContent.0.title: 草稿文章          # date 降序（FIXTURES.md 实测顺序）
+            recentContent.2.title: 关于
+            title: huan E2E 最小站
+            baseURL: http://127.0.0.1:1313/
+
+  - id: stat-002
+    name: 创建 1 篇正式文章后 total+1 且 drafts 不变
+    severity: P0
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: "posts", filename: "stat-002-new", title: "统计新增文章", draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/stat-002-new.md }
+      - action: fs.assert              # 硬规则 2：写操作后必跟 fs.assert
+        path: $site/content/posts/stat-002-new.md
+        exists: true
+        contains: "title: 统计新增文章"
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 4        # 3+1（FIXTURES 初始 3 + 本用例创建 1）
+            published: 3    # 2+1
+            drafts: 1       # 不变
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/stat-002-new.md
+
+  - id: stat-003
+    name: recentContent 按 date 降序，新建文章排第一
+    severity: P1
+    preconditions:
+      - stat-002    # 复用其创建的文章（若无前置失败，cleanup 已回滚，本用例需自建）
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: stat-003-latest, title: 最新文章, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/stat-003-latest.md }
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/stat-003-latest.md
+        exists: true
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            # date 降序：新建（date=now，最新）→ 草稿文章(2026-08-11) → 你好 huan(2026-08-10) → 关于(2026-08-01)
+            recentContent.0.title: 最新文章
+            recentContent.1.title: 草稿文章
+            recentContent.2.title: 你好 huan
+            recentContent.3.title: 关于
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/stat-003-latest.md
+
+  - id: stat-004
+    name: mediaCount 随上传 +1
+    severity: P1
+    # 上传源：fixture 自带 static/logo.svg，经 curl ;filename= 改名为 logo-e2e-copy.svg
+    # （媒体名不能与已有 logo.svg 冲突；multipart 上传模式见 patterns.md §6）。
+    # 执行指引：curl -F "file=@${site}/static/logo.svg;filename=logo-e2e-copy.svg"
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; file=@$site/static/logo.svg;filename=logo-e2e-copy.svg
+        expect:
+          status: 201
+          body: { name: logo-e2e-copy.svg, path: logo-e2e-copy.svg }
+      - action: fs.assert              # 硬规则 2
+        path: $site/static/logo-e2e-copy.svg
+        exists: true
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            mediaCount: 2   # 1+1（FIXTURES.md 初始 mediaCount=1）
+            total: 3        # 内容未动
+    cleanup:
+      - action: fs.delete
+        path: $site/static/logo-e2e-copy.svg

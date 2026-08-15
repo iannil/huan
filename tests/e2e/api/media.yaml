@@ -1,0 +1,220 @@
+# 套件：media —— /admin/api/media 上传/列表/删除
+#
+# 目的：验证媒体管理全链路——SVG/PNG 上传（含二进制魔数）、列表聚合、删除、
+#       错误路径（不存在删除、不支持扩展名、缺 file 字段）、dir 子目录上传。
+#
+# runtime: dev · fixture: minimal · 端口: 13230（RUNBOOK §3 端口表 media 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13230 --bind 127.0.0.1），探活打 /。
+#
+# 期望值出处：FIXTURES.md minimal（static/logo.svg 是唯一初始媒体，mediaCount=1）+
+#   本套件 2026-08-15 实测校准：
+#   - 上传 201 响应体为 mediaItem：{"name","path","size","ext"}，path 相对 static/。
+#   - 删不存在实测 500 {"error":"remove <绝对路径>: no such file or directory"}
+#     （media.go handleMediaDelete 把 os.Remove 失败统一映射 500）。
+#   - 不支持扩展名 400 {"error":"unsupported file type: .exe"}；缺 file 字段
+#     400 {"error":"missing file: http: no such file"}。
+#
+# multipart 上传模式（patterns.md §6）：curl -F "file=@<本地文件>"（可选 -F "dir=<子目录>"）。
+# 上传源文件由套件级 startup 注入到 $site 之外的临时位置（$site/upload/），避免污染 static/。
+suite: media
+module: admin-media
+fixture: minimal
+runtime: dev
+startup:
+  # 上传源：fixture 自带 logo.svg 改名拷贝到 $site/upload/logo-e2e.svg（不进 static/，
+  # 不影响 mediaCount 初值；_schema.md fs.write 只写文本，二进制 PNG 改用 cli 生成，
+  # 见 med-007 注释）。
+  - action: fs.write
+    path: $site/upload/logo-e2e.svg
+    content: |
+      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#36c"/></svg>
+tests:
+  - id: med-001
+    name: 上传 SVG 返回 201 且落盘 static/
+    severity: P0
+    # 执行指引（patterns.md §6）：curl -F "file=@$site/upload/logo-e2e.svg" ${base}/admin/api/media
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; file=@$site/upload/logo-e2e.svg
+        expect:
+          status: 201
+          body: { name: logo-e2e.svg, path: logo-e2e.svg, ext: .svg }
+      - action: fs.assert              # 硬规则 2：写操作后必跟 fs.assert
+        path: $site/static/logo-e2e.svg
+        exists: true
+        contains: <svg xmlns="http://www.w3.org/2000/svg"
+
+  - id: med-002
+    name: 媒体列表包含新上传文件
+    severity: P0
+    preconditions:
+      - med-001
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 2    # FIXTURES.md 初始 1（logo.svg）+ med-001 上传 1
+            files.0.name: logo-e2e.svg
+            files.0.path: logo-e2e.svg
+            groups./.0.name: logo.svg    # 分组键 "/" 下的 fixture 原始文件
+    cleanup:
+      - action: fs.delete
+        path: $site/static/logo-e2e.svg
+
+  - id: med-003
+    name: 删除媒体返回 200 且文件消失
+    severity: P0
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; file=@$site/upload/logo-e2e.svg
+        expect:
+          status: 201
+          body: { path: logo-e2e.svg }
+      - action: fs.assert              # 硬规则 2：先确认存在
+        path: $site/static/logo-e2e.svg
+        exists: true
+      - action: http
+        method: DELETE
+        path: /admin/api/media/logo-e2e.svg
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { status: deleted }
+      - action: fs.assert              # 硬规则 2：删除后消失
+        path: $site/static/logo-e2e.svg
+        exists: false
+    cleanup:
+      - action: fs.delete
+        path: $site/static/logo-e2e.svg
+
+  - id: med-004
+    name: 删除不存在的媒体返回 500
+    severity: P1
+    # 实测（2026-08-15）：os.Remove 失败被 handleMediaDelete 统一映射 500，
+    # 响应体 {"error":"remove <绝对路径>: no such file or directory"}。
+    # error 含站点绝对路径，断言用 matches。
+    steps:
+      - action: http
+        method: DELETE
+        path: /admin/api/media/never-exist-e2e.svg
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 500
+          body: { error: { matches: "^remove .*no such file or directory$" } }
+      - action: fs.assert              # 硬规则 2（负向）：目标确实不存在
+        path: $site/static/never-exist-e2e.svg
+        exists: false
+
+  - id: med-005
+    name: 不支持的扩展名 .exe 返回 400
+    severity: P1
+    # 执行指引：echo 'MZ fake exe' > $site/upload/evil.exe 后 curl -F 上传。
+    # 错误串实测精确为 "unsupported file type: .exe"（ext 拼接在后）。
+    steps:
+      - action: fs.write
+        path: $site/upload/evil.exe
+        content: |
+          MZ fake exe
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; file=@$site/upload/evil.exe
+        expect:
+          status: 400
+          body: { error: "unsupported file type: .exe" }
+      - action: fs.assert              # 硬规则 2（负向）：被拒文件不得落盘
+        path: $site/static/evil.exe
+        exists: false
+    cleanup:
+      - action: fs.delete
+        path: $site/upload/evil.exe
+
+  - id: med-006
+    name: multipart 缺 file 字段返回 400
+    severity: P1
+    # 实测（2026-08-15）：只发 dir 字段（无 file）→ 400
+    # {"error":"missing file: http: no such file"}。错误串后缀是 multipart
+    # 解析器细节，断言用 matches 稳定前缀。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; dir=assets
+        expect:
+          status: 400
+          body: { error: { matches: "^missing file: .*" } }
+      - action: fs.assert              # 硬规则 2（负向）：缺 file 的请求不得创建任何文件/目录
+        path: $site/static/assets
+        exists: false
+
+  - id: med-007
+    name: 二进制 PNG 上传后前八字节为 PNG 魔数
+    severity: P1
+    # PNG 生成命令（patterns.md §6，YAML 块标量不便表达 \xNN，执行层用 cli 生成）：
+    #   printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB\x60\x82' > $site/upload/pixel.png
+    # 上传：curl -F "file=@$site/upload/pixel.png" ${base}/admin/api/media
+    # 魔数校验：head -c 8 $site/static/pixel.png | xxd  →  8950 4e47 0d0a 1a0a（\x89PNG\r\n\x1a\n）
+    steps:
+      - action: cli
+        command: >-
+          printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB\x60\x82'
+          > $site/upload/pixel.png
+        expect:
+          exit_code: 0
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; file=@$site/upload/pixel.png
+        expect:
+          status: 201
+          body: { name: pixel.png, path: pixel.png, ext: .png }
+      - action: fs.assert              # 硬规则 2：二进制内容断言用 matches（十六进制魔数）
+        path: $site/static/pixel.png
+        exists: true
+        matches: "^\x89PNG\r\n\x1a\n"   # 前 8 字节 = PNG 魔数 89 50 4E 47 0D 0A 1A 0A
+    cleanup:
+      - action: fs.delete
+        path: $site/static/pixel.png
+      - action: fs.delete
+        path: $site/upload/pixel.png
+
+  - id: med-008
+    name: 带 dir 子目录上传后 path 含子目录
+    severity: P1
+    # 执行指引（patterns.md §6）：curl -F "file=@$site/upload/logo-e2e.svg" -F "dir=assets"
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/media
+        headers: { Authorization: "Bearer ${token}" }
+        body: |
+          multipart/form-data; file=@$site/upload/logo-e2e.svg; dir=assets
+        expect:
+          status: 201
+          body: { name: logo-e2e.svg, path: assets/logo-e2e.svg }
+      - action: fs.assert              # 硬规则 2：落在子目录
+        path: $site/static/assets/logo-e2e.svg
+        exists: true
+    cleanup:
+      - action: fs.delete
+        path: $site/static/assets/logo-e2e.svg

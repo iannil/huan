@@ -1,0 +1,112 @@
+# 套件：auth —— admin API 鉴权（ADR 0011 L1/L2）
+#
+# 目的：验证 /admin/api/* 的 token 鉴权矩阵——Bearer 头、X-Huan-Admin-Token 头等价、
+#       缺失/错误 token 的 401 + WWW-Authenticate、loopback 自动 token 生成、
+#       非 loopback bind 无 token 时的拒启 fail-fast。
+#
+# runtime: dev · fixture: minimal · 端口: 13200（RUNBOOK §3 端口表 auth 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13200 --bind 127.0.0.1），探活打 /。
+#
+# 期望值出处：断言常量一律引用 tests/e2e/fixtures/FIXTURES.md（minimal: total=3）。
+# 实测校准：2026-08-15（worktree e2e-test-system，探针见 task-6-report.md）——
+#   - 401 响应体精确为 {"error":"missing admin token"} / {"error":"invalid admin token"}，
+#     响应头含 WWW-Authenticate: Bearer realm="huan-admin"（实测两种失败均设置）。
+#   - auth-006 退出码实测 1，stderr 首行含 "requires HUAN_ADMIN_TOKEN"。
+suite: auth
+module: admin-auth
+fixture: minimal
+runtime: dev
+tests:
+  - id: auth-001
+    name: 正确 token 通过 Bearer 头访问 status
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }   # FIXTURES.md minimal 常量
+
+  - id: auth-002
+    name: 缺失 token 返回 401 与 WWW-Authenticate
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/status
+        expect:
+          status: 401
+          body: { error: "missing admin token" }
+          headers: { WWW-Authenticate: 'Bearer realm="huan-admin"' }
+
+  - id: auth-003
+    name: 错误 token 返回 401 invalid admin token
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer wrong-token-e2e" }
+        expect:
+          status: 401
+          body: { error: "invalid admin token" }
+          headers: { WWW-Authenticate: 'Bearer realm="huan-admin"' }
+
+  - id: auth-004
+    name: X-Huan-Admin-Token 头与 Bearer 头等价
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/status
+        headers: { X-Huan-Admin-Token: "${token}" }
+        expect:
+          status: 200
+          body: { total: 3, mediaCount: 1 }   # 与 auth-001 同断言面（FIXTURES.md 常量）
+
+  # auth-005/006 无法用 http step 表达（前者要第二个无 env 实例，后者要求进程退出），
+  # 用 cli step 按 RUNBOOK 附录 A / auth.go CheckBindSafety 的实测命令表达。
+  - id: auth-005
+    name: loopback 无 env 时自动生成 token 并打印到 stderr
+    severity: P1
+    # 执行指引（实测 2026-08-15）：
+    #   env -u HUAN_ADMIN_TOKEN HUAN_HOME=$site/.huan-home \
+    #     $bin dev -s $site --port 13205 --bind 127.0.0.1 &> $artifacts/auth005.log &
+    #   sleep 3
+    #   token=$(grep -oE '[0-9a-f]{32}' $artifacts/auth005.log | head -1)   # 捕获自动 token
+    #   curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+    #     http://127.0.0.1:13205/admin/api/status    # 期待 200（token 非空且有效这一事实本身）
+    #   kill %1
+    # 注意：这是同套件内的旁路实例（auth 段内 +5 偏移 13205），不影响主实例 13200。
+    steps:
+      - action: cli
+        command: >-
+          env -u HUAN_ADMIN_TOKEN HUAN_HOME=$site/.huan-home
+          $bin dev -s $site --port 13205 --bind 127.0.0.1
+          &> $artifacts/auth005.log & sleep 3;
+          TOK=$(grep -oE '[0-9a-f]{32}' $artifacts/auth005.log | head -1);
+          [ -n "$TOK" ] && curl -s -o /dev/null -w '%{http_code}\n'
+          -H "Authorization: Bearer $TOK" http://127.0.0.1:13205/admin/api/status;
+          pkill -f "port 13205"
+        expect:
+          exit_code: 0
+          stdout_contains: "200"
+
+  - id: auth-006
+    name: 非 loopback bind 无 HUAN_ADMIN_TOKEN 时进程拒启
+    severity: P0
+    # 实测（2026-08-15）：退出码 1；stderr 首行含
+    #   "huan: admin panel requires HUAN_ADMIN_TOKEN env when binding to non-loopback address (0.0.0.0)"
+    steps:
+      - action: cli
+        command: >-
+          env -u HUAN_ADMIN_TOKEN HUAN_HOME=$site/.huan-home
+          $bin dev -s $site --port 13206 --bind 0.0.0.0
+          &> $artifacts/auth006.log
+        expect:
+          exit_code: 1
+          stderr_contains: "requires HUAN_ADMIN_TOKEN"
