@@ -20,7 +20,11 @@ tests/e2e/
 ├── browser/                  # 浏览器旅程套件（意图 + 里程碑 schema）
 │   └── _schema.md
 └── cli/                      # CLI 套件（build-only runtime）
-    ├── _schema.md
+    ├── _schema.md            #   差异文档（动作复用 api schema）
+    ├── build.yaml            #   cb-001..008（draft/-D/-F/-E/增量/--minify/缺配置/多语言）
+    ├── new.yaml              #   cn-001..003（archetype 创建/重名/内置默认）
+    ├── config.yaml           #   cc-001..003（输出/非法 YAML/插值）
+    ├── version.yaml          #   cv-001（版本格式）
     └── _external-deps.md     #   排除清单（translate/deploy 等需外部依赖）
 ```
 

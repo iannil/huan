@@ -1,0 +1,95 @@
+# 套件：config —— CLI `huan config` 配置展示与插值
+#
+# 目的：验证 config 命令三态——合法配置输出完整 YAML、非法 YAML 报错退出、
+#       ${VAR:-default} 环境变量插值取默认值。
+#
+# runtime: build-only · fixture: minimal（cc-002/cc-003 用独立临时目录）·
+#          端口表不适用（无服务）
+# 执行前置：按 RUNBOOK §2 准备（${bin} 现场构建、minimal 拷贝到 ${site}、
+#           预建 $site/.huan-home）。
+#
+# 期望值出处：FIXTURES.md minimal 文件清单（huan.yaml 六字段）+ 本套件
+#   2026-08-15 实测校准：
+#   - `huan config -s $site` 输出 **Defaults 全量合并后的 Config**（config.Load
+#     从 Defaults 叠加 yaml 再 yaml.Marshal），远多于 fixture 的 6 字段——
+#     首两行 `baseURL: http://127.0.0.1:1313/` 与 `title: huan E2E 最小站`，
+#     另含 minify: true、markup/sitemap/rss/outputs/ai 等默认段。
+#     （注：config 输出的 `minify: true` 是 Defaults 值；cb-006 的 --minify
+#     是 flag override，两回事。）
+#   - 非法 YAML 实测：`Error: parse config (stage 1 raw): yaml: line 1: did not
+#     find expected ',' or ']'`（stderr）+ Usage，**exit 1**（管道 head 不接
+#     cobra 的退出码，直接跑才见 1）。断言用稳定前缀 `parse config (stage 1 raw):`。
+#   - 插值实测（internal/config/interpolate.go envPattern）：`baseURL:
+#     ${E2E_URL:-http://fallback/}` 在 E2E_URL 未设时输出 `baseURL:
+#     http://fallback/`；E2E_URL=http://env-set/ 时输出 env 值。strict 模式下
+#     无默认值的 ${VAR} 未设会报 `interpolate config: env var ... not set`。
+#
+# 已知偏差对照：无。
+suite: config
+module: cli-config
+fixture: minimal
+runtime: build-only
+tests:
+  - id: cc-001
+    name: 合法配置输出 YAML 含 baseURL 与 title
+    severity: P0
+    # 输出是 Defaults 合并后的全量 Config（实测 60+ 行），断言只锚定
+    # fixture 声明的两个字段值（FIXTURES.md minimal huan.yaml）。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin config -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "title: huan E2E 最小站"
+      - action: fs.assert              # 纯读命令无落盘副作用（cli/_schema.md 差异 4）
+        path: $site/huan.yaml
+        exists: true
+        contains: "title: huan E2E 最小站"
+
+  - id: cc-002
+    name: 非法 YAML 非零退出并报 stage 1 解析错误
+    severity: P0
+    # 执行指引（独立临时目录，不污染 $site）：
+    #   bad=$(mktemp -d)
+    #   printf 'title: [unclosed\n  bad yaml: :::{{\n' > $bad/huan.yaml
+    # 实测：stderr `Error: parse config (stage 1 raw): yaml: ...`，exit 1。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$bad/.huan-home $bin config -s $bad
+        expect:
+          exit_code: 1
+          stderr_contains: "parse config (stage 1 raw):"
+
+  - id: cc-003
+    name: ${VAR:-default} 插值在 env 未设时取默认值
+    severity: P1
+    # 执行指引（独立临时目录 + startup 写入带插值的 huan.yaml）：
+    #   interp=$(mktemp -d)
+    # startup 的 fs.write 目标按 $site 表达（变量替换后即套件临时目录）；
+    # 若执行 agent 为本用例单开目录，把 $site 读作该目录即可。
+    # E2E_URL 必须未设（执行前 `unset E2E_URL`——防宿主环境污染）。
+    # 实测：输出首行 `baseURL: http://fallback/`；加分项（非本套件断言）：
+    # E2E_URL=http://env-set/ 时输出 `baseURL: http://env-set/`。
+    steps:
+      - action: cli
+        command: unset E2E_URL; HUAN_HOME=$site/.huan-home $bin config -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "baseURL: http://fallback/"
+    cleanup:
+      - action: fs.write              # 还原 fixture 原始 huan.yaml（FIXTURES.md）
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+
+# startup：为 cc-003 注入带 ${VAR:-default} 插值的 huan.yaml（覆盖 fixture 原文，
+# cleanup 还原）。注意 cc-001 必须在覆盖前跑——套件内用例按声明序执行，
+# cc-001 在前、cc-003 在后，故 startup 覆盖会让 cc-001 读到插值版！
+# 因此本套件的 huan.yaml 覆盖不放 startup，由 cc-003 执行 agent 在用例开始时
+# 按此内容现场写入（cli/_schema.md 差异 5：YAML 表达力所限，以注释承载）：
+#   printf 'baseURL: ${E2E_URL:-http://fallback/}\ntitle: interp test\nlanguageCode: zh-cn\npublishDir: public\n' > $site/huan.yaml

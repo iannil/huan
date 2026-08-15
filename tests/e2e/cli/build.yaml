@@ -1,0 +1,274 @@
+# 套件：build —— CLI `huan build` 全量/增量/变体构建
+#
+# 目的：验证 CLI 构建链路——正常构建产物锚点、draft 排除/包含（-D）、
+#       future/expired 排除/包含（-F/-E）、增量重建、--minify 单行化、
+#       缺 huan.yaml 报错、多语言构建。
+#
+# runtime: build-only · fixture: minimal（cb-008 用 multilang）· 端口表不适用（无服务）
+# 执行前置：按 RUNBOOK §2 准备（现场构建 ${bin}、拷 fixture 到 ${site}、
+#           预建 $site/.huan-home）。所有 cli step 形如
+#           `HUAN_HOME=$site/.huan-home $bin build -s $site ...`——
+#           CLI build 同样扫 $HUAN_HOME/plugins（with-plugins 偏差 1），隔离不可省。
+#           无启动/探活/停止步骤（RUNBOOK §4 整体跳过）。
+#
+# 期望值出处：FIXTURES.md minimal「build 产物锚点」+ 本套件 2026-08-15 实测校准：
+#   - stdout 汇总格式（pipeline_write.go）：`  Rendered:     4 pages` /
+#     `  Output:       17 files, 8.4 KB` / `Build complete.`；`  Errors:` 行
+#     **仅在 result.Errors > 0 时输出**——成功路径 stdout 无 Errors 行，
+#     断言只写 `Rendered:`/`Build complete.`（RUNBOOK §8：不得要求零 WARN，
+#     terms/searchindex WARN 是 fixture 常态）。
+#   - -D 实测：Rendered 5 pages / Output 19 files，draft-post 单页落盘
+#     （public/posts/draft-post/index.html）。
+#   - -F/-E 实测：默认下 future/expired 单页均不落盘；-F 后 future 落盘、
+#     -E 后 expired 落盘（shouldRender 三过滤彼此独立，pipeline_render.go:102）。
+#   - **CLI build 是全量重写**：output/writer.go Write 无条件 os.WriteFile，
+#     二次 build 即使只改一篇，未改动页（about）的 mtime 也变——
+#     patterns.md §4 的「untouched file preserved」负向断言**不可用**，
+#     cb-005 改用内容可见性口径（同 bld-003：A 页新内容可见 + B 页内容不变）。
+#   - **产物默认即 minify**：config Defaults() 的 Minify=true（config.go:163），
+#     minimal 的 huan.yaml 未显式关——所以默认 build 的 HTML 已是单行无引号形态
+#     （`<h1 id=page-title>`），**contains 断言一律用无引号形态**；--minify
+#     断言的是同一形态的保持（flag 显式 force），实测 wc -l = 0。
+#   - multilang 实测：末行 `built 2 languages: zh-cn=4 pages en=3 pages`，
+#     en 段锚点 public/en/posts/hello/index.html。
+#
+# 已知偏差对照（FIXTURES.md minimal 偏差 1）：-D 时聚合（首页/列表/RSS/sitemap）
+# 本来就含 draft——cb-003 断言只写**单页目录存在性**，不断言聚合。
+suite: build
+module: cli-build
+fixture: minimal
+runtime: build-only
+tests:
+  - id: cb-001
+    name: 正常构建产出 4 pages 锚点齐全
+    severity: P0
+    # 锚点取 FIXTURES.md minimal「build 产物锚点」：Rendered=4 pages、
+    # hello-huan/about/index.html、logo.svg。stdout 断言不含「零 WARN」要求。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin build -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     4 pages"    # FIXTURES.md 实测常量
+          stdout_matches: "(?s).*Build complete\\."
+      - action: fs.assert              # 锚点 1：hello-huan 单页（含 h1 与正文锚点）
+        path: $site/public/posts/hello-huan/index.html
+        exists: true
+        contains: "<h1 id=page-title>你好 huan</h1>"
+      - action: fs.assert              # 锚点 2：about 单页
+        path: $site/public/about/index.html
+        exists: true
+        contains: "<h1 id=page-title>关于</h1>"
+      - action: fs.assert              # 锚点 3：静态文件
+        path: $site/public/logo.svg
+        exists: true
+
+  - id: cb-002
+    name: 默认构建不含 draft（单页不落盘）
+    severity: P0
+    # FIXTURES.md：draft 单页不落盘是两条有效防线之一（另一条是公开 JSON API
+    # 排除 draft）。断言只写单页目录，不触聚合（偏差 1：聚合默认即含 draft）。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin build -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     4 pages"
+      - action: fs.assert              # draft 单页目录不存在
+        path: $site/public/posts/draft-post/
+        exists: false
+
+  - id: cb-003
+    name: -D 构建包含 draft 单页
+    severity: P0
+    # 实测：-D → Rendered 5 pages / 19 files，draft 单页落盘。
+    # 偏差 1 口径：-D 时聚合本来就该含 draft，本用例只断言单页目录存在。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin build -D -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     5 pages"
+      - action: fs.assert              # draft 单页落盘
+        path: $site/public/posts/draft-post/index.html
+        exists: true
+
+  - id: cb-004
+    name: -F/-E 分别包含 future 与 expired 内容
+    severity: P1
+    # fixture 无 future/expired 内容——startup 用 fs.write 注入两篇（不进 fixture）。
+    # frontmatter 字段名实测（internal/content/load.go:91/97）：publishDate/expiryDate。
+    # 验证矩阵（shouldRender 三过滤独立）：默认两者都不落盘；-F 只补 future；
+    # -E 只补 expired。三次 build 的 stdout Rendered 递进：4 → 5 → 5（最后一次
+    # 相对上一次 +1 expired；-E 构建里 future 仍排除）。
+    preconditions:
+      - cb-001
+    steps:
+      - action: cli                   # 基线：默认排除 future/expired
+        command: HUAN_HOME=$site/.huan-home $bin build -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     4 pages"
+      - action: fs.assert              # future 单页不落盘
+        path: $site/public/posts/future-post/
+        exists: false
+      - action: fs.assert              # expired 单页不落盘
+        path: $site/public/posts/expired-post/
+        exists: false
+      - action: cli                   # -F：补 future（expired 仍排除）
+        command: HUAN_HOME=$site/.huan-home $bin build -F -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     5 pages"
+      - action: fs.assert              # future 单页落盘
+        path: $site/public/posts/future-post/index.html
+        exists: true
+      - action: fs.assert              # expired 单页仍不落盘
+        path: $site/public/posts/expired-post/
+        exists: false
+      - action: cli                   # -E：补 expired
+        command: HUAN_HOME=$site/.huan-home $bin build -E -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     5 pages"
+      - action: fs.assert              # expired 单页落盘
+        path: $site/public/posts/expired-post/index.html
+        exists: true
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/future-post.md
+      - action: fs.delete
+        path: $site/content/posts/expired-post.md
+
+  - id: cb-005
+    name: 增量重建——改一篇后新内容进产物、未改页内容不变
+    severity: P1
+    # 实测校准（见套件头注释）：CLI build 全量重写，mtime「untouched preserved」
+    # 断言不可用（二次 build 后 about 的 mtime 也变）——改用内容可见性口径
+    # （同 api/build-trigger bld-003）：改 A 篇 → A 产物含新内容、B 产物保持
+    # fixture 原文。mtime 仅作正向变化断言（改动的 A 页 mtime 变化，patterns.md §4
+    # stat -f %m），B 页用内容断言而非 mtime 断言。
+    preconditions:
+      - cb-001
+    steps:
+      - action: fs.write              # 改 A 篇（保留 frontmatter，换正文标记串）
+        path: $site/content/posts/hello-huan.md
+        content: |
+          ---
+          title: 你好 huan
+          date: 2026-08-10
+          tags: [go, e2e]
+          description: 第一篇正式文章
+          ---
+
+          这是 CLI 增量构建验证的新正文 cb005。
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin build -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Rendered:     4 pages"
+      - action: fs.assert              # 改动的 A 页：新正文可见
+        path: $site/public/posts/hello-huan/index.html
+        exists: true
+        contains: CLI 增量构建验证的新正文 cb005
+      - action: fs.assert              # 未改动的 B 页：内容保持 fixture 原文
+        path: $site/public/about/index.html
+        exists: true
+        contains: 关于本测试站点。
+    cleanup:
+      - action: fs.write              # 还原 fixture 原文（FIXTURES.md minimal 文件清单）
+        path: $site/content/posts/hello-huan.md
+        content: |
+          ---
+          title: 你好 huan
+          date: 2026-08-10
+          tags: [go, e2e]
+          description: 第一篇正式文章
+          ---
+          # 你好 huan
+
+          这是 **huan** E2E 测试固定数据的第一篇文章。
+
+  - id: cb-006
+    name: --minify 产物单行化
+    severity: P2
+    # 实测：--minify 后单页 HTML 整文件无换行（wc -l = 0），且属性引号剥离
+    # （`<h1 id=page-title>`、`<meta charset=utf-8>`）。断言用「不跨行的连续
+    # 片段」`<html><head>` 证明标签间无换行 + matches 断言单行形态。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin build --minify -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Build complete."
+      - action: fs.assert              # <html> 与 <head> 直接相邻（无换行/空白）
+        path: $site/public/posts/hello-huan/index.html
+        exists: true
+        contains: "<html><head>"
+      - action: fs.assert              # 单行化形态：无引号属性（minify 剥离引号）
+        path: $site/public/posts/hello-huan/index.html
+        matches: "^<!doctype html><html><head>.*</body></html>$"
+
+  - id: cb-007
+    name: 缺 huan.yaml 的空目录构建退出非零并报错
+    severity: P0
+    # 执行指引：独立临时空目录（不依赖 $site fixture 拷贝）：
+    #   empty=$(mktemp -d) && mkdir -p $empty/.huan-home
+    # 实测：stderr 首行 `Error: load config: read config: open <dir>/huan.yaml:
+    # no such file or directory`（cobra 错误走 stderr，Usage 后随），exit 1。
+    # stdout 无输出（汇总行不打印——config 加载即失败）。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$empty/.huan-home $bin build -s $empty
+        expect:
+          exit_code: 1
+          stderr_matches: "Error: load config: read config: open .*huan\\.yaml: no such file or directory"
+
+  - id: cb-008
+    name: multilang 构建 en 段产物落盘
+    severity: P1
+    # fixture 覆盖：本用例换 multilang 拷贝（RUNBOOK §2 同法）：
+    #   cp -r tests/e2e/fixtures/multilang $site-ml && mkdir -p $site-ml/.huan-home
+    # 期望值出处：FIXTURES.md multilang「build 产物锚点」（Task 3 实测）。
+    # 多语言走 BuildMultiSite，stdout 末行汇总 `built 2 languages: ...`。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site-ml/.huan-home $bin build -s $site-ml
+        expect:
+          exit_code: 0
+          stdout_matches: "built 2 languages: zh-cn=4 pages en=3 pages"
+      - action: fs.assert              # en 段锚点（Task 3 实测）
+        path: $site-ml/public/en/posts/hello/index.html
+        exists: true
+        contains: "<h1 id=page-title>Hello (EN)</h1>"
+      - action: fs.assert              # zh-cn 段锚点
+        path: $site-ml/public/posts/hello/index.html
+        exists: true
+        contains: "<h1 id=page-title>你好（中文版）</h1>"
+
+# startup：为 cb-004 注入 future/expired 内容（fixture 不含，见 FIXTURES.md——
+# minimal 只有 hello-huan/draft-post/about）。字段名 publishDate/expiryDate
+# 实测自 internal/content/load.go:91/97，勿写成 publishdate/expirydate。
+startup:
+  - action: fs.write
+    path: $site/content/posts/future-post.md
+    content: |
+      ---
+      title: Future Post
+      date: 2026-08-01
+      publishDate: 2099-01-01
+      tags: [e2e]
+      ---
+
+      publishDate 在未来的内容，默认不构建。
+  - action: fs.write
+    path: $site/content/posts/expired-post.md
+    content: |
+      ---
+      title: Expired Post
+      date: 2026-08-01
+      expiryDate: 2000-01-01
+      tags: [e2e]
+      ---
+
+      expiryDate 已过期的内容，默认不构建。

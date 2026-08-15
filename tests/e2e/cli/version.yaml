@@ -1,0 +1,31 @@
+# 套件：version —— CLI `huan version` 版本输出
+#
+# 目的：验证版本命令输出格式契约（语义化版本 + 可选 VCS 后缀）。
+#
+# runtime: build-only · fixture: minimal（实际不读站点，仅沿用套件骨架字段）·
+#          端口表不适用（无服务）
+# 执行前置：按 RUNBOOK §2 准备（${bin} 现场构建）。version 不触 config/
+#           插件加载，-s 可省；HUAN_HOME 按约定统一带上。
+#
+# 期望值出处：本套件 2026-08-15 实测校准（internal/version/version.go
+#   StringWithVCS）：stdout 单行 `huan <semver> [(<sha>[-dirty])]`——
+#   实测样例 `huan 0.7.1 (e8fdad2-dirty)`；无 VCS 信息时仅 `huan 0.7.1`。
+#   断言锚定稳定前缀 `huan \d+\.\d+\.\d+`，VCS 后缀不强断（build 环境差异）。
+#
+# 已知偏差对照：无。
+suite: version
+module: cli-version
+fixture: minimal
+runtime: build-only
+tests:
+  - id: cv-001
+    name: version 输出 huan + 语义化版本号
+    severity: P1
+    # 纯读命令、无落盘副作用（cli/_schema.md 差异 4：无 fs.assert 要求），
+    # 但 exit_code + stdout_matches 双断言满足硬规则（差异 3）。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin version
+        expect:
+          exit_code: 0
+          stdout_matches: "^huan \\d+\\.\\d+\\.\\d+"

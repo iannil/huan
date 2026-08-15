@@ -1,0 +1,101 @@
+# 套件：new —— CLI `huan new` 内容脚手架
+#
+# 目的：验证 new 命令三态——archetype 渲染创建、重名拒绝不覆盖、
+#       无 archetype 文件时内置默认模板兜底。
+#
+# runtime: build-only · fixture: minimal · 端口表不适用（无服务）
+# 执行前置：按 RUNBOOK §2 准备（${bin} 现场构建、minimal 拷贝到 ${site}、
+#           预建 $site/.huan-home）。new 不触插件加载，但 HUAN_HOME 统一带上
+#           （RUNBOOK §2.1 约定统一比按需判断更不易漏）。
+#
+# 期望值出处：FIXTURES.md minimal 文件清单（archetypes/default.md：title: {{ .Name }}
+#   / date: {{ .Date }} / draft: true）+ 本套件 2026-08-15 实测校准：
+#   - `huan new posts/x.md -s $site` → stdout `Created <site>/content/posts/x.md`，
+#     exit 0；文件内容按 archetype 渲染：title: x（{{ .Name }} → 基名）、
+#     date: <RFC3339>（cmd/huan/newcmd.go renderArchetypeTemplate）、draft: true。
+#   - 重名实测：`Error: file already exists: <site>/content/posts/x.md`（stderr
+#     首行）+ Usage，exit 1；原文件未被触碰。
+#   - 删掉 archetypes/default.md 后实测：内置默认模板（newcmd.go defaultArchetype）
+#     输出 title: "No Archetype"（%q 加引号 + strings.Title 连字符转空格）、
+#     date: <RFC3339>、draft: true——与 fixture archetype 的差异是 title 加引号
+#     且按 title-case 变换。
+#
+# 已知偏差对照：无（本套件不触构建产物）。
+suite: new
+module: cli-new
+fixture: minimal
+runtime: build-only
+tests:
+  - id: cn-001
+    name: new 按 archetype 创建文章并落盘
+    severity: P0
+    # fixture 有 archetypes/default.md（{{ .Name }}/{{ .Date }} 占位）。
+    # 归属：posts/ 前缀 → kind=posts 无 archetypes/posts.md，回退 default.md。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin new posts/created-by-e2e.md -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Created"
+      - action: fs.assert              # 硬规则（cli/_schema.md 差异 4）：写后必跟
+        path: $site/content/posts/created-by-e2e.md
+        exists: true
+        contains: "title:"
+      - action: fs.assert              # archetype 的 {{ .Name }} → 文件基名
+        path: $site/content/posts/created-by-e2e.md
+        contains: "title: created-by-e2e"
+      - action: fs.assert              # archetype 的 {{ .Date }} → RFC3339 时间戳
+        path: $site/content/posts/created-by-e2e.md
+        matches: "date: 20\\d\\d-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d"
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/created-by-e2e.md
+
+  - id: cn-002
+    name: 重名创建非零退出且不覆盖原文件
+    severity: P0
+    # 实测：stderr `Error: file already exists: <绝对路径>`，exit 1。
+    # 用 cn-001 的文件作重名目标（preconditions 保证存在）。
+    preconditions:
+      - cn-001
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin new posts/created-by-e2e.md -s $site
+        expect:
+          exit_code: 1
+          stderr_contains: "file already exists:"
+      - action: fs.assert              # 原文件仍在（未被覆盖/删除）
+        path: $site/content/posts/created-by-e2e.md
+        exists: true
+        contains: "title: created-by-e2e"
+
+  - id: cn-003
+    name: 无 archetype 文件时用内置默认模板
+    severity: P1
+    # fixture 的 minimal 自带 archetypes/default.md——「内置默认」分支要它不在场。
+    # 处置：startup fs.delete 删掉（套件临时目录内的拷贝，非仓库 fixture 本体；
+    # teardown 整目录销毁故无需还原）。newcmd.go renderArchetype 选择序：
+    # archetypes/<kind>.md → archetypes/default.md → 内置默认（defaultArchetype）。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site/.huan-home $bin new posts/no-archetype.md -s $site
+        expect:
+          exit_code: 0
+          stdout_contains: "Created"
+      - action: fs.assert              # 内置默认含 date 行（RFC3339）
+        path: $site/content/posts/no-archetype.md
+        exists: true
+        matches: "date: 20\\d\\d-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d"
+      - action: fs.assert              # 内置默认：draft: true 且 title 加引号（%q）
+        path: $site/content/posts/no-archetype.md
+        contains: 'title: "No Archetype"'
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/no-archetype.md
+
+# startup：为 cn-003 移除 archetype 文件（$site 是 fixture 的临时拷贝，
+# 不动仓库 fixture 本体）。cn-001/cn-002 需要它在场——故放在 cn-002 之后、
+# cn-003 之前执行不可行（startup 先于所有用例），改由 cn-003 的执行 agent
+# 在用例开始时按此注释先行删除：
+#   rm $site/archetypes/default.md
+# （YAML 表达力所限，此动作以注释承载——cli/_schema.md 差异 5。）
