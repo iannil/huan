@@ -393,6 +393,28 @@ tests:
         body: {}
         expect:
           status: 200
+
+  - id: plug-010
+    name: daemon serve 页面含 seo 插件注入（fix Task 5 后完整断言）
+    severity: P1
+    # fix-e2e-found-bugs Task 5：daemon builder 接 PluginRegistry 后，serve 产物
+    # 恢复 PostBuildHook 注入（og: ×4）。此前 FIXTURES.md with-plugins 偏差 5
+    # （daemon 无注入）记录为「注入断言只对 CLI build」——本用例是修复后的
+    # daemon 侧补充断言。
+    # 注：与 plug-001..009 共用 daemon@13295；前置仍需现场编译双 .so（套件头）。
+    steps:
+      - action: http
+        method: GET
+        path: /posts/seo-post/
+        expect:
+          status: 200
+          body_contains: "og:title"
+      - action: http
+        method: GET
+        path: /posts/seo-post/
+        expect:
+          status: 200
+          body_contains: "twitter:card"
           body: { status: ok }
       - action: http                   # 硬规则 2（负向）：theme 操作后插件面不变
         method: GET

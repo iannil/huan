@@ -15,6 +15,7 @@ import (
 	"github.com/iannil/huan/internal/daemon/contentindex"
 	"github.com/iannil/huan/internal/daemon/dag"
 	"github.com/iannil/huan/internal/daemon/eventbus"
+	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
 )
 
@@ -46,6 +47,12 @@ type BuilderOptions struct {
 	// ThemeManager, if non-nil, is passed to build.Options.ThemeManager
 	// for full builds, incremental builds, and JIT rendering.
 	ThemeManager *theme.Manager
+
+	// PluginRegistry, if non-nil, is passed to build.Options.PluginRegistry
+	// so compiled plugins' PostBuildHooks (SEO injection etc.) run on
+	// daemon-served output, matching `huan build`. Regression for the
+	// E2E-found gap where daemon output had zero injection.
+	PluginRegistry *plugin.Registry
 }
 
 // Builder manages the full build and incremental update pipeline.
@@ -89,6 +96,7 @@ func (b *Builder) executeFullBuild(ctx context.Context) error {
 		Logf:          b.opts.Logf,
 		PipelineCache: b.opts.PipelineCache,
 		ThemeManager:  b.themeManager,
+		PluginRegistry: b.opts.PluginRegistry,
 		AfterBuild: func(r *build.Result, fn build.RenderPageFunc) error {
 			renderPageFn = fn // capture for later JIT use
 			if b.opts.OnAfterBuild != nil {
@@ -372,6 +380,7 @@ func (b *Builder) RenderPageJIT(ctx context.Context, pageURL string) (string, er
 				IncludeDrafts: true,
 				Logf:          b.opts.Logf,
 				PipelineCache: cache,
+				PluginRegistry: b.opts.PluginRegistry,
 			}, cache, pageURL)
 			if err == nil && html != "" {
 				return html, nil

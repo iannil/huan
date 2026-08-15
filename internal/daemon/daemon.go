@@ -135,25 +135,13 @@ func Run(opts Options) error {
 	// Create the PipelineCache up-front so BuildSite can populate it during
 	// the initial full build. Subsequent incremental builds reuse it.
 	pipelineCache := build.NewPipelineCache()
-	d.builder = NewBuilder(BuilderOptions{
-		SourceDir:     opts.SourceDir,
-		OutputDir:     tmpDir,
-		Bus:           d.bus,
-		DAG:           d.dag,
-		JITCache:      d.jitCache,
-		Metrics:       d.metrics,
-		BuildDrafts:   opts.BuildDrafts,
-		Logf:          log.Printf,
-		PipelineCache: pipelineCache,
-		ContentIndex:  contentIdx,
-		ThemeManager:  d.themeManager,
-		OnAfterBuild: func(r *build.Result) error {
-			// PipelineCache is populated by BuildSite via build.Options.PipelineCache.
-			return nil
-		},
-	})
 
-	// 7.5 Init Plugin Lifecycle Manager
+	// 7.5 Init Plugin Lifecycle Manager FIRST so the builder below can reuse
+	// its compiled-plugin registry. (Moved ahead of 7: the daemon's builder
+	// must run PostBuildHooks—SEO injection etc.—on daemon-served output,
+	// matching `huan build`; without the registry those hooks silently
+	// skipped, which the E2E suite surfaced.) pluginManager.Start stays where
+	// it was—watch/load begins after the initial build.
 	if !opts.DisablePlugin {
 		pluginDir := opts.PluginDir
 		if pluginDir == "" {
@@ -198,11 +186,39 @@ func Run(opts Options) error {
 			}
 			return out
 		})
+	}
 
+	d.builder = NewBuilder(BuilderOptions{
+		SourceDir:     opts.SourceDir,
+		OutputDir:     tmpDir,
+		Bus:           d.bus,
+		DAG:           d.dag,
+		JITCache:      d.jitCache,
+		Metrics:       d.metrics,
+		BuildDrafts:   opts.BuildDrafts,
+		Logf:          log.Printf,
+		PipelineCache: pipelineCache,
+		ContentIndex:  contentIdx,
+		ThemeManager:  d.themeManager,
+		PluginRegistry: opts.PluginRegistry, // compiled plugins join build hooks (match `huan build`)
+		OnAfterBuild: func(r *build.Result) error {
+			// PipelineCache is populated by BuildSite via build.Options.PipelineCache.
+			return nil
+		},
+	})
+
+	// pluginManager.Start after the initial build so a hot-reload .so change
+	// rebuilds from a built baseline (moved with 7.5 block's Start below).
+	if !opts.DisablePlugin && d.pluginManager != nil {
 		if err := d.pluginManager.Start(context.Background()); err != nil {
 			log.Printf("daemon: plugin manager start warning: %v", err)
 		}
-		log.Printf("daemon: plugin manager started (dir: %s)", pluginDir)
+		log.Printf("daemon: plugin manager started (dir: %s)", func() string {
+			if opts.PluginDir != "" {
+				return opts.PluginDir
+			}
+			return filepath.Join(opts.SourceDir, "plugins")
+		}())
 	}
 
 	// 8. Initialize Serving

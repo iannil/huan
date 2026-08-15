@@ -197,7 +197,7 @@ curl -s http://127.0.0.1:13222/api/v1/pages
 2. **seo-injector 的 `og:type` 对文章页误报 `website`**：`guessKind` 把所有 `*/index.html` 一律判为 section（分页 `/page/` 除外），`posts/seo-post/index.html` 也是该形态 → og:type=website（文章本应 article）。断言只能取 `website`。
 3. **sitemap-enhancer 对 huan 自产 sitemap 恒 no-op**：内置 sitemap 模板给每个 url 预填 `priority=0.5/changefreq=weekly`（config 默认），而该插件只「填空不覆盖」（`Priority==0 || Changefreq==""` 才写入）→ 无任何可观察效果（显式配 `defaultPriority` 也无效，因非空不触发）。sitemap 断言不能作为 sitemap-enhancer 生效的证据；它的「生效」只能通过 daemon plugins list 或未来 fixture 造空 priority sitemap 验证。
 4. **（已过时，见上方口径更新）daemon `/admin/api/plugins` list 只显示 `source:"compiled"` 的 1 条**：~~实测 list 恒 `total:1`~~。Task 3 首测（commit 801d00f，13223 端口）记 total=1；Task 8（9e4c675 前后）与 Task 13 全量实跑（本表更新日）两次独立复测均为 **total=2（双 .so 编译）→ total=3（simple-plugin.so 加载后）**——首测的 registry 只进了单插件，复测两插件均以 compiled 身份注册。断言以复测口径为准；`ScanAndLoad` 的同名冲突跳过机制仅在与 compiled 同名时触发（simple-test 不同名故正常加载）。
-5. **daemon 的 JIT/预渲染页面不经插件钩子**：`internal/daemon/builder.go` 的 `build.Options` 未传 `PluginRegistry`，`OnOutputWritten` 不执行 → daemon serve 的 HTML 无注入。注入断言仅限 CLI `huan build` 产物。
+5. ~~**daemon 的 JIT/预渲染页面不经插件钩子**~~ **已修复（2026-08-15，fix-e2e-found-bugs Task 5）**：原缺陷——`internal/daemon/builder.go` 的 `build.Options` 未传 `PluginRegistry`，`OnOutputWritten` 不执行 → daemon serve 的 HTML 无注入。修复：`BuilderOptions` 新增 `PluginRegistry`，`build.Options` 传给全量/增量/JIT 三路径；daemon 初始化 7.5 块移到 7（builder）之前。原文保留如上。修复后 daemon serve `/posts/seo-post/` 有注入（og: ×4 实测）。注入断言现对 daemon 与 `huan build` 均成立。
 6. **dev 模式 build 会注入**（dev.go 传 registry；输出在临时目录），但 HTTP 响应页实测无注入标记（serve 路径与 build 输出非同源），且 `--plugins` 缺省时依赖 `<source>/plugins/` 存在——dev 模式不做插件断言，统一走 CLI build + daemon。
 
 ### 实测记录（2026-08-15，worktree e2e-test-system，commit 801d00f 构建）
