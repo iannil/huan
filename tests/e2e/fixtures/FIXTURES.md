@@ -176,9 +176,10 @@ curl -s http://127.0.0.1:13222/api/v1/pages
 
 ### GET /admin/api/plugins 期望（daemon 实测，插件加载成功时）
 
-- 200 `{"plugins":[{"name":"seo_injector","version":"0.1.0","source":"compiled","status":"active","loadedAt":"…","author":"huan team","tags":["seo","og","twitter"]}],"total":1}`
-- **仅 1 条**：sitemap_enhancer 虽加载并执行，但不出现在 list（见偏差 4）
+- 编译双 .so（seo-injector + sitemap-enhancer）后：200 `total=2`，`plugins` 数组含 `seo_injector` 与 `sitemap_enhancer`（均 `source:"compiled"`，version=0.1.0）
+- 再放入 simple-plugin.so（`internal/plugin/testdata/simple_plugin` 现场编译）并重启/启动期 ScanAndLoad 后：`total=3`——第三条 `simple-test`（`source:"loaded"`），它由启动期自动加载（Name 与 huan.yaml 声明的两插件不同名，无冲突）
 - dev 模式该端点返回 `{"status":"plugin manager unavailable"}`（dev 无 pluginManager；plugins-admin 用例必须跑 daemon）
+- **口径更新（2026-08-15，来源 Task 8 复测 + Task 13 全量实跑复验）**：下文偏差 4 的原始描述（`total:1`）是 Task 3 首测口径，已被两次独立复测推翻，保留原文仅作历史记录
 
 ### GET /admin/api/status 期望（dev 与 daemon 一致）
 
@@ -194,7 +195,7 @@ curl -s http://127.0.0.1:13222/api/v1/pages
 1. **`$HUAN_HOME`（默认 `~/.huan/plugins`）的陈旧 .so 会毒化同名插件加载**：loader 先扫 `$HUAN_HOME` 再扫项目 `plugins/`；`~/.huan` 里的 .so 若与当前 host 二进制非同一次构建（Go plugin 按各包 buildid+绝对源码路径校验），`plugin.Open` 失败后**同名包的第二次 Open 也连带失败**（报 `different version of package …`，连本地全新 .so 也被拒），build 静默继续（collection-not-interruption）→ 无注入、无报错退出码。**E2E 启动 daemon/build 前必须 `export HUAN_HOME=<空目录>`** 隔离全局插件目录；主机相对路径（worktree vs 主仓库）不同即触发。
 2. **seo-injector 的 `og:type` 对文章页误报 `website`**：`guessKind` 把所有 `*/index.html` 一律判为 section（分页 `/page/` 除外），`posts/seo-post/index.html` 也是该形态 → og:type=website（文章本应 article）。断言只能取 `website`。
 3. **sitemap-enhancer 对 huan 自产 sitemap 恒 no-op**：内置 sitemap 模板给每个 url 预填 `priority=0.5/changefreq=weekly`（config 默认），而该插件只「填空不覆盖」（`Priority==0 || Changefreq==""` 才写入）→ 无任何可观察效果（显式配 `defaultPriority` 也无效，因非空不触发）。sitemap 断言不能作为 sitemap-enhancer 生效的证据；它的「生效」只能通过 daemon plugins list 或未来 fixture 造空 priority sitemap 验证。
-4. **daemon `/admin/api/plugins` list 只显示 `source:"compiled"` 的 1 条**：LifecycleManager.Start 的 `ScanAndLoad` 会把 .so 加载进 registry，但与已存在条目同名时按「name conflict with compiled plugin」跳过注册（seo_injector/sitemap_enhancer 已由 build 期 registry 以 compiled 身份进入）→ 实测 list 恒 `total:1`（只 seo_injector，sitemap_enhancer 未见——两插件同路径注册，后者被前者挤掉的具体机制未深究，断言以实测 total=1 为准）。
+4. **（已过时，见上方口径更新）daemon `/admin/api/plugins` list 只显示 `source:"compiled"` 的 1 条**：~~实测 list 恒 `total:1`~~。Task 3 首测（commit 801d00f，13223 端口）记 total=1；Task 8（9e4c675 前后）与 Task 13 全量实跑（本表更新日）两次独立复测均为 **total=2（双 .so 编译）→ total=3（simple-plugin.so 加载后）**——首测的 registry 只进了单插件，复测两插件均以 compiled 身份注册。断言以复测口径为准；`ScanAndLoad` 的同名冲突跳过机制仅在与 compiled 同名时触发（simple-test 不同名故正常加载）。
 5. **daemon 的 JIT/预渲染页面不经插件钩子**：`internal/daemon/builder.go` 的 `build.Options` 未传 `PluginRegistry`，`OnOutputWritten` 不执行 → daemon serve 的 HTML 无注入。注入断言仅限 CLI `huan build` 产物。
 6. **dev 模式 build 会注入**（dev.go 传 registry；输出在临时目录），但 HTTP 响应页实测无注入标记（serve 路径与 build 输出非同源），且 `--plugins` 缺省时依赖 `<source>/plugins/` 存在——dev 模式不做插件断言，统一走 CLI build + daemon。
 
@@ -221,4 +222,7 @@ HUAN_ADMIN_TOKEN=<fixed> HUAN_HOME=/tmp/t3-empty-home /tmp/huan-t3 daemon -s /tm
 curl -s http://127.0.0.1:13215/api/v1/pages   # {"data":[{SEO 验证文章...}],"total":1,...}
 curl -s -H "Authorization: Bearer <fixed>" http://127.0.0.1:13223/admin/api/plugins
 # {"plugins":[{"name":"seo_injector","version":"0.1.0","source":"compiled",...}],"total":1}
+# ↑ Task 3 首测口径（单插件 registry，已过时）。复测口径（Task 8 + Task 13，双 .so + simple-plugin.so）：
+#   {"plugins":[{seo_injector...compiled},{sitemap_enhancer...compiled},{simple-test...loaded}],"total":3}
+#   断言以复测口径为准（见「GET /admin/api/plugins 期望」节的口径更新说明）。
 ```
