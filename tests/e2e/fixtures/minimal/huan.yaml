@@ -1,0 +1,6 @@
+baseURL: http://127.0.0.1:1313/
+title: huan E2E 最小站
+languageCode: zh-cn
+publishDir: public
+paginate: 10
+hasCJKLanguage: true
