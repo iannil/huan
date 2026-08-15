@@ -1,0 +1,266 @@
+# 套件：public-api —— daemon 公开内容查询 API（/api/v1/*，无鉴权）
+#
+# 目的：验证公开只读查询面——列表分页结构（data/total/page/limit）、limit/page
+#       边界与 clamp（含 MaxInt64 历史 DoS 回归）、section/tag/q 过滤、
+#       单页详情、404/405 错误路径。
+#
+# runtime: daemon · fixture: minimal · 端口: 13260（RUNBOOK §3 端口表 public-api 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.2 启动 daemon（--port 13260 --bind 127.0.0.1），探活打 /health。
+#           daemon 启动自动 initial full build，公开 API 数据源是构建产物
+#           /api/*.json（internal/daemon/contentindex/index.go:58 LoadFromDir），
+#           无需额外构建步骤。
+#
+# 挂载差异（RUNBOOK §4.3）：/api/v1/* 只挂载在 daemon——dev 模式 404。
+#       本套件全部用例免 Authorization（公开端点无鉴权）。
+#
+# 期望值出处：FIXTURES.md minimal「公开 API」节 + 本套件 2026-08-15 实测校准
+#   （daemon@13260，task-7-report.md）：
+#   - GET /api/v1/pages → 200 {"data":[你好 huan, 关于],"total":2,"page":1,"limit":10}，
+#     data 不含 draft（FIXTURES.md：你好 huan url=/posts/hello-huan/ section=posts
+#     tags=[go,e2e] 有 description；关于 url=/about/ section 为空串、无 tags）。
+#   - limit=51 → 回读 limit=50（Query 内 clamp，index.go:167）。
+#   - page=99999 → 200 {"data":[],"total":2,"page":99999,"limit":10}（越界空页，
+#     page 原样回显，不 clamp——clamp 上限是 100000）。
+#   - page=9223372036854775807（MaxInt64）→ 200 空 data，**page 回读 100000**
+#     （index.go:161 clamp：f.Page > 100000 → 100000；这是历史 DoS 回归修复——
+#     修复前 (page-1)*limit 溢出为负、绕过 start>total 守卫并在切片时 panic）。
+#   - q 超 200 rune → 400 {"error":"query too long"}（handler.go:53 maxQueryLen=200，
+#     **rune 计数**：201 个中文=201 rune=603 字节，字节计数口径会误拒 67 字中文）。
+#   - 404 体精确 {"error":"not found"}；405 体精确 {"error":"method not allowed"}。
+#
+# 已知偏差对照（FIXTURES.md minimal）：
+#   - /api/v1/posts 端点不存在（偏差 2）——本套件一律用 /api/v1/pages。
+#   - 关于条目 section 为空串而 admin status 用 _root（偏差 3）——两套口径勿混用，
+#     pub-006 断言用公开 API 自己的口径（posts=1，about 不在 posts）。
+suite: public-api
+module: daemon-public-api
+fixture: minimal
+runtime: daemon
+tests:
+  - id: pub-001
+    name: GET /api/v1/pages 返回 data/total/page/limit 结构
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages
+        expect:
+          status: 200
+          body:
+            total: 2       # FIXTURES.md minimal：你好 huan + 关于（draft 已排除）
+            page: 1
+            limit: 10
+            data.0.title: 你好 huan
+            data.0.url: /posts/hello-huan/
+            data.0.section: posts
+            data.1.title: 关于
+            data.1.url: /about/
+
+  - id: pub-002
+    name: 不带 limit 参数默认 limit=10
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages
+        expect:
+          status: 200
+          body:
+            limit: 10     # Filter.Limit < 1 时默认 10（index.go:164）
+            total: 2
+            page: 1
+
+  - id: pub-003
+    name: limit=51 被 clamp 到 50（回读 limit=50）
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?limit=51
+        expect:
+          status: 200
+          body:
+            limit: 50     # Query 内 f.Limit > 50 → 50（index.go:167），响应回读 clamp 值
+            total: 2
+            page: 1
+
+  - id: pub-004
+    name: page=99999 越界返回空 data 不 panic
+    severity: P0
+    # 实测（2026-08-15）：200 {"data":[],"total":2,"page":99999,"limit":10}——
+    # 越界页返回空数组（start > total → start=total → 空 data），page 原样
+    # 回显（99999 < 100000 clamp 上限），进程无 panic。
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?page=99999
+        expect:
+          status: 200
+          body:
+            data: []      # 空页
+            total: 2      # total 不受分页影响
+            page: 99999   # clamp 上限内原样回显
+            limit: 10
+
+  - id: pub-005
+    name: page=9223372036854775807（MaxInt64）clamp 后 200 空 data
+    severity: P0
+    # 历史 DoS 回归（实测 2026-08-15，daemon@13260）：响应 200
+    # {"data":[],"total":2,"page":100000,"limit":10}——page 被 clamp 到 100000
+    # （index.go:161 f.Page > 100000 → f.Page = 100000），**不是**原值回显。
+    # 修复前行为：(page-1)*limit 用 MaxInt64 溢出为负 → 绕过 start>total 守卫
+    # → matched[start:end] panic。断言口径以实测 clamp 行为为准。
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?page=9223372036854775807
+        expect:
+          status: 200
+          body:
+            data: []
+            total: 2
+            page: 100000    # clamp 后回显（100000 页 × limit 10 仍为安全正数）
+            limit: 10
+
+  - id: pub-006
+    name: section=posts 过滤只返回 posts 条目
+    severity: P0
+    # 公开 API 口径（FIXTURES.md 偏差 3）：about 的 section 是空串（源文件
+    # api/.json 的文件名派生），不是 admin status 的 _root——section=posts
+    # 过滤后 total=1（仅 你好 huan），关于被排除。
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?section=posts
+        expect:
+          status: 200
+          body:
+            total: 1
+            data.0.title: 你好 huan
+            data.0.section: posts
+
+  - id: pub-007
+    name: tag 过滤命中带该 tag 的条目
+    severity: P0
+    # FIXTURES.md minimal：你好 huan tags=[go,e2e]；关于无 tags 字段。
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?tag=go
+        expect:
+          status: 200
+          body:
+            total: 1
+            data.0.title: 你好 huan
+            data.0.tags.0: go     # FIXTURES.md tags=[go,e2e]
+      - action: http                   # 反证：不存在的 tag → 空结果
+        method: GET
+        path: /api/v1/pages?tag=no-such-tag-e2e
+        expect:
+          status: 200
+          body:
+            total: 0
+            data: []
+
+  - id: pub-008
+    name: q 过滤命中标题
+    severity: P0
+    # q 匹配 Title/Summary/Description（lowercase contains，index.go:183）。
+    # 用中文标题子串「你好」验证 CJK 查询不因字节口径误判。
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?q=你好
+        expect:
+          status: 200
+          body:
+            total: 1
+            data.0.title: 你好 huan
+            data.0.url: /posts/hello-huan/
+      - action: http                   # 反证：无命中词 → 空 data（200 非 404）
+        method: GET
+        path: /api/v1/pages?q=不存在的查询词
+        expect:
+          status: 200
+          body:
+            total: 0
+            data: []
+
+  - id: pub-009
+    name: q 201 个中文字符返回 400 query too long（rune 计数回归）
+    severity: P0
+    # 回归点（handler.go:53-57）：maxQueryLen=200 按 **rune** 计数
+    # （utf8.RuneCountInString）。201 个中文字符 = 201 rune（603 UTF-8 字节）——
+    # 字节计数口径会把 67 字中文查询误拒。断言 201 rune 拒绝 + 200 rune 放行。
+    # 执行指引（URL 编码由 http 层负责）：
+    #   Q201=$(python3 -c 'print("测"*201)')
+    #   curl -s -w '\n%{http_code}' --get --data-urlencode "q=$Q201" ${base}/api/v1/pages
+    #   # 期待 {"error":"query too long"} + 400
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages?q=测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测   # 201 个「测」（201 rune > 200）
+        expect:
+          status: 400
+          body: { error: "query too long" }
+      - action: http                   # 边界反证：恰好 200 rune 放行（200 空命中，不报错）
+        method: GET
+        path: /api/v1/pages?q=测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测   # 200 个「测」（=200 rune，不超限）
+        expect:
+          status: 200
+          body:
+            total: 0    # 无命中（正常空结果，证明未走 400 分支）
+            data: []
+
+  - id: pub-010
+    name: GET 单页详情 /api/v1/pages/posts/hello-huan/
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages/posts/hello-huan/
+        expect:
+          status: 200
+          body:
+            title: 你好 huan
+            url: /posts/hello-huan/
+            section: posts
+            date: "2026-08-10T00:00:00Z"
+            description: 第一篇正式文章
+            tags.0: go
+
+  - id: pub-011
+    name: 不存在的 URL 返回 404 not found
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /api/v1/pages/posts/never-exist-e2e/
+        expect:
+          status: 404
+          body: { error: "not found" }   # errBody 精确串（handler.go:100）
+
+  - id: pub-012
+    name: POST /api/v1/pages 返回 405 method not allowed
+    severity: P0
+    # 公开 API 只读（handler.go:25 非 GET 一律 405）。无请求体，body 断言
+    # 取精确错误串。405 是被拒请求（无副作用），硬规则 2 以负向断言满足：
+    # 内容源未被创建/改动 + 公开数据面与 pub-001 同构。
+    steps:
+      - action: http
+        method: POST
+        path: /api/v1/pages
+        expect:
+          status: 405
+          body: { error: "method not allowed" }
+      - action: fs.assert              # 硬规则 2（负向）：被拒的 POST 不得在内容源创建文件
+        path: $site/content/api-v1-pages-probe.md
+        exists: false
+      - action: http                   # 405 后状态复核：GET 与 pub-001 同构（total 仍为 2）
+        method: GET
+        path: /api/v1/pages
+        expect:
+          status: 200
+          body: { total: 2, page: 1, limit: 10 }

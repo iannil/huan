@@ -1,0 +1,364 @@
+# 套件：build-trigger —— POST /admin/api/build 手动触发重建与增量构建行为
+#
+# 目的：验证手动构建触发链路——POST build 202 异步语义、新内容构建后可见、
+#       内容级增量（改一篇只影响该页）、draft 不出现在公开产物（历史安全 bug
+#       回归）、模板级变更全量重渲染、未构建路径的按需渲染、sitemap 联动。
+#
+# runtime: dev · fixture: minimal · 端口: 13250（RUNBOOK §3 端口表 build-trigger 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13250 --bind 127.0.0.1），探活打 /。
+#           注意：本套件用例依赖 watcher 自动重建（dev 默认开），不要 --disableWatch。
+#
+# 期望值出处：FIXTURES.md minimal + 本套件 2026-08-15 实测校准（task-7-report.md）：
+#   - POST /admin/api/build → 202 {"status":"rebuild triggered"}（api.go:308），
+#     硬规则 2 例外：无直接落盘副作用，显式标 side_effect: async-rebuild + wait。
+#   - **dev 的构建产物在进程私有临时目录**（cmd/huan/dev.go:83 MkdirTemp
+#     "huan-dev-*"，rebuild 经 SwapBuildDir 换目录），**不写 $site/public**——
+#     一切产物断言走 HTTP 层（GET 路径 + 内容断言），不能 fs.assert $site/public/*
+#     （该路径只有 CLI `huan build` 才写，属 CLI 套件管辖）。
+#   - mtime 增量断言同样不可用（产物在临时目录）——bld-003 改用「内容变更可见性」
+#     口径：改 A 篇内容 → A 页含新内容、B 页保持原内容不变。
+#   - dev 模式无 JIT 渲染（internal/dev/server.go 只有静态文件 + 404 fallback；
+#     JIT 在 daemon serving.go）——bld-006 按「产物渲染 HTML」实测口径断言。
+#   - dev 每次 watcher 触发都是全量 Build（[watch] change detected → Build complete，
+#     实测 4-5 pages 重渲染），增量性体现为「内容未变的页面输出不变」。
+#
+# 已知偏差对照（FIXTURES.md minimal 偏差 1，bld-004 断言口径收窄）：
+#   draft 单页不落盘（GET 404）+ 公开 JSON API 排除 draft 是仅有的两条有效防线；
+#   sitemap/RSS/列表聚合渲染**含** draft 是已记录引擎缺陷（Task 2 实测在案），
+#   本套件**不**断言聚合不含 draft。bld-007 的 sitemap 断言只针对「新正式页出现」，
+#   不做 draft 排除断言。
+suite: build-trigger
+module: admin-build-trigger
+fixture: minimal
+runtime: dev
+tests:
+  - id: bld-001
+    name: POST build 返回 202 rebuild triggered 并完成重建
+    severity: P0
+    # 硬规则 2 例外（_schema.md）：POST build 无直接落盘副作用（产物在 dev 私有
+    # 临时目录），显式标 side_effect: async-rebuild 并跟 wait；重建完成的可观察
+    # 证据由后续用例（bld-002/003/007）给出。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/build
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 202
+          body: { status: "rebuild triggered" }
+          side_effect: async-rebuild   # 异步重建（api.go:307 go h.rebuild()）
+      - action: wait                   # 等重建完成（实测 ~10ms 量级，留 3s 余量）
+        for: seconds
+        seconds: 3
+      - action: http                   # 重建完成旁证：站点仍可访问且首页 200
+        method: GET
+        path: /
+        expect:
+          status: 200
+          body: { matches: "<title>huan E2E 最小站</title>" }
+
+  - id: bld-002
+    name: 新建文章构建后在站点可见
+    severity: P0
+    preconditions:
+      - bld-001
+    # 实测（2026-08-15）：POST content 落盘后 watcher 自动触发重建（无需手动
+    # POST build），新页 GET 200。本用例仍显式 POST build 一次以覆盖「手动
+    # 触发也能纳入新页」的口径。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: bld-002-newpage, title: 构建触发新页, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/bld-002-newpage.md }
+      - action: fs.assert              # 硬规则 2：内容先落盘
+        path: $site/content/posts/bld-002-newpage.md
+        exists: true
+        contains: "title: 构建触发新页"
+      - action: http                   # 手动触发重建
+        method: POST
+        path: /admin/api/build
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 202
+          body: { status: "rebuild triggered" }
+          side_effect: async-rebuild
+      - action: wait                   # 等重建完成
+        for: seconds
+        seconds: 4
+      - action: http                   # 产物断言（HTTP 层）：新页 200 且为渲染 HTML
+        method: GET
+        path: /posts/bld-002-newpage/
+        expect:
+          status: 200
+          body: { contains: '<h1 id="page-title">构建触发新页</h1>' }
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/bld-002-newpage.md
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bld-003
+    name: 增量构建——改一篇只影响该页，另一篇内容保持不变
+    severity: P1
+    preconditions:
+      - bld-002
+    # 原始 mtime 口径（patterns.md §4）在 dev 不可用：产物在进程私有临时目录
+    # （套件头注释）。改用内容可见性口径——PUT 改 A 篇正文 → A 页含新文，
+    # B 篇页保持原内容。B 篇选 fixture 的 hello-huan（FIXTURES.md 锚点内容）。
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/content/posts/about.md
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          frontmatter:
+            title: 关于
+            date: "2026-08-01"
+          rawContent: |
+            增量构建验证：本次修改后的新正文。
+        expect:
+          status: 200
+          body: { relPath: about.md }
+      - action: fs.assert              # 硬规则 2：修改落盘
+        path: $site/content/about.md
+        exists: true
+        contains: 增量构建验证：本次修改后的新正文。
+      - action: wait                   # watcher 自动重建
+        for: seconds
+        seconds: 4
+      - action: http                   # 改动的 A 页：新正文可见
+        method: GET
+        path: /about/
+        expect:
+          status: 200
+          body: { contains: 增量构建验证：本次修改后的新正文。 }
+      - action: http                   # 未改动的 B 页：保持原内容（FIXTURES.md 锚点）
+        method: GET
+        path: /posts/hello-huan/
+        expect:
+          status: 200
+          body: { contains: 这是 <strong>huan</strong> E2E 测试固定数据的第一篇文章。 }
+    cleanup:
+      - action: fs.write               # 还原 fixture 原文（FIXTURES.md minimal 文件清单）
+        path: $site/content/about.md
+        content: |
+          ---
+          title: 关于
+          date: 2026-08-01
+          ---
+          关于本测试站点。
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bld-004
+    name: draft 不出现在公开产物（单页不落盘 + 公开 JSON 排除）
+    severity: P0
+    preconditions:
+      - bld-002
+    # 断言口径按 FIXTURES.md minimal 已知偏差 1 **收窄**：
+    #   有效防线仅两条——(a) draft 单页不落盘：GET /posts/<draft>/ 404；
+    #   (b) 公开 JSON API 排除 draft。
+    #   sitemap/RSS/列表聚合渲染**含** draft 是已记录引擎缺陷（Task 2 在案，
+    #   FIXTURES.md 偏差 1），本用例**不断言**聚合不含 draft——若断言将与实测
+    #   相悖（实测 sitemap.xml 含 /posts/draft-post/）。聚合泄露的修复另立任务。
+    # 注：dev 模式无 /api/v1/*（RUNBOOK §4.3），防线 (b) 的 JSON 文件断言用
+    #   构建产物的 api/posts.json——但 dev 产物在临时目录不可 fs.assert；
+    #   防线 (b) 由 public-api 套件（daemon，pub-006 对比 total）覆盖。本用例
+    #   落实防线 (a)：fixture 自带 draft（posts/draft-post.md）+ 新建 draft 双验证。
+    steps:
+      - action: http                   # 新建一篇 draft（排除行为对任意 draft 成立，非仅 fixture 自带）
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: bld-004-draft, title: 构建草稿探针, draft: true }
+        expect:
+          status: 201
+          body:
+            relPath: posts/bld-004-draft.md
+            draft: true
+      - action: fs.assert              # 硬规则 2：draft 源文件落盘（排除发生在构建层，不是没写进去）
+        path: $site/content/posts/bld-004-draft.md
+        exists: true
+        contains: "draft: true"
+      - action: wait                   # 等 watcher 重建纳入新 draft
+        for: seconds
+        seconds: 4
+      - action: http                   # 防线 (a)-1：新建 draft 的单页 404（不落盘）
+        method: GET
+        path: /posts/bld-004-draft/
+        expect:
+          status: 404
+          body: { matches: "(?s).*" }   # 404 兜底页或空体，内容不作断言
+      - action: http                   # 防线 (a)-2：fixture 自带 draft 同样 404
+        method: GET
+        path: /posts/draft-post/
+        expect:
+          status: 404
+          body: { matches: "(?s).*" }
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/bld-004-draft.md
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bld-005
+    name: 模板变更触发受影响页面重渲染
+    severity: P1
+    preconditions:
+      - bld-002
+    # 原始口径（全量回退 + mtime 对比，patterns.md §4）在 dev 不可用（临时目录）。
+    # 实测口径（2026-08-15）：改 layouts/_default/single.html → watcher 触发重建
+    # → 所有用该模板的页面（hello-huan 与 about）都带新模板标记 V2；首页用
+    # index.html 模板不受影响。「全量回退」的 engine 细节（单模板改动是否重建
+    # 全站）不作断言——只断言受影响页面输出更新，这是模板热更新的可观察契约。
+    steps:
+      - action: fs.write               # 改 single 模板：加 V2 标记段落
+        path: $site/layouts/_default/single.html
+        content: |
+          <!DOCTYPE html>
+          <html><head><meta charset="utf-8"><title>{{ .Title }} - {{ .Site.Title }}</title></head>
+          <body><h1 id="page-title">{{ .Title }}</h1><article>{{ .Content }}</article><p>template-v2-e2e</p></body></html>
+      - action: fs.assert              # 写操作后必跟 fs.assert（模板已改）
+        path: $site/layouts/_default/single.html
+        exists: true
+        contains: template-v2-e2e
+      - action: wait                   # watcher 重建
+        for: seconds
+        seconds: 4
+      - action: http                   # single 模板页 1：hello-huan 带新标记
+        method: GET
+        path: /posts/hello-huan/
+        expect:
+          status: 200
+          body: { contains: template-v2-e2e }
+      - action: http                   # single 模板页 2：about 带新标记
+        method: GET
+        path: /about/
+        expect:
+          status: 200
+          body: { contains: template-v2-e2e }
+      - action: http                   # 反证：index 模板未改，首页无标记（模板间不串染）
+        method: GET
+        path: /
+        expect:
+          status: 200
+          body: { matches: "(?s)^(?!.*template-v2-e2e).*$" }   # 不含 V2 标记
+    cleanup:
+      - action: fs.write               # 还原 fixture 模板（FIXTURES.md minimal 文件清单）
+        path: $site/layouts/_default/single.html
+        content: |
+          <!DOCTYPE html>
+          <html><head><meta charset="utf-8"><title>{{ .Title }} - {{ .Site.Title }}</title></head>
+          <body><h1 id="page-title">{{ .Title }}</h1><article>{{ .Content }}</article></body></html>
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bld-006
+    name: 未预先等待重建的路径经手动 build 后按需返回渲染 HTML
+    severity: P1
+    preconditions:
+      - bld-001
+    # 口径修正（实测 2026-08-15）：dev 模式**无 JIT 渲染器**（internal/dev/server.go
+    # 仅静态文件服务 + 404 fallback；JIT 在 daemon 的 serving.go jitFallback）。
+    # 原始 spec 的「未构建路径直接 GET 返回渲染 HTML」在 dev 的真实语义是：
+    # watcher 开启时新内容秒级进产物（等价 bld-002）；「按需构建」的可控验证
+    # 是 **--disableWatch + POST build** 组合——静态产物不含新页时 GET 404，
+    # 手动 POST build 后同一路径 200 渲染 HTML。本用例按此口径执行。
+    # 执行指引（需旁路实例，本段 +2 偏移 13252，与主实例 13250 隔离）：
+    #   HUAN_ADMIN_TOKEN=$token HUAN_HOME=$site/.huan-home \
+    #     $bin dev -s $site --port 13252 --bind 127.0.0.1 --disableWatch \
+    #     &> $artifacts/bld006-dev.log &    # 注意 --disableWatch
+    #   sleep 3  # 探活打 http://127.0.0.1:13252/ 期待 200
+    #   # 写新内容（watcher 已停，不触发构建）→ GET 404 → POST build → wait 3s → GET 200
+    #   kill %1
+    steps:
+      - action: fs.write               # 新内容（disableWatch 实例下不会自动构建）
+        path: $site/content/posts/bld-006-ondemand.md
+        content: |
+          ---
+          title: 按需构建探针
+          date: 2026-08-15
+          draft: false
+          ---
+          按需构建正文。
+      - action: fs.assert              # 写操作后必跟 fs.assert
+        path: $site/content/posts/bld-006-ondemand.md
+        exists: true
+        contains: "title: 按需构建探针"
+      - action: http                   # 未构建（旁路实例 13252）：静态产物无此页 → 404
+        method: GET
+        path: /posts/bld-006-ondemand/
+        expect:
+          status: 404
+          body: { matches: "(?s).*" }
+      - action: http                   # 手动触发构建（旁路实例 13252 的 ${base}）
+        method: POST
+        path: /admin/api/build
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 202
+          body: { status: "rebuild triggered" }
+          side_effect: async-rebuild
+      - action: wait
+        for: seconds
+        seconds: 3
+      - action: http                   # 构建后：渲染 HTML 可得
+        method: GET
+        path: /posts/bld-006-ondemand/
+        expect:
+          status: 200
+          body: { contains: '<h1 id="page-title">按需构建探针</h1>' }
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/bld-006-ondemand.md
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bld-007
+    name: 构建后 sitemap.xml 含新页 URL
+    severity: P1
+    preconditions:
+      - bld-002
+    # 实测（2026-08-15）：dev 构建后 GET /sitemap.xml 含 /posts/bld-probe/ 形式
+    # 的新页条目（绝对 URL，baseURL override 为 dev 端口）。断言用相对片段
+    # /posts/bld-007-sitemap/ 匹配，避免绑死 baseURL 口径。
+    # 已知偏差对照（FIXTURES.md 偏差 1）：sitemap **含** draft 条目是记录在案的
+    # 缺陷，本用例只断言「新正式页出现」，不断言 draft 缺席。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/content
+        headers: { Authorization: "Bearer ${token}" }
+        body: { section: posts, filename: bld-007-sitemap, title: Sitemap 联动验证, draft: false }
+        expect:
+          status: 201
+          body: { relPath: posts/bld-007-sitemap.md }
+      - action: fs.assert              # 硬规则 2
+        path: $site/content/posts/bld-007-sitemap.md
+        exists: true
+      - action: wait                   # watcher 自动重建
+        for: seconds
+        seconds: 4
+      - action: http                   # sitemap 含新页 URL
+        method: GET
+        path: /sitemap.xml
+        expect:
+          status: 200
+          body: { contains: /posts/bld-007-sitemap/ }
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/bld-007-sitemap.md
+      - action: wait
+        for: seconds
+        seconds: 2

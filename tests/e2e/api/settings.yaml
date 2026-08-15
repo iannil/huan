@@ -1,0 +1,366 @@
+# 套件：settings —— /admin/api/settings 结构化与 YAML 直改双通道
+#
+# 目的：验证站点设置读写全链路——结构化 GET/PUT（SiteSettings 子集，yaml.Node
+#       保格式回写 huan.yaml）、YAML 直改 GET/PUT（text/plain 原文读写 + 合法性
+#       校验）、两通道交叉一致性、PUT 触发异步 rebuild、ADR 0011 L4 审计落盘。
+#
+# runtime: dev · fixture: minimal · 端口: 13240（RUNBOOK §3 端口表 settings 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13240 --bind 127.0.0.1），探活打 /。
+#
+# 期望值出处：FIXTURES.md minimal（huan.yaml: title=huan E2E 最小站, paginate=10）+
+#   本套件 2026-08-15 实测校准（探针记录见 task-7-report.md）：
+#   - GET settings 响应体是 SiteSettings 子集（internal/admin/settings.go）：
+#     {title, enableEmoji, minify, paginate, summaryLength, params{...}}——
+#     不含 baseURL/languageCode/publishDir（不可从结构化通道读写）。
+#   - PUT settings 是「全量覆盖可管理字段」而非部分更新：未传的字段按零值写回
+#     （实测只传 title 时 paginate 被写成 0）。用例 body 必须带完整字段集，
+#     并在断言中显式校验 paginate 等关键字段防零值覆盖。
+#   - PUT settings 成功 = 200 {"status":"saved"}；settings/yaml 同。
+#   - 两类 PUT 都异步触发 rebuild（api.go:340/377 go h.rebuild()）——
+#     按硬规则 2 的 async-rebuild 形态处理：标 side_effect + wait。
+#   - 错误体：非法 JSON → 400 {"error":"invalid JSON: <detail>"}；
+#     非法 YAML → 400 {"error":"invalid YAML: yaml: <detail>"}（断言用 matches 前缀）。
+#   - set-008 rebuild 效果：dev 构建产物在进程私有临时目录（cmd/huan/dev.go:83
+#     MkdirTemp），$site/public 不可断言；rebuild 断言走 HTTP 层——PUT 改 title
+#     → wait → GET / 的 <title> 变为新值（实测 2026-08-15 通过）。
+#   - dev 每次 rebuild 都是全量重建（[watch] change detected → Build complete），
+#     wait 用 for: seconds + 轮询 GET /（见 set-008 注释）。
+#
+# 已知偏差对照：本套件不触 draft/聚合类断言；PUT 零值覆盖语义已在用例内注明。
+suite: settings
+module: admin-settings
+fixture: minimal
+runtime: dev
+startup:
+  # 套件内多个 PUT 用例会改 huan.yaml；cleanup 统一在 teardown 恢复原始内容，
+  # 保证同 run 后续套件（如 build-trigger 段）拿到干净 fixture。
+  - action: var
+    name: original_huan_yaml
+    value: |
+      baseURL: http://127.0.0.1:1313/
+      title: huan E2E 最小站
+      languageCode: zh-cn
+      publishDir: public
+      paginate: 10
+      hasCJKLanguage: true
+tests:
+  - id: set-001
+    name: GET settings 返回 SiteSettings 子集含 title/paginate
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            title: huan E2E 最小站   # FIXTURES.md minimal huan.yaml 原值
+            paginate: 10
+            enableEmoji: false
+            minify: false
+
+  - id: set-002
+    name: PUT settings 改 title 成功落盘且回读一致
+    severity: P0
+    # 实测（2026-08-15，minimal/dev@13240）：PUT 全量覆盖可管理字段，
+    # body 需带完整字段集（只传 title 会把 paginate 写成 0——零值覆盖，
+    # 见套件头注释）。未知字段（baseURL 等）不受影响。
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          title: huan E2E 设置已改
+          enableEmoji: false
+          minify: false
+          paginate: 10          # 防零值覆盖：显式回传原值
+          summaryLength: 70
+          params: {}
+        expect:
+          status: 200
+          body: { status: saved }
+          side_effect: async-rebuild   # PUT settings 异步触发 rebuild（api.go:340）
+      - action: fs.assert              # 硬规则 2：写操作后必跟 fs.assert（huan.yaml 落盘）
+        path: $site/huan.yaml
+        exists: true
+        contains: "title: huan E2E 设置已改"
+      - action: fs.assert              # 未传字段不被清掉：paginate 保持 10（零值覆盖防御断言）
+        path: $site/huan.yaml
+        contains: "paginate: 10"
+      - action: http                   # GET 回读一致（结构化通道）
+        method: GET
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            title: huan E2E 设置已改
+            paginate: 10
+      - action: wait                   # async-rebuild：等 watcher 增量构建完成再放行后续用例
+        for: seconds
+        seconds: 4
+    cleanup:                           # 恢复原始 huan.yaml（跨用例状态回滚）
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: set-003
+    name: GET settings/yaml 返回 text/plain 原文含 title 键
+    severity: P0
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          headers: { Content-Type: "text/plain; charset=utf-8" }
+          body: { matches: "(?s)^baseURL: .*title: huan E2E 最小站.*$" }   # 原文以 baseURL 开头且含 title 键
+
+  - id: set-004
+    name: PUT settings/yaml 合法内容落盘
+    severity: P0
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}", Content-Type: application/json }
+        body:
+          content: |
+            baseURL: http://127.0.0.1:1313/
+            title: huan E2E YAML直改
+            languageCode: zh-cn
+            publishDir: public
+            paginate: 10
+            hasCJKLanguage: true
+        expect:
+          status: 200
+          body: { status: saved }
+          side_effect: async-rebuild   # PUT settings/yaml 同样异步触发 rebuild（api.go:377）
+      - action: fs.assert              # 硬规则 2：YAML 原文按提交内容落盘
+        path: $site/huan.yaml
+        exists: true
+        contains: "title: huan E2E YAML直改"
+      - action: http                   # YAML 通道读回：原文即提交内容
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { contains: "title: huan E2E YAML直改" }
+      - action: wait                   # async-rebuild 收尾
+        for: seconds
+        seconds: 4
+    cleanup:
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: set-005
+    name: PUT settings/yaml 非法 YAML 返回 400 且不落盘
+    severity: P0
+    # 实测（2026-08-15）：非法 YAML → 400 {"error":"invalid YAML: yaml: line 1: ..."}，
+    # error 串含 yaml.v3 细节，断言用 matches 稳定前缀；文件保持原内容。
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}", Content-Type: application/json }
+        body: { content: "title: [unclosed" }
+        expect:
+          status: 400
+          body: { error: { matches: "^invalid YAML: yaml: .*" } }
+      - action: fs.assert              # 硬规则 2（负向）：失败提交不得落盘，原值保持
+        path: $site/huan.yaml
+        exists: true
+        contains: "title: huan E2E 最小站"
+
+  - id: set-006
+    name: PUT settings 非法 JSON body 返回 400
+    severity: P0
+    # 实测（2026-08-15）：400 {"error":"invalid JSON: invalid character ..."}，
+    # 后缀随 encoding/json 细节变化，断言只取稳定前缀。
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}", Content-Type: application/json }
+        body: '{invalid json'
+        expect:
+          status: 400
+          body: { error: { matches: "^invalid JSON: .*" } }
+      - action: fs.assert              # 硬规则 2（负向）：失败提交不得改动 huan.yaml
+        path: $site/huan.yaml
+        contains: "title: huan E2E 最小站"
+
+  - id: set-007
+    name: 结构化 PUT 后 yaml 端点同步可见（双通道交叉一致）
+    severity: P1
+    preconditions:
+      - set-002    # 依赖其 cleanup 已恢复原值，本用例从已知干净态出发
+    steps:
+      - action: http                   # 结构化通道改 title
+        method: PUT
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          title: huan E2E 交叉验证
+          enableEmoji: false
+          minify: false
+          paginate: 10
+          summaryLength: 70
+          params: {}
+        expect:
+          status: 200
+          body: { status: saved }
+          side_effect: async-rebuild
+      - action: http                   # YAML 通道（读 huan.yaml 原文）必须看到新 title
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { contains: "title: huan E2E 交叉验证" }
+      - action: fs.assert              # 硬规则 2：落盘断言
+        path: $site/huan.yaml
+        contains: "title: huan E2E 交叉验证"
+      - action: wait
+        for: seconds
+        seconds: 4
+    cleanup:
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: set-008
+    name: PUT settings 异步触发 rebuild（新 title 出现在首页产物）
+    severity: P0
+    # 实测口径（2026-08-15）：dev 构建产物在进程私有临时目录（MkdirTemp "huan-dev-*"），
+    # $site/public 不可断言——rebuild 效果走 HTTP 层：PUT 改 title → watcher 全量重建
+    # → GET / 的 <title> 变为新值（实测 [watch] rebuild complete 后立即生效）。
+    # wait 语义：轮询 GET / 直到 <title> 含新值（上限 ~10s；实现层用 for: seconds 4
+    # 兜底 + http 断言）。
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          title: huan E2E Rebuild验证
+          enableEmoji: false
+          minify: false
+          paginate: 10
+          summaryLength: 70
+          params: {}
+        expect:
+          status: 200
+          body: { status: saved }
+          side_effect: async-rebuild
+      - action: fs.assert              # 硬规则 2：配置先落盘
+        path: $site/huan.yaml
+        contains: "title: huan E2E Rebuild验证"
+      - action: wait                   # 等 watcher 重建完成（dev.log 出现 [watch] rebuild complete）
+        for: seconds
+        seconds: 4
+      - action: http                   # rebuild 效果：首页 <title> 已是新站名
+        method: GET
+        path: /
+        expect:
+          status: 200
+          body: { matches: "<title>huan E2E Rebuild验证</title>" }
+    cleanup:
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: set-009
+    name: settings 更新审计日志落盘 settings.update
+    severity: P1
+    # 审计路径 $site/memory/daily/<今日>.md（patterns.md §5）；action 枚举
+    # settings.update / settings.yaml.update（internal/admin/audit.go:37-38）。
+    # sha256 行形态：<64-hex> → <64-hex>（update 有 before/after）。
+    steps:
+      - action: http
+        method: PUT
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        body:
+          title: huan E2E 审计验证
+          enableEmoji: false
+          minify: false
+          paginate: 10
+          summaryLength: 70
+          params: {}
+        expect:
+          status: 200
+          body: { status: saved }
+          side_effect: async-rebuild
+      - action: fs.assert              # 硬规则 2
+        path: $site/huan.yaml
+        contains: "title: huan E2E 审计验证"
+      - action: fs.assert              # 审计：action 行（fs.assert 单 contains，多断言拆步）
+        path: $site/memory/daily/<今日>.md
+        exists: true
+        contains: "action: `settings.update`"
+      - action: fs.assert              # 审计：path 行
+        path: $site/memory/daily/<今日>.md
+        contains: "path: `huan.yaml`"
+      - action: fs.assert              # 审计：sha256 before → after 双 64-hex
+        path: $site/memory/daily/<今日>.md
+        matches: "sha256.*`[0-9a-f]{8}` → `[0-9a-f]{8}`"
+      - action: wait
+        for: seconds
+        seconds: 4
+    cleanup:
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
