@@ -296,4 +296,19 @@ v0.5.0 交付 gate 1-5（2026-06-30）→ 等 90 天 → **v1.0.0（2026-09-11 �
 - 该基线是后续回归的对照锚点；重跑优先 P0 集与报告中的抽样集。
 - 已知引擎偏差（draft 聚合泄露、en 文章 relPath 丢后缀等）见基线报告 bug 清单与 FIXTURES.md 各「已知状态偏差」节——写断言前必读，绕开或显式断言。
 
+### 2026-08-15 修复批次（E2E-found engine bugs 清零）
+
+计划 [`docs/superpowers/plans/2026-08-15-fix-e2e-found-bugs.md`](../superpowers/plans/2026-08-15-fix-e2e-found-bugs.md)（6 Task）已执行，遗留引擎 bug 全部修复或定性：
+
+| Bug | 严重度 | 修复/定性 | commit |
+|---|---|---|---|
+| draft 泄露进 sitemap/RSS/列表聚合（仅单页+JSON API 两道防线） | P1 | `PopulateSitePages` + `LinkPageRelationships` 加 `includeDrafts` 过滤（-D 语义保留） | fix Task 1 |
+| en 文章 admin 删除 500（relPath 语言中性撞无此文件） | P1 | 前端 key 改用真实 `filePath`；后端误删防御报出语言变体名（绝不猜删） | fix Task 2 |
+| Settings 页 hasChanges 不重渲染（保存按钮仍灰） | P2 | `useRef` → `useState` | fix Task 3 |
+| dev 无 pluginManager（200 伪 unavailable）+ listPlugins nil 分支 200 而非 503 | 观察 | dev 传 PluginManager；nil 分支统一 503 | fix Task 4 |
+| daemon build 不传 PluginRegistry（serve 产物无插件注入） | 观察 | 7.5 块前移 + BuilderOptions.PluginRegistry 透传全量/增量/JIT | fix Task 5 |
+| `$HUAN_HOME` 「毒化连带拒绝」 | — | **定性更正**：三场景复现证明非毒化（坏 .so 失败后 ScanAndLoad continue 放行项目同名 .so）；Task 3 观测是 worktree vs 主仓编译 .so 的 Go plugin **buildid 跨树失配**，属环境契约（对策=RUNBOOK HUAN_HOME 隔离 + patterns §7 同树编译） | fix Task 6 |
+
+全部回归通过（`go test ./...` 32 包绿；22 个 YAML syntax ok；受影响套件抽样——bld-004 sitemap 零 draft、daemon serve 注入 og:×4——实测通过）。相关 FIXTURES.md 偏差条目与基线 bug 清单已同步标「已修」/「定性」。
+
 ---

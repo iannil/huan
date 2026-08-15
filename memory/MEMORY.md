@@ -89,6 +89,9 @@
   - 所有启动/构建命令必带 `HUAN_HOME=$site/.huan-home`（空目录隔离）——宿主 `~/.huan` 陈旧 .so 会毒化项目本地同名插件加载（静默零注入）。
 - **已知引擎偏差（写断言绕开或显式断言，修复后须同步 FIXTURES.md）**：draft 泄露进 sitemap/RSS/列表聚合渲染（仅单页不落盘+公开 JSON API 排除两条防线有效）；en 文章列表 relPath 丢语言后缀+filePath 双拼（浏览器删 en 文章必 500，P1 未修）；Settings 页 hasChanges ref 不重渲染（P2 未修）；dev 无 pluginManager、daemon build 不传 PluginRegistry。
 - **首份基线**：`docs/reports/e2e/2026-08-15-system-baseline.md`（首次全量实跑：API 抽样 65/65、CLI 15/15、browser 10/10、P0 全过、零 YAML 修正）——后续回归以它为对照锚点。
+- **2026-08-15 修复批次（E2E-found bugs 清零）**：`PopulateSitePages`+`LinkPageRelationships` 加 `includeDrafts` 过滤（draft 不再进 sitemap/RSS/列表）；前端操作 key 换真实 `filePath`+后端语言变体防御（en 删除 500 修）；Settings `hasChanges` 改 useState；dev 传 PluginManager + listPlugins nil 改 503；daemon builder 接 PluginRegistry（serve 产物恢复插件注入）。计划 `docs/superpowers/plans/2026-08-15-fix-e2e-found-bugs.md`，各 FIXTURES 偏差与基线 bug 清单已同步。
+
+- **经验教训（Go plugin 跨树失配是环境契约非 bug）**：`~/.huan` 的陈旧 .so 与宿主二进制若非同源码树构建，`plugin.Open` 失败仅 stderr warning、退出码 0——不是「毒化连带拒绝」（实测坏 .so 后 ScanAndLoad continue 正确放行项目同名 .so）。插件必须与宿主同源码树编译（worktree vs 主仓 buildid 即失配）；对策永远是 RUNBOOK §2.1 的 `HUAN_HOME` 隔离 + patterns.md §7 同树现场编译。
 
 ## 关键决策
 
