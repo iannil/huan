@@ -65,6 +65,18 @@
 - **SEO 编译期插件**（4 个）：SEO 注入器（meta/JSON-LD/OpenGraph）、Sitemap 增强器（优先级/变更频率/图片/视频）、HTML 注入器（自定义 head/body HTML）、MetadataProvider（插件元数据 → Admin 插件列表增强）
 - **插件事件订阅**：`EventSubscriber` 接口，插件可订阅 daemon EventBus 事件，生命周期自动注册/注销
 
+### 2026-08-15 新增：E2E 测试体系建成（tests/e2e/）
+
+- **形态**：agent 驱动执行——结构化 YAML 用例 + 可复制命令的 runbook，**不写测试代码、不写 runner**。规模：10 API 套件 78 例 + 5 browser 文件 22 旅程（agent-browser 实走）+ 4 CLI 套件 15 例 + 3 fixture 站点（minimal/multilang/with-plugins）+ RUNBOOK/patterns 两册。
+- **执行入口**：`tests/e2e/runbooks/RUNBOOK.md`——环境准备（现场 build 二进制）→ 按端口表（13200+10×套件序号）起 dev/daemon → 逐用例执行 → 按 severity 判定（P0 停/P1 记/P2 观察）→ 报告落 `docs/reports/e2e/`。
+- **关键契约（改动 E2E 相关代码前必读）**：
+  - 断言常量唯一出处是 `tests/e2e/fixtures/FIXTURES.md`（三站点已知状态表）；fixture 内容变更必须同步该表并重跑相关套件。
+  - RUNBOOK 变量/端口契约：`${bin}/${site}/${artifacts}/${token}` 保留名、固定 token `e2e-fixed-token`、端口从 13200 每套件 +10。
+  - 两条硬规则：http step 的 expect 必含 status+body；写操作（POST/PUT/DELETE/fs.write/cli 写类）后必跟 fs.assert。
+  - 所有启动/构建命令必带 `HUAN_HOME=$site/.huan-home`（空目录隔离）——宿主 `~/.huan` 陈旧 .so 会毒化项目本地同名插件加载（静默零注入）。
+- **已知引擎偏差（写断言绕开或显式断言，修复后须同步 FIXTURES.md）**：draft 泄露进 sitemap/RSS/列表聚合渲染（仅单页不落盘+公开 JSON API 排除两条防线有效）；en 文章列表 relPath 丢语言后缀+filePath 双拼（浏览器删 en 文章必 500，P1 未修）；Settings 页 hasChanges ref 不重渲染（P2 未修）；dev 无 pluginManager、daemon build 不传 PluginRegistry。
+- **首份基线**：`docs/reports/e2e/2026-08-15-system-baseline.md`（首次全量实跑：API 抽样 66/66、CLI 15/15、browser P0 5/5 全过、零 YAML 修正）——后续回归以它为对照锚点。
+
 ## 关键决策
 
 - 模板引擎用 `html/template`，阶段二可插件替换

@@ -244,3 +244,31 @@ v0.5.0 交付 gate 1-5（2026-06-30）→ 等 73 天 → **v1.0.0（2026-09-11 �
 - SSE 类型过滤 + Last-Event-ID 恢复
 - 热模板重载
 - 并行渲染优化
+
+---
+
+## 十、E2E 测试体系（2026-08-15 建成）
+
+面向 agent 驱动执行的端到端验收体系，位于 [`tests/e2e/`](../../tests/e2e/)：**结构化 YAML 用例 + 可复制命令的执行手册，不写测试代码、不写 runner**——执行者是 agent（按 runbook 起环境、按 schema 读用例、逐条跑命令、按判定规则出报告）。
+
+### 规模
+
+| 类别 | 位置 | 数量 |
+|---|---|---|
+| API 套件 | `tests/e2e/api/` | 10 套件 78 用例（auth/status/content-crud/media/settings/build-trigger/public-api/sse-events/livereload/plugins-admin） |
+| browser 旅程 | `tests/e2e/browser/` | 5 文件 22 旅程（admin-login/admin-content-crud/admin-settings/admin-plugins/site-rendering，agent-browser 实走） |
+| CLI 套件 | `tests/e2e/cli/` | 4 套件 15 用例（build/new/config/version） |
+| fixture | `tests/e2e/fixtures/` | 3 站点（minimal/multilang/with-plugins）+ FIXTURES.md 已知状态表（断言常量唯一出处） |
+| runbooks | `tests/e2e/runbooks/` | RUNBOOK.md（变量契约/端口表/启动/判定/报告）+ patterns.md（断言模式库） |
+
+### 执行入口
+
+按 [`tests/e2e/runbooks/RUNBOOK.md`](../../tests/e2e/runbooks/RUNBOOK.md) 逐步执行：环境准备（`HUAN_HOME` 隔离 + 固定 token `e2e-fixed-token`）→ 按套件端口表（13200+10×套件序号）启动 dev/daemon → 逐用例执行 → 按 severity 判定（P0 停 / P1 记 / P2 观察）→ 报告落 `docs/reports/e2e/`。
+
+### 首份基线
+
+- 报告：[`docs/reports/e2e/2026-08-15-system-baseline.md`](../reports/e2e/2026-08-15-system-baseline.md)（首次全量实跑：API 抽样 66/66、CLI 15/15、browser P0 5/5 全过，零失败零 YAML 修正）
+- 该基线是后续回归的对照锚点；重跑优先 P0 集与报告中的抽样集。
+- 已知引擎偏差（draft 聚合泄露、en 文章 relPath 丢后缀等）见基线报告 bug 清单与 FIXTURES.md 各「已知状态偏差」节——写断言前必读，绕开或显式断言。
+
+---
