@@ -1,0 +1,164 @@
+# 套件：admin-login —— admin SPA 认证旅程（ADR 0011 L2 客户端 token 处理）
+#
+# 目的：浏览器视角验证 token 生命周期——首次进入 prompt 认证、错误 token 拒绝、
+#       sessionStorage 会话保持（刷新不掉线）、服务端 401 后重新弹层。
+#
+# runtime: dev · fixture: minimal · 端口: 13300（RUNBOOK §3 browser 段 lg=13300）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13300 --bind 127.0.0.1），探活打 /。
+#           浏览器用 agent-browser（RUNBOOK §5：verify 失败先 screenshot 再判负）。
+#
+# ===== 2026-08-15 agent-browser 实走校准（关键事实，expect/hints 依据）=====
+#   - token 输入不是 HTML 表单，而是【原生 window.prompt 弹窗】：页面加载即弹，
+#     文案首行 "Admin authentication required."，agent-browser 用
+#     `dialog accept "<token>"` 应答（dismiss = 取消认证）。一个用例可能连续弹两次
+#     （Layout 与页面组件各自 fetch 401 各弹一次）——重复应答直到 dialog status 为空。
+#   - token 存 sessionStorage key `huan-admin-token`（web/admin/src/lib/api.ts:13）。
+#   - 认证成功后 Dashboard（/admin/）用户可见文案：站点标题 h2「huan E2E 最小站」、
+#     统计卡「内容总数 3 / 已发布 2 / 草稿 1 / 分类数 2 / 语言 1 / 媒体文件 1」、
+#     卡片标题「内容分布」「最近内容」「快速操作」「站点摘要」、
+#     最近内容条目「你好 huan」「草稿文章」「关于」、顶栏导航「概览 内容 媒体 插件 设置」。
+#   - 错 token 实测：prompt 再次弹出（apiFetch 重试一次），二次仍错后页面主体显示
+#     「加载失败」红字（Dashboard.tsx !status 分支），顶栏仍在。截图见
+#     artifacts lg-002-calibration-wrongtoken.png。
+#   - 刷新保持：sessionStorage 有 token 时 reload 不弹 prompt，Dashboard 直接渲染。
+#   - 401 实测（lg-004）：token 失效后浏览器发请求得 401 → apiFetch 清 token →
+#     重新弹 prompt → 输入正确 token 后请求自动重试成功，页面恢复。
+#     curl 无 token 打 /admin/api/status → 401（body {"error":"missing admin token"}，
+#     带 WWW-Authenticate，见 api/auth.yaml auth-002 同源断言）。
+#
+# 已知偏差对照：无 draft/聚合断言；「加载失败」是错 token 的显式 UI 契约（非 bug）。
+suite: admin-login
+module: admin-spa
+fixture: minimal
+runtime: dev
+journey:
+  persona: 站点管理员
+  goal: 首次进入后台完成 token 认证，并验证会话在刷新与 401 后的存活行为
+browser_defaults:
+  viewport: 1280x800
+  url: http://127.0.0.1:${port}/admin
+tests:
+  - id: lg-001
+    name: 首次进入弹 token 认证，正确 token 后看到管理面板
+    severity: P0
+    steps:
+      - action: goto
+        target: /admin
+      - action: enter-token
+        hints:
+          - "认证是原生 window.prompt 弹窗（非 HTML 表单）：文案含 'Admin authentication required'"
+          - "agent-browser 应答法：dialog accept \"${token}\"；可能连续弹两次（多组件并发 fetch），重复应答直到 dialog status 无弹窗"
+      - action: wait
+        for: element-visible
+        hints:
+          - "Dashboard 统计卡区域（6 个数字指标）或站点标题 heading"
+      - action: verify
+        milestone: 管理面板可见
+        expect:
+          - "页面显示站点标题「huan E2E 最小站」"
+          - "统计卡显示「内容总数 3」「草稿 1」（FIXTURES.md minimal 常量）"
+          - "顶部导航出现「概览」「内容」「媒体」「插件」「设置」五项"
+        hints:
+          - "站点标题在 h2（Dashboard 页头）与顶栏左侧各出现一次"
+          - "统计卡是 6 个并排数字块（.grid 内），标签文字：内容总数/已发布/草稿/分类数/语言/媒体文件"
+          - "verify 失败先 screenshot（命名 lg-001-fail）再判负"
+      - action: screenshot
+        name: lg-001-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3, drafts: 1 }
+
+  - id: lg-002
+    name: 错误 token 被拒绝，页面停留未认证状态
+    severity: P0
+    # 实测（2026-08-15）：错 token → prompt 再弹一次（fetch 重试）→ 二次仍错 →
+    # 页面主体显示「加载失败」。本用例输入一次错 token 后 dismiss 剩余弹窗，
+    # 断言「加载失败」可见。截图 artifacts lg-002-calibration-wrongtoken.png。
+    steps:
+      - action: goto
+        target: /admin
+      - action: interact
+        intent: 在 token 弹窗输入错误 token（如 wrong-token-e2e）并提交
+        hints:
+          - "window.prompt 应答：dialog accept \"wrong-token-e2e\""
+          - "错 token 会触发第二次 prompt（fetch 重试一次），用 dialog dismiss 取消它"
+      - action: wait
+        for: element-visible
+        hints:
+          - "「加载失败」错误文案（红色文本）"
+      - action: verify
+        milestone: 认证被拒绝
+        expect:
+          - "页面主体出现「加载失败」错误提示"
+          - "不出现站点统计数字（内容总数 3 等仪表盘数据不可见）"
+        hints:
+          - "「加载失败」在 Dashboard.tsx 的 !status 分支，居中红字"
+          - "顶栏（概览/内容/媒体/插件/设置）仍渲染，但主体无数据——断言只看主体"
+          - "verify 失败先 screenshot（命名 lg-002-fail）再判负"
+      - action: screenshot
+        name: lg-002-milestone-1
+
+  - id: lg-003
+    name: 登录后刷新页面会话保持（sessionStorage）
+    severity: P0
+    preconditions:
+      - lg-001    # 依赖已认证的浏览器上下文（token 已写入 sessionStorage）
+    steps:
+      - action: interact
+        intent: 重新加载当前页面（浏览器刷新）
+        hints:
+          - "刷新后【不】应出现 token 弹窗——token 在 sessionStorage 存活"
+          - "agent-browser：open ${base}/admin/ 或 eval location.reload()"
+      - action: wait
+        for: element-visible
+        hints:
+          - "Dashboard 统计卡区域"
+      - action: verify
+        milestone: 刷新后无需重新认证
+        expect:
+          - "刷新过程未出现 token 输入弹窗（window.prompt）"
+          - "页面直接显示站点标题「huan E2E 最小站」与统计卡「内容总数 3」"
+        hints:
+          - "可 eval sessionStorage.getItem('huan-admin-token') 应等于 ${token} 作旁证（key: huan-admin-token）"
+          - "verify 失败先 screenshot（命名 lg-003-fail）再判负"
+      - action: screenshot
+        name: lg-003-milestone-1
+
+  - id: lg-004
+    name: 会话失效（401）后浏览器重新弹出 token 认证
+    severity: P1
+    # 实测（2026-08-15）：sessionStorage 里放坏 token 后页面请求 401 →
+    # apiFetch 清 token → 重新弹 prompt → 输入正确 token 自动重试成功。
+    # API 侧旁证：curl 不带 token 打 status → 401 {"error":"missing admin token"}。
+    steps:
+      - action: api-probe
+        method: GET
+        path: /admin/api/status
+        expect:
+          status: 401
+          body: { error: "missing admin token" }
+      - action: interact
+        intent: 将 sessionStorage 的 token 替换为失效值（模拟过期），然后重新加载页面
+        hints:
+          - "agent-browser：eval sessionStorage.setItem('huan-admin-token','stale-broken-token') 后跳转 /admin/content"
+      - action: wait
+        for: element-visible
+        hints:
+          - "token 认证弹窗（window.prompt）重新出现"
+      - action: verify
+        milestone: 失效会话触发重新认证
+        expect:
+          - "页面重新弹出 token 输入弹窗（Admin authentication required）"
+          - "弹窗中输入正确 token 后页面恢复数据显示（如「内容管理」列表或统计卡）"
+        hints:
+          - "弹窗应答：dialog accept \"${token}\"；可能连弹两次，重复应答"
+          - "恢复后 sessionStorage key huan-admin-token 应回到正确值"
+          - "verify 失败先 screenshot（命名 lg-004-fail）再判负"
+      - action: screenshot
+        name: lg-004-milestone-1

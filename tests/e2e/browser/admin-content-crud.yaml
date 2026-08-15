@@ -1,0 +1,399 @@
+# 套件：admin-content-crud —— admin SPA 内容 CRUD 浏览器旅程
+#
+# 目的：以内容编辑角色走完整内容生命周期——列表浏览、新建、编辑、draft 开关、
+#       删除、多语言 siblings；浏览器为壳、api-probe 为锚（写操作后 API 回读旁证）。
+#
+# runtime: dev · fixture: minimal（bc-006 用 multilang 覆盖）· 端口: 13310（RUNBOOK §3 browser 段 bc=13310）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13310 --bind 127.0.0.1），探活打 /。
+#           bc-006 需另起 multilang fixture 拷贝 + dev 实例（同段 +5 偏移 13315）。
+#           浏览器用 agent-browser；verify 失败先 screenshot 再判负（RUNBOOK §5）。
+#
+# ===== 2026-08-15 agent-browser 实走校准（关键事实，expect/hints 依据）=====
+#   - 认证：原生 window.prompt（同 admin-login.yaml 校准注记），应答
+#     `dialog accept "${token}"`，可能连弹两次。
+#   - 内容列表（/admin/content）用户可见文案：页头「内容管理」+「全部 · 3 篇」、
+#     右上「新建」按钮、左侧树「全部内容 3」「posts 2」、筛选 chips
+#     「全部 3 / 草稿 1 / 已发布 2」、语言下拉「所有语言」、搜索框 placeholder「搜索...」。
+#   - 新建表单（/admin/content/new）：标题输入框 placeholder「输入文章标题...」、
+#     「分类」下拉（posts 默认）、「语言」下拉【默认 en】、草稿开关（默认开）、
+#     「创建」按钮（提交中变「创建中...」）。
+#   - 创建成功 → 跳转全屏编辑器（/admin/content/edit?path=posts/<slug>.<lang>.md），
+#     顶栏有「返回」、文件路径、语言徽章/切换器、草稿开关、「保存/已保存」按钮；
+#     空正文时编辑器中央显示「开始编写」、右侧预览区显示「预览」，状态栏「⌘S 保存」。
+#   - 编辑器：标题输入框 placeholder「无标题」，正文 textarea（透明覆盖层结构）；
+#     保存按钮随 dirty 状态切换「保存」（可点）↔「已保存」（灰）。
+#   - 删除旅程（列表）：悬停行 → 勾选 checkbox → 底部批量条「已选 1 项」+
+#     「删除」/「设为草稿|发布」→ 点删除弹确认框「确认删除」「将删除 N 篇内容，
+#     此操作不可撤销。」+「取消」「确认删除」按钮。
+#   - ★ 新建默认语言是 en → 落盘文件名带 .en 后缀（如 posts/e2e-browser-新建.en.md），
+#     api-probe 必须用带后缀路径回读。
+#
+# ===== 实测发现的 SPA/API 偏差（写用例必须绕开或显式断言）=====
+#   - 偏差 1（★ 影响 bc-002/bc-004 设计）：GET /admin/api/content 列表项的 relPath
+#     对【en 语言文章】丢失语言后缀（文件 e2e-browser-新建.en.md 被列为
+#     posts/e2e-browser-新建.md），filePath 则双拼后缀（.en.en.md）——列表 API 的
+#     语言路径归一 bug。后果：浏览器内删除 en 文章必然 500「加载失败: delete ...」。
+#     对策：bc-002/bc-003 的新建把语言切到 zh-CN（relPath 正确），bc-004 删除操作
+#     也用 zh-CN 文章走通浏览器旅程；en 文章的列表路径偏差在 bc-002 用 P2 观察断言
+#     记录（不判负）。zh-CN 实测 relPath=posts/<slug>.zh-CN.md（正确）。
+#   - 偏差 2：dashboard/列表的「全部 · N 篇」计数含 draft（口径同 admin status total）。
+#   - draft 开关（bc-005）：编辑器顶栏草稿开关 + 保存 → status.drafts -1（实测
+#     drafts 2→1、published 2→3）。
+#
+# 期望值出处：FIXTURES.md minimal（total=3, drafts=1, published=2；post1=你好 huan）。
+suite: admin-content-crud
+module: admin-spa
+fixture: minimal
+runtime: dev
+journey:
+  persona: 内容编辑
+  goal: 在后台完成一篇文章的新建、编辑、草稿切换、删除，并核对多语言翻译伙伴
+browser_defaults:
+  viewport: 1280x800
+  url: http://127.0.0.1:${port}/admin
+tests:
+  - id: bc-001
+    name: 登录后台浏览内容列表（树、筛选、统计）
+    severity: P0
+    steps:
+      - action: goto
+        target: /admin/content
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\"，可能连弹两次（见套件头校准注记）"
+      - action: wait
+        for: element-visible
+        hints:
+          - "「内容管理」页头与文章行"
+      - action: verify
+        milestone: 内容列表可见
+        expect:
+          - "页面显示「内容管理」标题与「全部 · 3 篇」计数"
+          - "列表出现文章标题「${fixture.minimal.post1.title}」「草稿文章」「关于」"
+          - "左侧内容树含「全部内容 3」与「posts 2」节点"
+        hints:
+          - "筛选 chips 亦有计数：全部 3 / 草稿 1 / 已发布 2"
+          - "「关于」是根目录条目，可能在树中显示为根节点；行内日期列格式 YYYY-MM-DD"
+          - "verify 失败先 screenshot（命名 bc-001-fail）再判负"
+      - action: screenshot
+        name: bc-001-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3, drafts: 1, published: 2 }
+
+  - id: bc-002
+    name: 新建文章旅程：填表创建→落盘可回读
+    severity: P0
+    # 语言必须显式切到 ZH-CN（见套件头偏差 1：默认 en 的列表路径会丢后缀）。
+    steps:
+      - action: goto
+        target: /admin/content
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: interact
+        intent: 点击新建按钮
+        hints:
+          - "列表页右上「新建」按钮（深色主按钮）；Dashboard 快速操作里也有「新建内容」入口"
+      - action: wait
+        for: url-change
+      - action: verify
+        milestone: 新建表单出现
+        expect:
+          - "页面显示「新建内容」标题与「创建」按钮"
+          - "标题输入框可见（placeholder「输入文章标题...」）"
+        hints:
+          - "表单还有「分类」（默认 posts）与「语言」下拉（默认 EN — 英语）"
+      - action: interact
+        intent: 在标题输入框填 e2e-browser-新建，语言下拉选择 ZH-CN — 简体中文，保持草稿开关开启，点击创建
+        hints:
+          - "语言下拉是 Radix Select：点开触发器后点选项「ZH-CN — 简体中文」（不能直接 select 原生方法）"
+          - "草稿开关默认开启，无需操作"
+          - "「创建」按钮在表单右上，提交中短暂显示「创建中...」"
+      - action: wait
+        for: url-change
+      - action: verify
+        milestone: 创建成功进入编辑器
+        expect:
+          - "URL 变为 /admin/content/edit 且标题显示 e2e-browser-新建"
+          - "全屏编辑器出现：顶栏有「返回」与保存按钮，正文区提示「开始编写」，右侧预览区显示「预览」"
+        hints:
+          - "URL 形如 /admin/content/edit?path=posts%2Fe2e-browser-新建.zh-CN.md"
+          - "保存按钮初始态「已保存」（灰），改动后变「保存」"
+          - "verify 失败先 screenshot（命名 bc-002-fail）再判负"
+      - action: screenshot
+        name: bc-002-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/content/posts/e2e-browser-新建.zh-CN.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            frontmatter:
+              title: e2e-browser-新建
+              draft: true
+      - action: verify
+        milestone: 列表出现新文章
+        expect:
+          - "返回内容列表后「全部 · 4 篇」，出现标题 e2e-browser-新建"
+          - "「草稿」筛选 chip 计数变为 2"
+        hints:
+          - "P2 观察项（不判负）：新建若用默认 en 语言，列表 relPath 会丢 .en 后缀（套件头偏差 1）"
+      - action: screenshot
+        name: bc-002-milestone-2
+
+  - id: bc-003
+    name: 编辑文章：改标题与正文→保存→API 与文件双回读
+    severity: P0
+    preconditions:
+      - bc-002    # 依赖其创建的 posts/e2e-browser-新建.zh-CN.md
+    steps:
+      - action: goto
+        target: /admin/content
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: interact
+        intent: 点击列表中标题为 e2e-browser-新建 的文章进入编辑器
+        hints:
+          - "点击行内标题按钮（非 checkbox）即跳编辑器；也可直接 goto /admin/content/edit?path=posts%2Fe2e-browser-新建.zh-CN.md"
+      - action: wait
+        for: element-visible
+        hints:
+          - "编辑器标题输入框（placeholder「无标题」）与正文 textarea"
+      - action: verify
+        milestone: 编辑器载入原文
+        expect:
+          - "标题输入框显示 e2e-browser-新建"
+          - "编辑器顶栏显示文件路径 posts/e2e-browser-新建.zh-CN.md"
+        hints:
+          - "路径在顶栏左侧，等宽字体"
+      - action: interact
+        intent: 把标题改为 e2e-browser-已编辑，正文填入「浏览器编辑正文第一行。」，点击保存
+        hints:
+          - "保存按钮从灰「已保存」变为可点「保存」（dirty 态）；也可用 Cmd/Ctrl+S"
+          - "正文 textarea 是透明覆盖层，直接 fill 即可"
+      - action: wait
+        for: element-visible
+        hints:
+          - "保存按钮回到「已保存」状态"
+      - action: verify
+        milestone: 保存成功
+        expect:
+          - "保存按钮显示「已保存」（无未保存标记）"
+          - "右侧预览区渲染出正文「浏览器编辑正文第一行。」"
+        hints:
+          - "预览是 marked 实时渲染；状态栏有「⌘S 保存」字样"
+          - "verify 失败先 screenshot（命名 bc-003-fail）再判负"
+      - action: screenshot
+        name: bc-003-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/content/posts/e2e-browser-新建.zh-CN.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            frontmatter:
+              title: e2e-browser-已编辑
+            rawContent: 浏览器编辑正文第一行。
+
+  - id: bc-004
+    name: 删除文章旅程：勾选→确认→列表消失→API 404
+    severity: P0
+    preconditions:
+      - bc-003    # 依赖其编辑过的文章（终态删除）
+    steps:
+      - action: goto
+        target: /admin/content
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: interact
+        intent: 悬停标题为 e2e-browser-已编辑 的行并勾选其复选框
+        hints:
+          - "checkbox 悬停才显现（hover-reveal）：先 hover 行再点行首圆形勾选框"
+          - "agent-browser 兜底：eval 找到含标题文本的行 div，点其第一个 button"
+      - action: wait
+        for: element-visible
+        hints:
+          - "底部批量操作条「已选 1 项」"
+      - action: verify
+        milestone: 选中待删文章
+        expect:
+          - "出现「已选 1 项」批量操作条"
+          - "操作条上有「删除」按钮"
+        hints:
+          - "批量条还有「设为草稿/发布」按钮（按当前状态显示其一）"
+      - action: interact
+        intent: 点击删除，在确认弹窗点击确认删除
+        hints:
+          - "弹窗标题「确认删除」，正文「将删除 1 篇内容，此操作不可撤销。」+ 文件路径清单"
+          - "点「确认删除」（红色主按钮）；「取消」放弃"
+      - action: wait
+        for: element-visible
+        hints:
+          - "列表刷新，确认弹窗消失"
+      - action: verify
+        milestone: 文章从列表消失
+        expect:
+          - "列表不再出现 e2e-browser-已编辑"
+          - "「全部 · N 篇」计数回到 3"
+        hints:
+          - "verify 失败先 screenshot（命名 bc-004-fail）再判负"
+      - action: screenshot
+        name: bc-004-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/content/posts/e2e-browser-新建.zh-CN.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 404
+          body: { error: { matches: "^read file: .*no such file or directory" } }
+
+  - id: bc-005
+    name: 草稿开关旅程：编辑器取消草稿→保存→status.drafts 联动
+    severity: P1
+    # 在 bc-002 创建的草稿文章上（bc-004 已删，本用例重新走一次最小新建）。
+    steps:
+      - action: goto
+        target: /admin/content/new
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: interact
+        intent: 标题填 e2e-browser-draft，语言选 ZH-CN — 简体中文，点击创建
+        hints:
+          - "草稿开关默认开启——保持默认即创建草稿"
+      - action: wait
+        for: url-change
+      - action: verify
+        milestone: 草稿文章创建成功
+        expect:
+          - "编辑器顶栏草稿开关处于开启状态"
+          - "标题显示 e2e-browser-draft"
+        hints:
+          - "草稿开关在顶栏右侧（标签文字「草稿」+ 滑块）"
+      - action: screenshot
+        name: bc-005-milestone-1
+      - action: interact
+        intent: 点击顶栏草稿开关（关闭草稿），点击保存
+        hints:
+          - "点「草稿」标签或滑块均可切换；保存按钮变「保存」后点击"
+      - action: wait
+        for: element-visible
+        hints:
+          - "保存按钮回到「已保存」"
+      - action: verify
+        milestone: 草稿已取消并保存
+        expect:
+          - "保存按钮显示「已保存」，草稿开关处于关闭状态"
+          - "状态栏不出现「未保存」标记"
+        hints:
+          - "verify 失败先 screenshot（命名 bc-005-fail）再判负"
+      - action: screenshot
+        name: bc-005-milestone-2
+      - action: api-probe
+        method: GET
+        path: /admin/api/status
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 4      # minimal 3 + 本用例新建 1（bc-002 链已在 bc-004 删除）
+            drafts: 1     # FIXTURES.md 初始 1；新建的草稿已发布化，计数回到 1
+            published: 3  # 初始 2 + 1
+      - action: api-probe
+        method: GET
+        path: /admin/api/content/posts/e2e-browser-draft.zh-CN.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            frontmatter:
+              draft: false
+    cleanup:
+      - action: fs.delete
+        path: $site/content/posts/e2e-browser-draft.zh-CN.md
+
+  - id: bc-006
+    name: 多语言 siblings：编辑器语言切换器与翻译伙伴（multilang fixture）
+    severity: P1
+    # fixture_override：本用例换 multilang 拷贝起独立 dev 实例（端口 13315 = bc 段 +5）。
+    # 执行指引（RUNBOOK §2/§4.1 同法，fixture 换 multilang）：
+    #   cp -r tests/e2e/fixtures/multilang $site-ml && mkdir -p $site-ml/.huan-home
+    #   HUAN_ADMIN_TOKEN=$token HUAN_HOME=$site-ml/.huan-home \
+    #     $bin dev -s $site-ml --port 13315 --bind 127.0.0.1 &   # 探活打 /
+    # 本用例所有 URL 用 http://127.0.0.1:13315（替换 ${port}）。
+    # 期望值出处：FIXTURES.md「multilang › languages 端点期望」。
+    steps:
+      - action: goto
+        target: http://127.0.0.1:13315/admin/content
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: verify
+        milestone: 多语言站点列表可见
+        expect:
+          - "站点标题显示「huan E2E 多语言站」，列表「全部 · 3 篇」"
+          - "出现「Hello (EN)」「你好（中文版）」「仅中文」三个标题"
+        hints:
+          - "语言筛选下拉含 en 与 默认 选项；行内有语言徽章（EN 徽章着色）"
+      - action: interact
+        intent: 点击 Hello (EN) 进入编辑器
+        hints:
+          - "点击行内标题按钮；也可 goto http://127.0.0.1:13315/admin/content/edit?path=posts%2Fhello.en.md"
+      - action: wait
+        for: element-visible
+        hints:
+          - "顶栏语言切换下拉（globe 图标旁，显示 EN）"
+      - action: verify
+        milestone: 语言切换器显示翻译伙伴
+        expect:
+          - "编辑器顶栏出现语言下拉，当前值 EN，下拉选项含 zh-cn"
+          - "标题显示 Hello (EN)"
+        hints:
+          - "切换器是原生 select（option 值为小写语言码，如 en/zh-cn）"
+      - action: screenshot
+        name: bc-006-milestone-1
+      - action: interact
+        intent: 在语言切换器选择 zh-cn
+        hints:
+          - "agent-browser：select <切换器> zh-cn 或 eval 派发 change 事件"
+      - action: wait
+        for: url-change
+      - action: verify
+        milestone: 切换到中文翻译版
+        expect:
+          - "URL 变为 /admin/content/edit?path=posts%2Fhello.zh-cn.md"
+          - "标题变为「你好（中文版）」，语言切换器显示 ZH-CN"
+        hints:
+          - "verify 失败先 screenshot（命名 bc-006-fail）再判负"
+      - action: screenshot
+        name: bc-006-milestone-2
+      - action: api-probe
+        method: GET
+        path: http://127.0.0.1:13315/admin/api/content/posts/hello.en.md/languages
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            current: en
+            siblings.0.language: zh-cn
+            siblings.0.relPath: posts/hello.zh-cn.md
+            siblings.0.title: 你好（中文版）
+      - action: verify
+        milestone: 无翻译伙伴的文章显示静态语言徽章
+        expect:
+          - "打开仅中文（posts/zh-only.zh-cn.md）编辑器，顶栏语言显示 zh-cn 静态徽章（无下拉）"
+          - "标题显示「仅中文」"
+        hints:
+          - "goto http://127.0.0.1:13315/admin/content/edit?path=posts%2Fzh-only.zh-cn.md"
+          - "静态徽章是边框小标签，不是可点的 select——有翻译伙伴才渲染下拉"

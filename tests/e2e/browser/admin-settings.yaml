@@ -1,0 +1,265 @@
+# 套件：admin-settings —— admin SPA 站点设置浏览器旅程
+#
+# 目的：以管理员角色验证设置页——字段回显、改标题保存落盘、YAML 直改通道、
+#       非法值被拒绝且落盘不变；浏览器为壳、api-probe/fs 为锚。
+#
+# runtime: dev · fixture: minimal · 端口: 13320（RUNBOOK §3 browser 段 bs=13320）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13320 --bind 127.0.0.1），探活打 /。
+#           浏览器用 agent-browser；verify 失败先 screenshot 再判负（RUNBOOK §5）。
+#
+# ===== 2026-08-15 agent-browser 实走校准（关键事实，expect/hints 依据）=====
+#   - 认证：原生 window.prompt（同 admin-login.yaml 校准注记）。
+#   - 设置页（/admin/settings）用户可见文案：页头「站点设置」+「管理站点基本信息
+#     和功能开关」、右上「编辑 YAML」链接（href=/admin/api/settings/yaml，
+#     target=_blank 新标签打开 text/plain 原文——【非】可视化编辑器）、左栏锚点
+#     「站点信息/功能开关/数值设置」三个区块卡片、底部吸底保存条「保存设置」按钮。
+#   - 字段回显实测：站点标题输入框（placeholder「我的站点」）初值=huan E2E 最小站、
+#     分页数 spinbutton 初值=10（fixture huan.yaml 原值）。
+#   - 改标题→保存实测：PUT 全量覆盖可管理字段（SPA 提交完整 settings 对象，含
+#     paginate 等原值，不会触发 api/settings.yaml set-002 注记的零值覆盖）；
+#     落盘 huan.yaml title 变为新值、GET settings 回读一致。
+#   - ★ 偏差（影响 bs-002 断言面）：保存按钮的启用态由 hasChanges ref 驱动而
+#     该 ref 变化【不触发 re-render】——输入新值后按钮仍灰、需点一次页面其他位置
+#     或等待其它 state 变化才可点；且「已保存」绿色反馈同为 2s 瞬态且依赖同一
+#     ref，实测保存成功后保存条上无稳定可见的「已保存」文字。因此 bs-002 的
+#     成功断言走 api-probe/fs 回读，UI 断言只看按钮存在与值保持，不断言「已保存」
+#     文案（记为观察项，避免 flaky）。
+#   - 非法值旅程（bs-004）：SPA 无 YAML 编辑界面，「编辑 YAML」是原文链接——
+#     本套件的非法 YAML 提交走 api-probe PUT settings/yaml（服务端校验是同一条
+#     防线），浏览器侧断言打开 YAML 链接看到原文未被破坏。
+#
+# 期望值出处：FIXTURES.md minimal（huan.yaml: title=huan E2E 最小站, paginate=10）+
+#   api/settings.yaml 同源校准（PUT settings 200 {"status":"saved"}；
+#   非法 YAML → 400 {"error":"invalid YAML: yaml: ..."}；PUT 异步触发 rebuild）。
+suite: admin-settings
+module: admin-spa
+fixture: minimal
+runtime: dev
+journey:
+  persona: 站点管理员
+  goal: 在设置页核对字段回显，修改站点标题并确认落盘，验证 YAML 直改与非法值防线
+browser_defaults:
+  viewport: 1280x800
+  url: http://127.0.0.1:${port}/admin
+tests:
+  - id: bs-001
+    name: 设置页字段回显 fixture 配置
+    severity: P0
+    steps:
+      - action: goto
+        target: /admin/settings
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\"，可能连弹两次"
+      - action: wait
+        for: element-visible
+        hints:
+          - "「站点设置」页头与站点标题输入框"
+      - action: verify
+        milestone: 设置页回显完成
+        expect:
+          - "页面显示「站点设置」标题与「站点信息」「功能开关」「数值设置」三个区块"
+          - "站点标题输入框值为 huan E2E 最小站"
+          - "分页数输入框值为 10"
+        hints:
+          - "站点标题输入框 placeholder「我的站点」；分页数是 number 输入框（数值设置区块）"
+          - "右上「编辑 YAML」链接指向 /admin/api/settings/yaml（新标签打开原文）"
+          - "verify 失败先 screenshot（命名 bs-001-fail）再判负"
+      - action: screenshot
+        name: bs-001-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            title: huan E2E 最小站
+            paginate: 10
+
+  - id: bs-002
+    name: 修改站点标题保存→API 与文件回读新值
+    severity: P0
+    steps:
+      - action: goto
+        target: /admin/settings
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: interact
+        intent: 在站点标题输入框填 huan E2E 浏览器改站名，点击保存设置
+        hints:
+          - "保存条在页面底部吸底；按钮文字「保存设置」"
+          - "实测按钮启用态可能滞后（hasChanges ref 不触发 re-render）：若按钮仍灰，
+            点击页面其他空白处再回来重试（最多 2 次）"
+          - "保存成功 UI 反馈（「已保存」绿字）是 2s 瞬态且不稳定，不作为断言面"
+      - action: wait
+        for: seconds
+        seconds: 2
+      - action: verify
+        milestone: 修改已提交
+        expect:
+          - "站点标题输入框保持显示 huan E2E 浏览器改站名"
+          - "页面无红色错误提示（保存条区域无报错文案）"
+        hints:
+          - "成功判定以 api-probe 回读为准（下一步）；UI 只验证值保持与无错误"
+          - "verify 失败先 screenshot（命名 bs-002-fail）再判负"
+      - action: screenshot
+        name: bs-002-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/settings
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            title: huan E2E 浏览器改站名
+            paginate: 10      # 未被零值覆盖（SPA 全量提交，见套件头校准注记）
+      - action: verify
+        milestone: 全站标题联动可见
+        expect:
+          - "刷新 /admin/ 概览页，站点标题显示 huan E2E 浏览器改站名"
+          - "概览页统计卡「内容总数 3」仍正常渲染（页面数据完好）"
+        hints:
+          - "Layout 顶栏左侧与 Dashboard 页头 h2 都取自 status.title"
+          - "verify 失败先 screenshot（命名 bs-002-fail-2）再判负"
+      - action: screenshot
+        name: bs-002-milestone-2
+    cleanup:
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bs-003
+    name: 原始 YAML 通道：浏览器获取原文，PUT 合法内容落盘 huan.yaml
+    severity: P1
+    # SPA 的「编辑 YAML」是 /admin/api/settings/yaml 的 text/plain 新标签（无编辑 UI），
+    # 浏览器侧断言原文可见 + 链接语义；写通道走 api-probe PUT（同防线）。
+    steps:
+      - action: goto
+        target: /admin/settings
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: verify
+        milestone: YAML 原文入口可见
+        expect:
+          - "设置页右上显示「编辑 YAML」链接"
+          - "打开该链接（/admin/api/settings/yaml）页面显示 YAML 原文，含 baseURL 与 title: huan E2E 最小站"
+        hints:
+          - "链接 target=_blank：agent-browser 打开新标签或直接 goto ${base}/admin/api/settings/yaml"
+          - "注意：API 直连仍需 Authorization 头；浏览器新标签无头会 401——
+            断言原文改走 api-probe（下一步）+ UI 只断言链接存在与可点"
+          - "verify 失败先 screenshot（命名 bs-003-fail）再判负"
+      - action: screenshot
+        name: bs-003-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { contains: "title: huan E2E 最小站" }
+      - action: api-probe
+        method: PUT
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}", Content-Type: application/json }
+        body:
+          content: |
+            baseURL: http://127.0.0.1:1313/
+            title: huan E2E YAML直改浏览器
+            languageCode: zh-cn
+            publishDir: public
+            paginate: 10
+            hasCJKLanguage: true
+        expect:
+          status: 200
+          body: { status: saved }
+          side_effect: async-rebuild
+      - action: api-probe
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { contains: "title: huan E2E YAML直改浏览器" }
+      - action: verify
+        milestone: 浏览器看到 YAML 改动生效
+        expect:
+          - "回到设置页刷新，站点标题输入框显示 huan E2E YAML直改浏览器"
+          - "顶栏左侧站点名同步显示 huan E2E YAML直改浏览器"
+        hints:
+          - "结构化 GET 与 YAML 原文同源（huan.yaml），设置页回显新值"
+          - "verify 失败先 screenshot（命名 bs-003-fail-2）再判负"
+      - action: screenshot
+        name: bs-003-milestone-2
+    cleanup:
+      - action: fs.write
+        path: $site/huan.yaml
+        content: |
+          baseURL: http://127.0.0.1:1313/
+          title: huan E2E 最小站
+          languageCode: zh-cn
+          publishDir: public
+          paginate: 10
+          hasCJKLanguage: true
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: bs-004
+    name: 非法值旅程：破坏的 YAML 提交被拒，落盘不变
+    severity: P1
+    # SPA 无 YAML 编辑框，非法值防线在服务端（api/settings.yaml set-005 同源）：
+    # 400 {"error":"invalid YAML: yaml: ..."} 且 huan.yaml 原样。浏览器侧验证
+    # 落盘未变后设置页回显仍是旧标题（用户可见的「未破坏」证据）。
+    steps:
+      - action: api-probe
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { contains: "title: huan E2E 最小站" }
+      - action: api-probe
+        method: PUT
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}", Content-Type: application/json }
+        body: { content: "title: [unclosed" }
+        expect:
+          status: 400
+          body: { error: { matches: "^invalid YAML: yaml: .*" } }
+      - action: api-probe
+        method: GET
+        path: /admin/api/settings/yaml
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { contains: "title: huan E2E 最小站" }   # 落盘未变
+      - action: goto
+        target: /admin/settings
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: verify
+        milestone: 设置页未受非法提交影响
+        expect:
+          - "站点标题输入框仍显示 huan E2E 最小站"
+          - "页面无错误横幅（保存条区域无红色报错）"
+        hints:
+          - "服务端 400 时 SPA 会显示红色错误文案（Settings.tsx saveState error 分支）——
+            本旅程错误经 api-probe 提交不经 SPA，页面应保持干净"
+          - "verify 失败先 screenshot（命名 bs-004-fail）再判负"
+      - action: screenshot
+        name: bs-004-milestone-1
