@@ -1,0 +1,243 @@
+# 套件：admin-plugins —— admin SPA 插件管理浏览器旅程
+#
+# 目的：以管理员角色走插件生命周期——列表浏览、加载 .so、重载、卸载；
+#       浏览器为壳、api-probe 为锚（每次操作后 /admin/api/plugins 回读旁证）。
+#
+# ★ runtime: daemon（不是 dev）· fixture: with-plugins · 端口: 13330（RUNBOOK §3 browser 段 bp=13330）
+#   决策依据（Task 8 实测结论）：SPA 插件页（/admin/plugins）的数据源是
+#   GET /admin/api/plugins，而 dev 模式不初始化 pluginManager——该端点在 dev 下
+#   恒返回 {"status":"plugin manager unavailable"}，SPA 列表恒空，整套件全废。
+#   daemon（Task 1 后 HUAN_ADMIN_TOKEN env 生效）下端点正常。故本套件整套走
+#   daemon（RUNBOOK §4.2 启动），与 Task 8 的 api 套件 plugins-admin@13295 互补：
+#   13295 覆盖 API 面（错误路径/参数校验），本套件覆盖 SPA 交互面。
+#   注意：daemon 无 LiveReload/前台注入语义（FIXTURES.md with-plugins 偏差 5），
+#   本套件不涉及前台断言，不受影响。
+#
+# 执行前置（按 RUNBOOK §2 准备 + patterns.md §7 现场编译）：
+#   go build -o /tmp/huan-e2e/huan ./cmd/huan        # ${bin}，本 run 唯一
+#   cp -r tests/e2e/fixtures/with-plugins $site && mkdir -p $site/.huan-home
+#   # 两枚 fixture 声明插件是独立 Go module，必须在各自子目录内编译：
+#   ( cd plugins/seo-injector && go build -buildmode=plugin -o $site/plugins/seo-injector.so . )
+#   ( cd plugins/sitemap-enhancer && go build -buildmode=plugin -o $site/plugins/sitemap-enhancer.so . )
+#   # bp-002/003 的 load/reload 素材（属主 module，worktree 根编译）：
+#   go build -buildmode=plugin -o $site/plugins/simple-plugin.so ./internal/plugin/testdata/simple_plugin
+#   HUAN_ADMIN_TOKEN=e2e-fixed-token HUAN_HOME=$site/.huan-home \
+#     $bin daemon -s $site --port 13330 --bind 127.0.0.1 &   # 探活 /health
+#   浏览器用 agent-browser；verify 失败先 screenshot 再判负（RUNBOOK §5）。
+#
+# ===== 2026-08-15 agent-browser 实走校准（关键事实，expect/hints 依据）=====
+#   - 认证：原生 window.prompt（同 admin-content-crud.yaml 校准注记），应答
+#     `dialog accept "${token}"`，可能连弹两次（Layout 与页面组件并发 fetch）。
+#     sessionStorage key `huan-admin-token`，同一浏览器会话内二次进站不再弹。
+#   - 插件页（/admin/plugins）用户可见文案：页头「插件管理」+ 右上「加载新插件」
+#     按钮（Plus 图标）；表格列头「名称 版本 来源 能力 状态 加载时间 操作」；
+#     compiled 行的操作列显示灰字「系统内置」（无按钮），loaded 行显示
+#     「重载」（RefreshCw 图标）+「卸载」（X 图标）两个小按钮；底部统计
+#     「共 N 个插件」；官方插件名旁有「官方」徽章与 tags 徽章（seo/og/twitter 等）。
+#   - 编译 2 枚 .so（fixture 声明双插件）后初始列表：「共 2 个插件」，
+#     seo_injector 与 sitemap_enhancer 各一行（source=compiled、状态绿点 active、
+#     版本 0.1.0、操作列「系统内置」）。★ FIXTURES.md with-plugins 偏差 4 的
+#     total=1 口径已过时（Task 8 与本套件两次独立实测均 total=2），bp-001 按 2 断言。
+#   - 「加载新插件」→ Radix Dialog「加载插件」（描述「输入 .so 插件文件的路径」），
+#     输入框 placeholder 「/path/to/plugin.so」，按钮「取消/加载」——「加载」初始
+#     disabled，填入路径后激活。成功后弹窗关闭、列表刷新为「共 3 个插件」，
+#     新行 simple-test（source=loaded、有「重载/卸载」按钮、无版本无 tags）。
+#   - 「重载」→ Dialog「重载插件」（描述「输入新的 .so 文件路径以重载 simple-test」），
+#     同样的路径输入框 +「取消/重载」按钮；成功后列表保持 3（path 换新 .so 亦可）。
+#   - 「卸载」无确认弹窗（与内容删除不同）——点击即 POST unload、列表立即刷新，
+#     simple-test 行消失回到「共 2 个插件」。
+#   - 审计旁证：load/unload/reload 落 $site/memory/daily/<date>.md 的
+#     action: plugin.load / plugin.unload / plugin.reload 行。
+#
+# ===== 实测发现的边界（写用例必须绕开或显式断言）=====
+#   - compiled 插件不可 reload/unload：API 对 compiled 名字返回
+#     {"error":"plugin \"seo_injector\": cannot reload compiled plugin"}；SPA 侧
+#     的呈现是 compiled 行操作列只有「系统内置」灰字（无按钮）——bp-003 只对
+#     loaded 来源的 simple-test 走重载/卸载。
+#   - 重复 load 同名 .so：API 返回 {"error":"plugin: name already registered"}；
+#     浏览器内该错误显示为页面顶部红条（AlertCircle + error 文本）。bp-002 的
+#     P2 观察断言记录此路径（不判负）。
+#   - simple-test 的 version/capability/author/tags 均空（simple_plugin testdata
+#     不实现 Metadata 富信息），行内显示「-」——断言只看 name/source/status。
+#
+# 期望值出处：FIXTURES.md with-plugins（初始 total=2 为 Task 8 + 本套件实测口径）。
+suite: admin-plugins
+module: admin-spa
+fixture: with-plugins
+runtime: daemon
+journey:
+  persona: 管理员
+  goal: 在后台插件页完成插件列表浏览、加载 .so、重载与卸载的生命周期管理
+browser_defaults:
+  viewport: 1280x800
+  url: http://127.0.0.1:${port}/admin
+tests:
+  - id: bp-001
+    name: 进入插件管理页浏览已声明插件列表
+    severity: P0
+    steps:
+      - action: goto
+        target: /admin/plugins
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\"，可能连弹两次（见套件头校准注记）"
+      - action: wait
+        for: element-visible
+        hints:
+          - "「插件管理」页头与插件表格行"
+          - "加载中短暂显示「加载中...」，列表数据来自 /admin/api/plugins"
+      - action: verify
+        milestone: 插件列表可见
+        expect:
+          - "页面显示「插件管理」标题与右上「加载新插件」按钮"
+          - "列表出现 seo_injector 与 sitemap_enhancer 两行，状态均为 active（绿点）"
+          - "底部统计显示「共 2 个插件」"
+        hints:
+          - "表头列：名称 版本 来源 能力 状态 加载时间 操作"
+          - "官方插件名旁有「官方」徽章与 tags 徽章（seo/og/twitter、seo/sitemap）"
+          - "compiled 行的操作列显示「系统内置」灰字，无重载/卸载按钮"
+          - "★ total=2 为 Task 8 + Task 11 两次实测口径（FIXTURES.md 偏差 4 的 total=1 已过时）"
+          - "verify 失败先 screenshot（命名 bp-001-fail）再判负"
+      - action: screenshot
+        name: bp-001-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 2
+            plugins.0.name: seo_injector
+            plugins.0.source: compiled
+            plugins.0.status: active
+            plugins.1.name: sitemap_enhancer
+            plugins.1.source: compiled
+
+  - id: bp-002
+    name: 加载 .so 插件旅程：加载新插件对话框→填路径→列表出现 loaded 行
+    severity: P0
+    # 素材：$site/plugins/simple-plugin.so（前置已现场编译，见套件头注释）。
+    steps:
+      - action: goto
+        target: /admin/plugins
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\"（同一浏览器会话二次进站可能不再弹）"
+      - action: interact
+        intent: 点击右上「加载新插件」按钮
+        hints:
+          - "深色主按钮，带 Plus 图标，在「插件管理」标题同一行右侧"
+      - action: wait
+        for: element-visible
+        hints:
+          - "「加载插件」对话框出现，含路径输入框（placeholder /path/to/plugin.so）"
+      - action: verify
+        milestone: 加载对话框出现
+        expect:
+          - "对话框标题「加载插件」，提示「输入 .so 插件文件的路径」"
+          - "「加载」按钮初始为禁用态（未填路径时不可点）"
+        hints:
+          - "对话框底部有「取消」「加载」两个按钮"
+      - action: interact
+        intent: 在路径输入框填 ${site}/plugins/simple-plugin.so，点击加载
+        hints:
+          - "路径是 ${site}（fixture 可写拷贝）下的绝对路径；填入后「加载」按钮激活"
+          - "加载中有短暂「加载中...」提示，成功后对话框自动关闭并刷新列表"
+      - action: wait
+        for: element-visible
+        hints:
+          - "列表刷新出现 simple-test 行，底部计数「共 3 个插件」"
+      - action: verify
+        milestone: 新插件加载成功并出现在列表
+        expect:
+          - "列表出现 simple-test 行，来源为 loaded（徽章着色），状态 active"
+          - "simple-test 行的操作列有「重载」与「卸载」两个按钮（非「系统内置」）"
+          - "底部统计显示「共 3 个插件」"
+        hints:
+          - "P2 观察项（不判负）：对已加载同名插件重复 load，API 报 plugin: name already registered，页面顶部显示红色错误条"
+          - "simple-test 的版本/能力/作者列为「-」（testdata 不实现 Metadata 富信息），断言只看 name/source/status"
+          - "verify 失败先 screenshot（命名 bp-002-fail）再判负"
+      - action: screenshot
+        name: bp-002-milestone-1
+      - action: api-probe
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 3
+            plugins.2.name: simple-test
+            plugins.2.source: loaded
+            plugins.2.status: active
+
+  - id: bp-003
+    name: 重载与卸载旅程：loaded 插件 reload→卸载→列表回落
+    severity: P1
+    preconditions:
+      - bp-002    # 依赖其加载的 simple-test（loaded 来源）
+    steps:
+      - action: goto
+        target: /admin/plugins
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\"（同一浏览器会话可能不再弹）"
+      - action: interact
+        intent: 点击 simple-test 行操作列的「重载」按钮
+        hints:
+          - "「重载」是 RefreshCw 图标小按钮，与「卸载」（X 图标）并列，仅 loaded 来源行有"
+      - action: wait
+        for: element-visible
+        hints:
+          - "「重载插件」对话框出现，描述含目标插件名 simple-test"
+      - action: verify
+        milestone: 重载对话框出现
+        expect:
+          - "对话框标题「重载插件」，提示「输入新的 .so 文件路径以重载 simple-test」"
+          - "「重载」按钮初始为禁用态（未填路径时不可点）"
+        hints:
+          - "compiled 行（系统内置）没有重载入口——API 层同样拒绝（cannot reload compiled plugin），本用例只覆盖 loaded 来源"
+      - action: interact
+        intent: 在重载对话框填 ${site}/plugins/simple-plugin.so，点击重载
+        hints:
+          - "路径与 bp-002 相同即可（重载同源 .so 合法）；成功后对话框关闭、列表刷新"
+      - action: wait
+        for: element-visible
+        hints:
+          - "列表仍显示 simple-test 行，「共 3 个插件」"
+      - action: verify
+        milestone: 插件重载成功
+        expect:
+          - "列表仍显示 simple-test 行且状态 active，底部统计「共 3 个插件」"
+          - "加载时间列刷新为新的时间戳（晚于 bp-002 的初始加载时间）"
+        hints:
+          - "重载不改变条目数与来源（仍 loaded）"
+          - "verify 失败先 screenshot（命名 bp-003-fail）再判负"
+      - action: screenshot
+        name: bp-003-milestone-1
+      - action: interact
+        intent: 点击 simple-test 行操作列的「卸载」按钮
+        hints:
+          - "「卸载」是 X 图标小按钮；无确认弹窗（与内容删除不同），点击即生效"
+      - action: wait
+        for: element-visible
+        hints:
+          - "列表刷新，simple-test 行消失，底部计数「共 2 个插件」"
+      - action: verify
+        milestone: 插件卸载成功
+        expect:
+          - "列表不再出现 simple-test，仅剩 seo_injector 与 sitemap_enhancer"
+          - "底部统计回到「共 2 个插件」"
+        hints:
+          - "若卸载未生效可重试一次（按钮有 actionLoading 瞬态禁用）"
+          - "verify 失败先 screenshot（命名 bp-003-fail）再判负"
+      - action: screenshot
+        name: bp-003-milestone-2
+      - action: api-probe
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 2 }

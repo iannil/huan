@@ -1,0 +1,218 @@
+# 套件：site-rendering —— 前台站点渲染浏览器旅程（访客视角，无 token）
+#
+# 目的：以站点访客角色走前台渲染链路——首页文章链接、文章页标题与正文、
+#       404、tag 页、LiveReload 双页自动刷新；断言只用用户可见内容，
+#       DOM 结构（a.post-link、h1#page-title）只进 hints。
+#
+# runtime: dev · fixture: minimal · 端口: 13340（RUNBOOK §3 browser 段 sr=13340）
+# 执行前置（按 RUNBOOK §2 准备）：
+#   go build -o /tmp/huan-e2e/huan ./cmd/huan     # ${bin}
+#   cp -r tests/e2e/fixtures/minimal $site && mkdir -p $site/.huan-home
+#   HUAN_ADMIN_TOKEN=e2e-fixed-token HUAN_HOME=$site/.huan-home \
+#     $bin dev -s $site --port 13340 --bind 127.0.0.1 &   # 探活打 /（dev 无 /health）
+#   浏览器用 agent-browser；前台无认证（不弹 token prompt）；
+#   verify 失败先 screenshot 再判负（RUNBOOK §5）。
+#
+# ===== 2026-08-15 agent-browser 实走校准（关键事实，expect/hints 依据）=====
+#   - 首页（/）：h1 为站点标题「huan E2E 最小站」，正文 3 条文章链接
+#     （草稿文章→/posts/draft-post/、你好 huan→/posts/hello-huan/、
+#     关于→/about/）。★ 首页由内置模板渲染（FIXTURES.md minimal：head 含
+#     generator meta「Hugo 0.160.1」），断言用链接可见性而非模板细节；
+#     首页含 draft 链接是 FIXTURES.md minimal 偏差 1（列表聚合泄露 draft），
+#     sr-001 显式断言「3 条链接含草稿」而非绕开。
+#   - 文章页（/posts/hello-huan/）：页 title「你好 huan - huan E2E 最小站」，
+#     模板 h1#page-title 文本「你好 huan」，article 内正文段落
+#     「这是 huan E2E 测试固定数据的第一篇文章。」其中 huan 为加粗（strong）。
+#     dev 页面注入 livereload.js 脚本（<script src=.../livereload.js>）——
+#     sr-005 依赖此注入。
+#   - 404（/not-exist/）：HTTP 404，页面 body 纯文本「404 page not found」
+#     （Go 标准默认 404 响应，text/plain，无自定义 404 模板）——sr-003 断言
+#     该文本与浏览器可感知的错误态。
+#   - tag 页（/tags/go/）：200，页 title「go - huan E2E 最小站」，h1「go」，
+#     1 条链接「你好 huan」；/tags/e2e/ 同形态。★ /tags/（terms 根页）404
+#     （terms 模板缺失的 WARN 常态，FIXTURES.md），tag 断言只打 /tags/go/。
+#   - LiveReload（sr-005）：两个 tab 并开 /posts/hello-huan/，改
+#     $site/content/posts/hello-huan.md 追加标记段落 → 两 tab 均 15s 内
+#     自动刷新出现新文本，URL 保持不变。实测约 1-2s 即刷。
+#
+# ===== 实测发现的边界（写用例必须绕开或显式断言）=====
+#   - 首页/tag 列表含 draft 文章链接（偏差 1）——sr-001 显式断言含「草稿文章」，
+#     不判负；这是已知状态而非本套件要抓的回归。
+#   - 404 无自定义模板：只有纯文本「404 page not found」——不要断言导航栏、
+#     模板结构或中文错误文案。
+#   - tag 链接的 href 是绝对 URL（http://127.0.0.1:13340/...）——断言用可见
+#     文本与目标路径，不断言 href 拼接形态。
+#
+# 期望值出处：FIXTURES.md minimal（post1=你好 huan，tags=[go,e2e]）。
+suite: site-rendering
+module: front-site
+fixture: minimal
+runtime: dev
+journey:
+  persona: 站点访客
+  goal: 浏览前台首页、文章页、tag 页与 404，并体验编辑内容后的 LiveReload 自动刷新
+browser_defaults:
+  viewport: 1280x800
+  url: http://127.0.0.1:${port}/
+tests:
+  - id: sr-001
+    name: 首页渲染：站点标题与文章链接可见
+    severity: P0
+    steps:
+      - action: goto
+        target: /
+      - action: wait
+        for: element-visible
+        hints:
+          - "首页标题与文章链接（a.post-link）"
+      - action: verify
+        milestone: 首页渲染完成
+        expect:
+          - "页面大标题显示「huan E2E 最小站」"
+          - "页面出现可见链接「${fixture.minimal.post1.title}」「关于」，点击目标分别为 /posts/hello-huan/ 与 /about/"
+          - "文章链接共 3 条（含「草稿文章」——FIXTURES.md minimal 偏差 1：列表聚合泄露 draft，显式断言不绕开）"
+        hints:
+          - "链接是 a.post-link（fixture layouts/index.html 遍历 RegularPages 输出）"
+          - "首页 head 含 generator meta（内置模板渲染）——不要断言 fixture 模板细节"
+          - "verify 失败先 screenshot（命名 sr-001-fail）再判负"
+      - action: screenshot
+        name: sr-001-milestone-1
+
+  - id: sr-002
+    name: 文章页渲染：标题与加粗正文
+    severity: P0
+    steps:
+      - action: goto
+        target: /posts/hello-huan/
+      - action: wait
+        for: element-visible
+        hints:
+          - "文章标题 h1 与正文段落"
+      - action: verify
+        milestone: 文章页渲染完成
+        expect:
+          - "页面大标题显示「${fixture.minimal.post1.title}」，浏览器标签页标题为「你好 huan - huan E2E 最小站」"
+          - "正文段落显示「这是 huan E2E 测试固定数据的第一篇文章。」，其中「huan」一词为加粗显示"
+        hints:
+          - "大标题是 h1#page-title（fixture layouts/_default/single.html）；加粗是 article 内 strong 元素"
+          - "dev 页面注入 livereload.js 脚本标签（sr-005 依赖）"
+          - "verify 失败先 screenshot（命名 sr-002-fail）再判负"
+      - action: screenshot
+        name: sr-002-milestone-1
+
+  - id: sr-003
+    name: 404 页：访问不存在路径返回错误提示
+    severity: P1
+    steps:
+      - action: goto
+        target: /not-exist/
+      - action: wait
+        for: element-visible
+        hints:
+          - "错误提示文本「404 page not found」"
+      - action: verify
+        milestone: 404 页面呈现
+        expect:
+          - "页面显示错误文本「404 page not found」（纯文本，无站点导航/模板结构）"
+          - "浏览器地址栏 URL 保持 /not-exist/（未被重定向到首页）"
+        hints:
+          - "Go 标准默认 404（text/plain）；无自定义 404 模板——勿断言中文文案或导航栏"
+          - "agent-browser 可用页面快照/读取 body 文本确认；HTTP status 旁证见下方 api-probe"
+          - "verify 失败先 screenshot（命名 sr-003-fail）再判负"
+      - action: screenshot
+        name: sr-003-milestone-1
+      - action: api-probe
+        method: GET
+        path: /not-exist/
+        expect:
+          status: 404
+
+  - id: sr-004
+    name: tag 页渲染：/tags/go/ 列出带该 tag 的文章
+    severity: P1
+    steps:
+      - action: goto
+        target: /tags/go/
+      - action: wait
+        for: element-visible
+        hints:
+          - "tag 标题 h1 与文章链接"
+      - action: verify
+        milestone: tag 页渲染完成
+        expect:
+          - "页面大标题显示「go」，浏览器标签页标题为「go - huan E2E 最小站」"
+          - "页面出现 1 条文章链接「${fixture.minimal.post1.title}」（hello-huan 的 tags 含 go）"
+        hints:
+          - "fixture layouts/_default/list.html 遍历 .Pages 输出 a.post-link"
+          - "/tags/e2e/ 同形态（可作补充观察）；/tags/ 根页 404（terms 模板缺失，勿断言）"
+          - "verify 失败先 screenshot（命名 sr-004-fail）再判负"
+      - action: screenshot
+        name: sr-004-milestone-1
+
+  - id: sr-005
+    name: LiveReload 双页刷新：改内容→两个并开页面自动出现新文本
+    severity: P0
+    # 两页并开版本：第一个 tab 停留 /posts/hello-huan/，第二个 tab 开同 URL；
+    # fs.write 改 $site 内容文件 → 两 tab 都 wait reload 并各自 verify 新文本。
+    steps:
+      - action: goto
+        target: /posts/hello-huan/
+      - action: wait
+        for: element-visible
+        hints:
+          - "文章标题 h1（确认页面就绪再开第二 tab）"
+      - action: interact
+        intent: 在同一浏览器新开一个标签页，打开相同的文章地址 /posts/hello-huan/
+        hints:
+          - "agent-browser：tab new http://127.0.0.1:${port}/posts/hello-huan/；两 tab 均确认正文旧文本可见"
+          - "两 tab 都加载了 livereload.js（dev 注入），保持打开等待变更"
+      - action: wait
+        for: element-visible
+        hints:
+          - "第二个 tab 同样显示文章标题（两页就绪）"
+      - action: verify
+        milestone: 双页并开就绪
+        expect:
+          - "两个标签页均显示文章标题「${fixture.minimal.post1.title}」与正文段落"
+          - "此时页面均未出现标记文本「LiveReload 双页刷新标记段落」"
+        hints:
+          - "标记文本是下一步 fs.write 追加的段落，用于判定刷新是否发生"
+      - action: screenshot
+        name: sr-005-milestone-1
+      # fs 动作：改 $site 内容文件触发 LiveReload（写 ${site}，绝不改仓库 fixture）
+      # 执行指引（YAML 之外的实际操作）：
+      #   python3 - <<'EOF'
+      #   from pathlib import Path
+      #   p = Path("${site}/content/posts/hello-huan.md")
+      #   t = p.read_text()
+      #   t = t.replace("这是 **huan** E2E 测试固定数据的第一篇文章。",
+      #                 "这是 **huan** E2E 测试固定数据的第一篇文章。\n\nLiveReload 双页刷新标记段落 e2e-sr-005。")
+      #   p.write_text(t)
+      #   EOF
+      - action: wait
+        for: reload
+        hints:
+          - "fs.write 后等待两个 tab 自动刷新（实测约 1-2s，超时上限 15s）"
+          - "reload 由 dev 的 livereload WS 广播驱动（/livereload + livereload.js 注入）"
+      - action: verify
+        milestone: 第一个标签页自动刷新
+        expect:
+          - "第一个标签页（未手动操作）出现新段落文本「LiveReload 双页刷新标记段落 e2e-sr-005」"
+          - "URL 仍为 /posts/hello-huan/（原地刷新，无跳转）"
+        hints:
+          - "agent-browser：切回第一个 tab 后 wait --text；verify 失败先 screenshot（命名 sr-005-fail）再判负"
+      - action: verify
+        milestone: 第二个标签页自动刷新
+        expect:
+          - "第二个标签页同样出现新段落文本「LiveReload 双页刷新标记段落 e2e-sr-005」"
+          - "两页内容一致（同一变更双页生效）"
+        hints:
+          - "agent-browser：tab 切换后 wait --text"
+          - "verify 失败先 screenshot（命名 sr-005-fail）再判负"
+      - action: screenshot
+        name: sr-005-milestone-2
+    cleanup:
+      # 恢复被 fs.write 修改的内容文件（从仓库 fixture 原样拷回），避免污染 ${site} 后续用例：
+      - action: fs.restore
+        path: content/posts/hello-huan.md
+        from: tests/e2e/fixtures/minimal/content/posts/hello-huan.md
