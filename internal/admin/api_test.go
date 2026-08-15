@@ -610,3 +610,40 @@ func TestAdminAPI_PluginEndpoints_NoManager(t *testing.T) {
 		t.Errorf("POST /plugins/load without manager: want 503, got %d", resp2.StatusCode)
 	}
 }
+
+// TestDeleteContent_LanguageNeutralRelPath_ReportsRealFile verifies the
+// defensive branch: deleting via the language-neutral relPath of a
+// sidecar-only page (e.g. posts/hello.md when only hello.en.md exists on
+// disk) fails with a helpful error naming the real files, instead of a
+// bare "no such file" — the E2E-found bug where the browser's delete
+// button 500'd with no recovery path.
+func TestDeleteContent_LanguageNeutralRelPath_ReportsRealFile(t *testing.T) {
+	h, src := newTestAPIHandler(t)
+	if err := os.MkdirAll(filepath.Join(src, "content", "posts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "content", "posts", "hello.en.md"),
+		[]byte("---\ntitle: Hello EN\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/content/posts/hello.md", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (refuse to guess-delete)", w.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if !strings.Contains(body["error"], "hello.en.md") {
+		t.Errorf("error should name the real file, got: %q", body["error"])
+	}
+	// The real file must survive.
+	if _, err := os.Stat(filepath.Join(src, "content", "posts", "hello.en.md")); err != nil {
+		t.Error("real file was deleted")
+	}
+}

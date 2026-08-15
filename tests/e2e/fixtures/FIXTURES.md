@@ -126,6 +126,7 @@ zh-cn（默认）+ en 双语言站，覆盖 languages 端点、多语言 build�
 1. **daemon 公开 API 的多语言口径是「源文件维度」而非「站点产出维度」**：`/api/v1/pages` 把 hello.en 与 hello.zh-cn 当两条独立记录，`url` 均为 `/posts/hello/`（en 条目丢 `/en/` 前缀、无 language 字段）——无法从公开 API 区分语言，也无法拼出 en 页面 URL。断言时只验条数/标题/去重 URL，勿断言语言归属。
 2. **sitemap/列表的 url 与公开 API 的 url 口径不同**：build 产物内为绝对 URL（baseURL+可选 /en/ 前缀），daemon /api/v1 为相对路径。两套断言分开写。
 3. dev serve 的 en 页面可正常访问（`/en/`、`/en/posts/hello/` 返回 200 且内容正确，livereload 注入），但 **`huan dev` 无 `--plugins` 场景下 build 走 BuildMultiSite 时每语言各自渲染**——多语言与 dev 断言互不干扰。
+4. **admin 内容 API 的 en 条目 relPath/filePath 行为已修复（2026-08-15，fix-e2e-found-bugs Task 2）**：en 条目的 `relPath` 语言中性（如 `posts/hello.md`），`filePath` 为真实文件名（`posts/hello.en.md`）。此前浏览器用 `relPath` 做删除/更新 key 会命中物理上不存在的 `hello.md` 而 500（无自愈路径）。修复后前端操作 key 改用 `filePath`；后端对语言中性 `relPath` 的误删请求会 500 并报出真实语言变体文件名（绝不猜删）。断言用 `filePath` 做写操作 key。
 
 ### 实测记录（2026-08-15，worktree e2e-test-system，commit 801d00f 构建）
 

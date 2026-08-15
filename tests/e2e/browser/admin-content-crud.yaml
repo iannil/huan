@@ -31,13 +31,14 @@
 #     api-probe 必须用带后缀路径回读。
 #
 # ===== 实测发现的 SPA/API 偏差（写用例必须绕开或显式断言）=====
-#   - 偏差 1（★ 影响 bc-002/bc-004 设计）：GET /admin/api/content 列表项的 relPath
-#     对【en 语言文章】丢失语言后缀（文件 e2e-browser-新建.en.md 被列为
-#     posts/e2e-browser-新建.md），filePath 则双拼后缀（.en.en.md）——列表 API 的
-#     语言路径归一 bug。后果：浏览器内删除 en 文章必然 500「加载失败: delete ...」。
-#     对策：bc-002/bc-003 的新建把语言切到 zh-CN（relPath 正确），bc-004 删除操作
-#     也用 zh-CN 文章走通浏览器旅程；en 文章的列表路径偏差在 bc-002 用 P2 观察断言
-#     记录（不判负）。zh-CN 实测 relPath=posts/<slug>.zh-CN.md（正确）。
+#   - 偏差 1（Task 2 修复后改为纯观察，不再阻塞 en 删除）：GET /admin/api/content
+#     列表项的 relPath 对【en 语言文章】丢失语言后缀（文件 e2e-browser-新建.en.md 被
+#     列为 posts/e2e-browser-新建.md），filePath 则是真实文件名（posts/hello.en.md）。
+#     修复前后果：浏览器内删除 en 文章必然 500「加载失败: delete ...」。Task 2 修复
+#     （2026-08-15）：前端操作 key（批量选择/删除/草稿切换/编辑跳转）改用 filePath，
+#     en 文章可用真实文件名删除（200）；后端对语言中性 relPath 的误删请求 500 并报出
+#     真实语言变体文件名（绝不猜删）。bc-002/bc-003 的新建仍切 zh-CN 以确保列表路径
+#     relPath 正确可读；bc-007 新增 en 旅程验证 filePath 删除 200。
 #   - 偏差 2：dashboard/列表的「全部 · N 篇」计数含 draft（口径同 admin status total）。
 #   - draft 开关（bc-005）：编辑器顶栏草稿开关 + 保存 → status.drafts -1（实测
 #     drafts 2→1、published 2→3）。
@@ -90,7 +91,7 @@ tests:
   - id: bc-002
     name: 新建文章旅程：填表创建→落盘可回读
     severity: P0
-    # 语言必须显式切到 ZH-CN（见套件头偏差 1：默认 en 的列表路径会丢后缀）。
+    # 语言切到 ZH-CN 以确保列表 relPath 正确可读（en 旅程已可用，见 Task 2 修复与 bc-007）。
     steps:
       - action: goto
         target: /admin/content
@@ -145,7 +146,7 @@ tests:
           - "返回内容列表后「全部 · 4 篇」，出现标题 e2e-browser-新建"
           - "「草稿」筛选 chip 计数变为 2"
         hints:
-          - "P2 观察项（不判负）：新建若用默认 en 语言，列表 relPath 会丢 .en 后缀（套件头偏差 1）"
+          - "P2 观察项（不判负）：新建若用默认 en 语言，列表 relPath 会丢 .en 后缀（套件头偏差 1）；但 filePath 为真实文件名，en 删除已可用（bc-007）"
       - action: screenshot
         name: bc-002-milestone-2
 
@@ -397,3 +398,63 @@ tests:
         hints:
           - "goto http://127.0.0.1:13315/admin/content/edit?path=posts%2Fzh-only.zh-cn.md"
           - "静态徽章是边框小标签，不是可点的 select——有翻译伙伴才渲染下拉"
+
+  - id: bc-007
+    name: en 文章新建→列表出现→删除→API 404（filePath 真实文件名删除）
+    severity: P1
+    # fixture_override：与 bc-006 相同，multilang 拷贝起独立 dev 实例。Task 2 修复后，
+    # 前端列表操作 key 用 filePath（真实文件名，如 posts/e2e-en.快速.en.md），en 删除不再 500。
+    hints:
+      - "启动 multilang 独立实例（端口 13316 = bc 段 +6），URL 替换 http://127.0.0.1:13316"
+    steps:
+      - action: goto
+        target: http://127.0.0.1:13316/admin/content
+      - action: enter-token
+        hints:
+          - "window.prompt 应答：dialog accept \"${token}\""
+      - action: interact
+        intent: 点击新建按钮
+        hints:
+          - "列表页右上「新建」按钮"
+      - action: wait
+        for: url-change
+      - action: interact
+        intent: 在标题输入框填 e2e-en.快速，语言保持默认 EN，点击创建
+        hints:
+          - "多语言站默认语言可选；en 新建落盘 posts/e2e-en.快速.en.md"
+      - action: wait
+        for: element-visible
+        hints:
+          - "编辑器顶栏文件路径显示 posts/e2e-en.快速.en.md（真实文件名）"
+      - action: interact
+        intent: 返回内容列表
+        hints:
+          - "点击顶栏「返回」按钮"
+      - action: wait
+        for: element-visible
+        hints:
+          - "列表出现标题 e2e-en.快速，且行内路径处显示 filePath posts/e2e-en.快速.en.md"
+      - action: interact
+        intent: 悬停标题为 e2e-en.快速 的行并勾选其复选框，点击删除并确认
+        hints:
+          - "checkbox 悬停才显现：先 hover 行再点行首圆形勾选框；删除走确认弹窗"
+      - action: wait
+        for: element-visible
+        hints:
+          - "列表刷新，确认弹窗消失"
+      - action: verify
+        milestone: en 文章删除成功
+        expect:
+          - "列表不再出现 e2e-en.快速"
+          - "「全部 · N 篇」计数回到 3"
+        hints:
+          - "verify 失败先 screenshot（命名 bc-007-fail）再判负：若此处 500，说明 filePath 删除 key 仍不对"
+      - action: screenshot
+        name: bc-007-milestone-1
+      - action: api-probe
+        method: GET
+        path: http://127.0.0.1:13316/admin/api/content/posts/e2e-en.快速.en.md
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 404
+          body: { error: { matches: "^read file: .*no such file or directory" } }

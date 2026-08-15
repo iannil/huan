@@ -222,7 +222,7 @@ export default function ContentList() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
 
-  // --- batch selection state (keyed by relPath) ---
+  // --- batch selection state (keyed by filePath — real filename) ---
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchBusy, setBatchBusy] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -369,24 +369,24 @@ export default function ContentList() {
     )
   }
 
-  // --- selection helpers (by relPath) ---
+  // --- selection helpers (by filePath — real filename) ---
   const allSelected =
     paginatedItems.length > 0 &&
-    paginatedItems.every((it) => selected.has(it.relPath))
+    paginatedItems.every((it) => selected.has(it.filePath))
 
   const toggleAll = () => {
     if (allSelected) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(paginatedItems.map((it) => it.relPath)))
+      setSelected(new Set(paginatedItems.map((it) => it.filePath)))
     }
   }
 
-  const toggleOne = (relPath: string) => {
+  const toggleOne = (filePath: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(relPath)) next.delete(relPath)
-      else next.add(relPath)
+      if (next.has(filePath)) next.delete(filePath)
+      else next.add(filePath)
       return next
     })
   }
@@ -420,7 +420,7 @@ export default function ContentList() {
     setBatchBusy(true)
     const paths = [...selected]
     const allDraft = paths.every(
-      (p) => allItems.find((it) => it.relPath === p)?.draft
+      (p) => allItems.find((it) => it.filePath === p)?.draft
     )
     const newDraft = !allDraft
     try {
@@ -650,7 +650,7 @@ export default function ContentList() {
                 <div className="divide-y divide-border">
                   {paginatedItems.map((item) => {
                     const rowKey = item.relPath + '\x00' + item.language
-                    const isSelected = selected.has(item.relPath)
+                    const isSelected = selected.has(item.filePath)
                     const isHovered = hoveredRow === rowKey
                     const showCheckbox = isSelected || isHovered
                     return (
@@ -668,7 +668,7 @@ export default function ContentList() {
                         {/* Checkbox — visible on hover or when selected */}
                         <div className="w-4 shrink-0 flex items-center justify-center">
                           <button
-                            onClick={() => toggleOne(item.relPath)}
+                            onClick={() => toggleOne(item.filePath)}
                             className={
                               `w-4 h-4 rounded border transition-all flex items-center justify-center ` +
                               (isSelected
@@ -831,7 +831,7 @@ export default function ContentList() {
                 >
                   <span>
                     {[...selected].every(
-                      (relPath) => allItems.find((it) => it.relPath === relPath)?.draft
+                      (filePath) => allItems.find((it) => it.filePath === filePath)?.draft
                     )
                       ? '发布'
                       : '设为草稿'}

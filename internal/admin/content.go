@@ -175,10 +175,46 @@ func (co *contentOps) update(relPath string, req UpdateContentRequest) (*Content
 	return co.readOne(relPath)
 }
 
-// remove deletes a content file.
+// remove deletes a content file. When relPath is language-neutral (sidecar
+// naming strips the suffix) and no exact file exists, list same-base
+// language variants in the error so callers can self-heal — we never
+// guess-delete a translation variant.
 func (co *contentOps) remove(relPath string) error {
 	fullPath := filepath.Join(co.contentDir, relPath)
-	return os.Remove(fullPath)
+	if err := os.Remove(fullPath); err != nil {
+		if os.IsNotExist(err) {
+			if variants := co.languageVariants(relPath); len(variants) > 0 {
+				return fmt.Errorf("no such file: %s (language variants exist: %s) — delete via the real filename",
+					relPath, strings.Join(variants, ", "))
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// languageVariants lists same-base language-suffixed files for a
+// language-neutral relPath, e.g. posts/hello.md → [posts/hello.en.md].
+func (co *contentOps) languageVariants(relPath string) []string {
+	ext := filepath.Ext(relPath)
+	base := relPath[:len(relPath)-len(ext)]
+	dir := filepath.Dir(relPath)
+	entries, err := os.ReadDir(filepath.Join(co.contentDir, dir))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ext) {
+			continue
+		}
+		n := strings.TrimSuffix(name, ext) // hello.en
+		if i := strings.LastIndex(n, "."); i > 0 && base == filepath.Join(dir, n[:i]) {
+			out = append(out, filepath.Join(dir, name))
+		}
+	}
+	return out
 }
 
 // siblings finds all language variants of the same content file.

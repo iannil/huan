@@ -67,7 +67,7 @@ browser 旅程（agent-browser 实走；截图存 `docs/reports/e2e/assets/20260
 | 2 | simple_plugin `InitPlugin` 签名错（返回 `plugin.Plugin` 跨模块接口身份校验失败，load 恒 500 "InitPlugin has wrong signature"） | P0（插件加载面） | **已修** `9e4c675`（Task 8） | plug-004 前置探针发现；本基线 plug-004/006/007 通过即复验 |
 | 3 | loader_test 过时断言（`$HUAN_HOME/plugins` 子目录布局） | 测试 | **已修** `975991f`（Task 0，基线外） | Task 0 |
 | 4 | draft 泄露进 sitemap/RSS/列表聚合渲染（仅「单页不落盘」「公开 JSON API 排除」两条防线有效） | P1（内容安全） | **未修**（FIXTURES.md minimal 偏差 1 记录在案；bld-004/pub-006/sr-001 按「防线有效+偏差显式断言」口径覆盖） | Task 2 发现；本基线 sr-001 复现（首页含草稿链接） |
-| 5 | en 文章 `relPath` 丢语言后缀 + `filePath` 双拼后缀（`.en.en.md`）——admin 列表 API 的语言路径归一 bug，浏览器删 en 文章必 500 | P1 | **未修**（bc 套件绕开：新建/删除走 zh-CN；bc-002 以 P2 观察项记录） | Task 10 发现；本基线 bc-002..004 按绕开口径全过 |
+| 5 | en 文章 `relPath` 丢语言后缀——admin 列表 API 的语言路径归一 bug，浏览器删 en 文章必 500 | P1 | **已修**（Task 2，fix-e2e-found-bugs，2026-08-15）：前端操作 key（选择/删除/草稿切换/编辑跳转）改用 `filePath` 真实文件名，en 删除 200；后端对语言中性 `relPath` 误删请求 500 并报真实语言变体名（绝不猜删）。bc-007 新增 en 旅程验证 | Task 10 发现；本基线 bc-002..004 按绕开口径全过 |
 | 6 | Settings 页 `hasChanges` ref 不重渲染（表单改脏状态 UI 不刷新） | P2 | **未修**（bs 套件绕开） | Task 10 发现 |
 | 7 | dev 模式无 pluginManager（`/admin/api/plugins` 恒 `{"status":"plugin manager unavailable"}`，200 而非 503）；daemon build 不传 PluginRegistry（serve 页面无插件注入）；`$HUAN_HOME` 陈旧 .so 毒化连带拒绝项目本地同名插件 | 观察 | **未修**（RUNBOOK §4.3/§9 与 FIXTURES 偏差记录在案；plugins-admin 定 daemon、注入断言只对 CLI build） | Task 3/8 观察；本基线 plug 套件与 RUNBOOK 隔离约定即其对策 |
 
