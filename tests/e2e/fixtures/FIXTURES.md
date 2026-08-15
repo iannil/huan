@@ -78,4 +78,147 @@ curl -s http://127.0.0.1:13203/api/v1/pages
 # {"data":[{你好 huan...},{关于...}],"total":2,"page":1,"limit":10}   # draft 已排除
 ```
 
-（后续 Task 3/4 往同一文件追加 multilang / with-plugins 小节。）
+## multilang
+
+zh-cn（默认）+ en 双语言站，覆盖 languages 端点、多语言 build、公开 API。无 draft。
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `huan.yaml` | baseURL=http://127.0.0.1:1313/，title=huan E2E 多语言站，languageCode=zh-cn，defaultContentLanguage=zh-cn，publishDir=public，languages: zh-cn（weight 1）+ en（weight 2，baseURL /en/） |
+| `content/posts/hello.zh-cn.md` | title=你好（中文版），date=2026-08-12，tags=[i18n] |
+| `content/posts/hello.en.md` | title=Hello (EN)，date=2026-08-12，tags=[i18n]（hello 的 en sidecar） |
+| `content/posts/zh-only.zh-cn.md` | title=仅中文，date=2026-08-12，tags=[i18n]（无 en 版） |
+| `layouts/index.html`、`layouts/_default/single.html`、`layouts/_default/list.html` | 与 minimal 逐字节相同（复制） |
+
+### GET /admin/api/content/{relPath}/languages 期望（dev 实测）
+
+- `posts/hello.zh-cn.md` → 200 `{"current":"zh-cn","siblings":[{"language":"en","relPath":"posts/hello.en.md","title":"Hello (EN)","draft":false}]}`
+- `posts/hello.en.md` → 200 `{"current":"en","siblings":[{"language":"zh-cn","relPath":"posts/hello.zh-cn.md","title":"你好（中文版）","draft":false}]}`
+- `posts/zh-only.zh-cn.md` → 200 `{"current":"zh-cn","siblings":[]}`（无翻译伙伴）
+
+### GET /admin/api/status 期望（dev 实测）
+
+- `total=3, published=3, drafts=0`（3 个 sidecar 文件各算 1 条；hello 双语是**两个条目**）
+- `sections=1`，`sectionBreakdown={"posts":3}`
+- `languages=["en","zh-cn"]`（排序实测为字母序，非 weight 序）
+- `mediaCount=0`（无 static/）
+- `recentContent` 3 条全为 `section:"posts"`、`draft:false`、`tags:["i18n"]`；每条含 `filePath`（如 `posts/hello.en.md`，带语言后缀）与 `language` 字段；同 date 下实测顺序 Hello (EN) → 你好（中文版） → 仅中文（同日期排序非确定契约，断言用集合而非顺序）
+
+### 公开 API（daemon 专用；dev 模式 `/api/v1/*` 404 同 minimal）
+
+- `GET /api/v1/pages` → 200 `{"total":3,"page":1,"limit":10}`；`data` 3 条**全部扁平混出**：Hello (EN) 与 你好（中文版） 的 `url` 均为 `/posts/hello/`（**en 条目的 url 无 `/en/` 前缀，且无任何 language 字段**——已知状态偏差见下）；仅中文 `/posts/zh-only/`
+- **无 `lang` 查询参数**（contentindex handler 仅支持 `section`/`tag`/`q`/`sort`/`page`/`limit`）——spec 中「公开 API 语言过滤」用例按实际改为：断言 3 条混出 + 无 lang 过滤能力
+- `GET /health` → 200 `{"status":"ok","uptime":"…","version":"0.6.0"}`
+
+### build 产物锚点（`huan build`，多语言走 BuildMultiSite）
+
+- stdout 末行汇总：`built 2 languages: zh-cn=4 pages en=3 pages`；两段各 1 次 `Build complete.`，各 2 条 WARN（terms/searchindex 模板缺失，同 minimal）
+- zh-cn 段（根）：`public/posts/hello/index.html`（h1=你好（中文版））、`public/posts/zh-only/index.html`（h1=仅中文）、`public/index.html`、`public/posts/index.html`（2 条 post-link：仅中文→`/posts/zh-only/`、你好（中文版）→`/posts/hello/`）
+- en 段（前缀）：**`public/en/posts/hello/index.html`**（h1=Hello (EN)，title=`Hello (EN) - huan E2E 多语言站`）；`public/en/index.html`（1 条 post-link href 含 `/en/posts/hello/`）；`public/en/` 下**无 zh-only 任何产物**（en 过滤正确）
+- `public/api/posts.json` 2 条（zh-cn：你好（中文版）+仅中文，url 无前缀）；`public/en/api/posts.json` 1 条（Hello (EN)，url=`http://127.0.0.1:1313/en/posts/hello/` 带前缀绝对 URL——与 daemon /api/v1 口径又不同，见偏差 3）
+- sitemap hreflang：`public/sitemap.xml` 的 hello `<url>` 含两条 `xhtml:link rel="alternate"`（zh-cn→`http://127.0.0.1:1313/posts/hello/`、en→`http://127.0.0.1:1313/en/posts/hello/`）；zh-only 的 url 只有 zh-cn alternate；`public/en/sitemap.xml` 镜像同样两条 alternate
+- **`public/posts/hello/index.html` 单页 head 无 hreflang link**（alternate 只进 sitemap，不进页面 head）
+
+### 已知状态偏差（实测发现，写用例时必须绕开或显式断言）
+
+1. **daemon 公开 API 的多语言口径是「源文件维度」而非「站点产出维度」**：`/api/v1/pages` 把 hello.en 与 hello.zh-cn 当两条独立记录，`url` 均为 `/posts/hello/`（en 条目丢 `/en/` 前缀、无 language 字段）——无法从公开 API 区分语言，也无法拼出 en 页面 URL。断言时只验条数/标题/去重 URL，勿断言语言归属。
+2. **sitemap/列表的 url 与公开 API 的 url 口径不同**：build 产物内为绝对 URL（baseURL+可选 /en/ 前缀），daemon /api/v1 为相对路径。两套断言分开写。
+3. dev serve 的 en 页面可正常访问（`/en/`、`/en/posts/hello/` 返回 200 且内容正确，livereload 注入），但 **`huan dev` 无 `--plugins` 场景下 build 走 BuildMultiSite 时每语言各自渲染**——多语言与 dev 断言互不干扰。
+
+### 实测记录（2026-08-15，worktree e2e-test-system，commit 801d00f 构建）
+
+```bash
+go build -o /tmp/huan-t3 ./cmd/huan
+rm -rf /tmp/t3-multilang && cp -r tests/e2e/fixtures/multilang /tmp/t3-multilang
+/tmp/huan-t3 build -s /tmp/t3-multilang 2>&1 | tail -3
+# Build complete.
+# built 2 languages: zh-cn=4 pages en=3 pages (6ms)
+ls /tmp/t3-multilang/public/en/posts/hello/index.html   # 存在
+
+/tmp/huan-t3 dev -s /tmp/t3-multilang --port 13212 &    # token 取自启动 stderr（32-hex）
+curl -s -H "Authorization: Bearer $TOK" http://127.0.0.1:13212/admin/api/content/posts/hello.zh-cn.md/languages
+# {"current":"zh-cn","siblings":[{"language":"en","relPath":"posts/hello.en.md","title":"Hello (EN)","draft":false}]}
+
+HUAN_ADMIN_TOKEN=<fixed> /tmp/huan-t3 daemon -s /tmp/t3-mld --port 13222 --bind 127.0.0.1
+curl -s http://127.0.0.1:13222/api/v1/pages
+# {"data":[{Hello (EN) url=/posts/hello/},{你好（中文版） url=/posts/hello/},{仅中文 url=/posts/zh-only/}],"total":3,...}
+```
+
+## with-plugins
+
+单语 zh-cn 插件站：huan.yaml 声明 `seo_injector` + `sitemap_enhancer`（均为 `category: static`，build 期加载）。覆盖 plugins-admin 端点与 build 插件钩子产物断言。
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `huan.yaml` | baseURL=http://127.0.0.1:1313/，title=huan E2E 插件站，languageCode=zh-cn，publishDir=public，`plugins:` **map 形式**：`seo_injector: {category: static}` + `sitemap_enhancer: {category: static}`（键名=插件 `Name()`，**下划线**；category 仅接受 static/dynamic/mixed） |
+| `content/posts/seo-post.md` | title=SEO 验证文章，date=2026-08-12，tags=[seo]，description=用于验证 seo-injector 插件注入效果的文章 |
+| `static/logo.svg` | 同 minimal（mediaCount=1） |
+| `layouts/index.html`、`layouts/_default/single.html`、`layouts/_default/list.html` | 与 minimal 逐字节相同（复制） |
+
+**注意**：fixture 目录**不含** `plugins/*.so`（`.so` 被 .gitignore 排除且与构建环境强耦合）。E2E 套件运行时需先执行：
+
+```bash
+( cd plugins/seo-injector && go build -buildmode=plugin -o <site>/plugins/seo-injector.so . )
+( cd plugins/sitemap-enhancer && go build -buildmode=plugin -o <site>/plugins/sitemap-enhancer.so . )
+```
+
+### build 产物锚点（`huan build`，插件加载成功时）
+
+- **注入标记**：`public/posts/seo-post/index.html` 的 `</head>` 前有 `<!-- huan seo-injector -->` 注释块，含 8 个 meta：`name="description"`（正文抽取截断）、`og:title`（=`SEO 验证文章 - huan E2E 插件站`，取 `<title>` 全文）、`og:description`、`og:url`（=`/posts/seo-post/index.html`，相对输出路径）、`og:type`（=`website`，见偏差 2）、`twitter:card`（=`summary_large_image`）、`twitter:title`、`twitter:description`。frontmatter 的 description 只进 JSON API，**不进**注入的 meta description（注入器从 body 文本抽取）
+- 全部 5 个 HTML（index/posts 列表/seo-post/tags/seo/page/1）都被注入（注入器扫描 outputDir 全部 .html）
+- `public/sitemap.xml` 与无插件构建**逐字节相同**（见偏差 3：sitemap-enhancer 恒 no-op）
+- 其余产物同 minimal 形态：`public/api/posts.json` 1 条（含 description 字段）、`public/logo.svg`、`public/tags/seo/index.html`
+- stdout：`Rendered: 3 pages`、`Output: 13 files`、`Build complete.` + 2 条 WARN（terms/searchindex）
+
+### GET /admin/api/plugins 期望（daemon 实测，插件加载成功时）
+
+- 200 `{"plugins":[{"name":"seo_injector","version":"0.1.0","source":"compiled","status":"active","loadedAt":"…","author":"huan team","tags":["seo","og","twitter"]}],"total":1}`
+- **仅 1 条**：sitemap_enhancer 虽加载并执行，但不出现在 list（见偏差 4）
+- dev 模式该端点返回 `{"status":"plugin manager unavailable"}`（dev 无 pluginManager；plugins-admin 用例必须跑 daemon）
+
+### GET /admin/api/status 期望（dev 与 daemon 一致）
+
+- `total=1, published=1, drafts=0`，`sections=1`，`sectionBreakdown={"posts":1}`，`languages=[]`，`mediaCount=1`
+
+### 公开 API（daemon 专用）
+
+- `GET /api/v1/pages` → 200 `{"total":1,...}`；唯一条目：SEO 验证文章，`url:"/posts/seo-post/"`、`section:"posts"`、tags=[seo]、有 description
+- daemon serve 的 `/posts/seo-post/` **无注入标记**（daemon 构建不传 PluginRegistry，见偏差 5）；注入断言只对 `huan build` 产物做
+
+### 已知状态偏差（实测发现，写用例时必须绕开或显式断言）
+
+1. **`$HUAN_HOME`（默认 `~/.huan/plugins`）的陈旧 .so 会毒化同名插件加载**：loader 先扫 `$HUAN_HOME` 再扫项目 `plugins/`；`~/.huan` 里的 .so 若与当前 host 二进制非同一次构建（Go plugin 按各包 buildid+绝对源码路径校验），`plugin.Open` 失败后**同名包的第二次 Open 也连带失败**（报 `different version of package …`，连本地全新 .so 也被拒），build 静默继续（collection-not-interruption）→ 无注入、无报错退出码。**E2E 启动 daemon/build 前必须 `export HUAN_HOME=<空目录>`** 隔离全局插件目录；主机相对路径（worktree vs 主仓库）不同即触发。
+2. **seo-injector 的 `og:type` 对文章页误报 `website`**：`guessKind` 把所有 `*/index.html` 一律判为 section（分页 `/page/` 除外），`posts/seo-post/index.html` 也是该形态 → og:type=website（文章本应 article）。断言只能取 `website`。
+3. **sitemap-enhancer 对 huan 自产 sitemap 恒 no-op**：内置 sitemap 模板给每个 url 预填 `priority=0.5/changefreq=weekly`（config 默认），而该插件只「填空不覆盖」（`Priority==0 || Changefreq==""` 才写入）→ 无任何可观察效果（显式配 `defaultPriority` 也无效，因非空不触发）。sitemap 断言不能作为 sitemap-enhancer 生效的证据；它的「生效」只能通过 daemon plugins list 或未来 fixture 造空 priority sitemap 验证。
+4. **daemon `/admin/api/plugins` list 只显示 `source:"compiled"` 的 1 条**：LifecycleManager.Start 的 `ScanAndLoad` 会把 .so 加载进 registry，但与已存在条目同名时按「name conflict with compiled plugin」跳过注册（seo_injector/sitemap_enhancer 已由 build 期 registry 以 compiled 身份进入）→ 实测 list 恒 `total:1`（只 seo_injector，sitemap_enhancer 未见——两插件同路径注册，后者被前者挤掉的具体机制未深究，断言以实测 total=1 为准）。
+5. **daemon 的 JIT/预渲染页面不经插件钩子**：`internal/daemon/builder.go` 的 `build.Options` 未传 `PluginRegistry`，`OnOutputWritten` 不执行 → daemon serve 的 HTML 无注入。注入断言仅限 CLI `huan build` 产物。
+6. **dev 模式 build 会注入**（dev.go 传 registry；输出在临时目录），但 HTTP 响应页实测无注入标记（serve 路径与 build 输出非同源），且 `--plugins` 缺省时依赖 `<source>/plugins/` 存在——dev 模式不做插件断言，统一走 CLI build + daemon。
+
+### 实测记录（2026-08-15，worktree e2e-test-system，commit 801d00f 构建）
+
+```bash
+go build -o /tmp/huan-t3 ./cmd/huan
+rm -rf /tmp/t3-with-plugins && cp -r tests/e2e/fixtures/with-plugins /tmp/t3-with-plugins
+( cd plugins/seo-injector && go build -buildmode=plugin -o /tmp/t3-with-plugins/plugins/seo-injector.so . )
+( cd plugins/sitemap-enhancer && go build -buildmode=plugin -o /tmp/t3-with-plugins/plugins/sitemap-enhancer.so . )
+
+# 不隔离 HUAN_HOME（~/.huan 有 7-29 旧 .so）→ 4 条 plugin load warning、0 注入
+/tmp/huan-t3 build -s /tmp/t3-with-plugins 2>&1 | grep -c "huan seo-injector"   # 0
+
+# 隔离后 → 注入成功
+rm -rf /tmp/t3-empty-home && mkdir -p /tmp/t3-empty-home
+HUAN_HOME=/tmp/t3-empty-home /tmp/huan-t3 build -s /tmp/t3-with-plugins
+grep -c "huan seo-injector" /tmp/t3-with-plugins/public/posts/seo-post/index.html   # 1
+# <!-- huan seo-injector -->
+# <meta name="description" content="SEO 验证文章 这是 SEO 注入验证 的正文段落。">
+# <meta property="og:title" content="SEO 验证文章 - huan E2E 插件站"> ...
+
+HUAN_ADMIN_TOKEN=<fixed> HUAN_HOME=/tmp/t3-empty-home /tmp/huan-t3 daemon -s /tmp/t3-wpd --port 13215 --bind 127.0.0.1
+curl -s http://127.0.0.1:13215/api/v1/pages   # {"data":[{SEO 验证文章...}],"total":1,...}
+curl -s -H "Authorization: Bearer <fixed>" http://127.0.0.1:13223/admin/api/plugins
+# {"plugins":[{"name":"seo_injector","version":"0.1.0","source":"compiled",...}],"total":1}
+```

@@ -1,0 +1,13 @@
+baseURL: http://127.0.0.1:1313/
+title: huan E2E 多语言站
+languageCode: zh-cn
+defaultContentLanguage: zh-cn
+publishDir: public
+languages:
+  zh-cn:
+    weight: 1
+    languageName: 中文
+  en:
+    weight: 2
+    languageName: English
+    baseURL: /en/

@@ -1,0 +1,9 @@
+baseURL: http://127.0.0.1:1313/
+title: huan E2E 插件站
+languageCode: zh-cn
+publishDir: public
+plugins:
+  seo_injector:
+    category: static
+  sitemap_enhancer:
+    category: static
