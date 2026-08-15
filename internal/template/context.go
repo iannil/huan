@@ -561,14 +561,25 @@ func mergeSitemap(siteDefault config.SitemapConfig, page config.SitemapPageConfi
 	}
 	return result
 }
-// all page contexts exist.
-func PopulateSitePages(siteCtx *SiteContext, site *content.Site, lookup map[*content.Page]*Context) {
+// PopulateSitePages fills siteCtx.Pages/RegularPages from the page→context
+// lookup. When includeDrafts is false, draft pages are excluded so they
+// cannot leak into aggregations (sitemap/RSS/home/section/tag lists) —
+// matching Hugo, where unbuilt drafts never enter .Site.Pages. The
+// per-page render loop (shouldRender) and the public JSON API already
+// filter drafts independently; this closes the aggregation gap.
+func PopulateSitePages(siteCtx *SiteContext, site *content.Site, lookup map[*content.Page]*Context, includeDrafts bool) {
 	for _, p := range site.RegularPages {
+		if !includeDrafts && p.Draft {
+			continue
+		}
 		if c, ok := lookup[p]; ok {
 			siteCtx.RegularPages = append(siteCtx.RegularPages, c)
 		}
 	}
 	for _, p := range site.Pages {
+		if !includeDrafts && p.Draft {
+			continue
+		}
 		if c, ok := lookup[p]; ok {
 			siteCtx.Pages = append(siteCtx.Pages, c)
 		}

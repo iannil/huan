@@ -498,7 +498,7 @@ func TestPopulateSitePages(t *testing.T) {
 		p2: &Context{Title: "p2"},
 	}
 
-	PopulateSitePages(siteCtx, site, lookup)
+	PopulateSitePages(siteCtx, site, lookup, true)
 
 	if len(siteCtx.Pages) != 2 {
 		t.Errorf("PopulateSitePages Pages: got %d, want 2", len(siteCtx.Pages))

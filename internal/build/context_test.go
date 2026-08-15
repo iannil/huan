@@ -470,6 +470,61 @@ func TestBuildTaxonomyContext_SetsDateToNewestTermStub(t *testing.T) {
 	}
 }
 
+// TestPopulateSitePages_ExcludesDrafts verifies that draft pages do not
+// leak into siteCtx.Pages/RegularPages (and thus sitemap/RSS/list
+// aggregations) when includeDrafts is false — the E2E-found content-safety
+// bug where only single-page rendering and the public JSON API had draft
+// defenses.
+func TestPopulateSitePages_ExcludesDrafts(t *testing.T) {
+	site := &content.Site{Title: "t"}
+	draft := &content.Page{Title: "draft post", RelPath: "posts/draft.md", Draft: true, Kind: "page"}
+	pub := &content.Page{Title: "pub post", RelPath: "posts/pub.md", Kind: "page"}
+	site.Pages = []*content.Page{draft, pub}
+	site.RegularPages = []*content.Page{draft, pub}
+
+	siteCtx := &tmpl.SiteContext{}
+	lookup := map[*content.Page]*tmpl.Context{
+		draft: {Title: draft.Title},
+		pub:   {Title: pub.Title},
+	}
+	tmpl.PopulateSitePages(siteCtx, site, lookup, false)
+
+	for _, item := range siteCtx.Pages {
+		if c := tmpl.AsCtx(item); c != nil && c.Title == "draft post" {
+			t.Error("draft leaked into siteCtx.Pages")
+		}
+	}
+	for _, item := range siteCtx.RegularPages {
+		if c := tmpl.AsCtx(item); c != nil && c.Title == "draft post" {
+			t.Error("draft leaked into siteCtx.RegularPages")
+		}
+	}
+	if len(siteCtx.Pages) != 1 || len(siteCtx.RegularPages) != 1 {
+		t.Fatalf("pages=%d regulars=%d, want 1/1", len(siteCtx.Pages), len(siteCtx.RegularPages))
+	}
+}
+
+// TestPopulateSitePages_IncludeDraftsKeepsAll verifies -D semantics are
+// unchanged: includeDrafts=true keeps drafts in both slices.
+func TestPopulateSitePages_IncludeDraftsKeepsAll(t *testing.T) {
+	site := &content.Site{Title: "t"}
+	draft := &content.Page{Title: "draft post", RelPath: "posts/draft.md", Draft: true, Kind: "page"}
+	pub := &content.Page{Title: "pub post", RelPath: "posts/pub.md", Kind: "page"}
+	site.Pages = []*content.Page{draft, pub}
+	site.RegularPages = []*content.Page{draft, pub}
+
+	siteCtx := &tmpl.SiteContext{}
+	lookup := map[*content.Page]*tmpl.Context{
+		draft: {Title: draft.Title},
+		pub:   {Title: pub.Title},
+	}
+	tmpl.PopulateSitePages(siteCtx, site, lookup, true)
+
+	if len(siteCtx.Pages) != 2 || len(siteCtx.RegularPages) != 2 {
+		t.Fatalf("pages=%d regulars=%d, want 2/2 (-D keeps drafts)", len(siteCtx.Pages), len(siteCtx.RegularPages))
+	}
+}
+
 // TestRssLastBuildDate_EmptyForEmptyRegularPages verifies that
 // rssLastBuildDate returns "" when RegularPages is empty. This matches
 // Hugo's <lastBuildDate/> output for tags whose only pages are hidden.

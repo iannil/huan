@@ -123,7 +123,7 @@ func (p *pipeline) buildContexts() {
 			tmpl.LinkPageRelationships(ctx, pg, lookup)
 		}
 	}
-	tmpl.PopulateSitePages(siteCtx, p.site, lookup)
+	tmpl.PopulateSitePages(siteCtx, p.site, lookup, p.opts.IncludeDrafts)
 
 	p.siteCtx = siteCtx
 	p.lookup = lookup

@@ -163,16 +163,14 @@ tests:
     severity: P0
     preconditions:
       - bld-002
-    # 断言口径按 FIXTURES.md minimal 已知偏差 1 **收窄**：
-    #   有效防线仅两条——(a) draft 单页不落盘：GET /posts/<draft>/ 404；
-    #   (b) 公开 JSON API 排除 draft。
-    #   sitemap/RSS/列表聚合渲染**含** draft 是已记录引擎缺陷（Task 2 在案，
-    #   FIXTURES.md 偏差 1），本用例**不断言**聚合不含 draft——若断言将与实测
-    #   相悖（实测 sitemap.xml 含 /posts/draft-post/）。聚合泄露的修复另立任务。
-    # 注：dev 模式无 /api/v1/*（RUNBOOK §4.3），防线 (b) 的 JSON 文件断言用
-    #   构建产物的 api/posts.json——但 dev 产物在临时目录不可 fs.assert；
-    #   防线 (b) 由 public-api 套件（daemon，pub-006 对比 total）覆盖。本用例
-    #   落实防线 (a)：fixture 自带 draft（posts/draft-post.md）+ 新建 draft 双验证。
+    # 断言口径：**修复后（fix-e2e-found-bugs Task 1，2026-08-15）**——PopulateSitePages
+    #   加 includeDrafts 过滤，sitemap/RSS/首页/列表聚合不再含 draft。三重防线全覆盖：
+    #   (a) draft 单页不落盘：GET /posts/<draft>/ 404；
+    #   (b) 公开 JSON API 排除（由 public-api 套件 pub-006 覆盖）；
+    #   (c) **sitemap.xml 聚合不含 draft**（本用例新增，走 HTTP——dev 产物在临时目录）。
+    # 注：dev 模式无 /api/v1/*（RUNBOOK §4.3），防线 (b) 的 JSON 文件断言由 public-api
+    #   套件（daemon）覆盖。本用例落实防线 (a)+(c)：fixture 自带 draft + 新建 draft
+    #   双验证单页 404，sitemap 聚合零泄露。FIXTURES.md minimal 偏差 1 已标注修复。
     steps:
       - action: http                   # 新建一篇 draft（排除行为对任意 draft 成立，非仅 fixture 自带）
         method: POST
@@ -197,6 +195,12 @@ tests:
         expect:
           status: 404
           body: { matches: "(?s).*" }   # 404 兜底页或空体，内容不作断言
+      - action: http                   # 防线 (c)：sitemap 聚合不含 draft（修复后完整断言）
+        method: GET
+        path: /sitemap.xml
+        expect:
+          status: 200
+          body_absent: "draft-post"     # 聚合零泄露（fix Task 1 后成立）
       - action: http                   # 防线 (a)-2：fixture 自带 draft 同样 404
         method: GET
         path: /posts/draft-post/

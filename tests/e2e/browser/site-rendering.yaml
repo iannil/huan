@@ -14,12 +14,11 @@
 #   verify 失败先 screenshot 再判负（RUNBOOK §5）。
 #
 # ===== 2026-08-15 agent-browser 实走校准（关键事实，expect/hints 依据）=====
-#   - 首页（/）：h1 为站点标题「huan E2E 最小站」，正文 3 条文章链接
-#     （草稿文章→/posts/draft-post/、你好 huan→/posts/hello-huan/、
-#     关于→/about/）。★ 首页由内置模板渲染（FIXTURES.md minimal：head 含
-#     generator meta「Hugo 0.160.1」），断言用链接可见性而非模板细节；
-#     首页含 draft 链接是 FIXTURES.md minimal 偏差 1（列表聚合泄露 draft），
-#     sr-001 显式断言「3 条链接含草稿」而非绕开。
+#   - 首页（/）：h1 为站点标题「huan E2E 最小站」，正文 2 条文章链接
+#     （你好 huan→/posts/hello-huan/、关于→/about/）。★ 首页由内置模板渲染
+#     （FIXTURES.md minimal：head 含 generator meta「Hugo 0.160.1」），断言用
+#     链接可见性而非模板细节；★ 修复后（fix-e2e-found-bugs Task 1）首页**不再含**
+#     draft 链接——原「3 条链接含草稿（偏差 1 显式断言）」已更新为「2 条不含草稿」。
 #   - 文章页（/posts/hello-huan/）：页 title「你好 huan - huan E2E 最小站」，
 #     模板 h1#page-title 文本「你好 huan」，article 内正文段落
 #     「这是 huan E2E 测试固定数据的第一篇文章。」其中 huan 为加粗（strong）。
@@ -70,7 +69,7 @@ tests:
         expect:
           - "页面大标题显示「huan E2E 最小站」"
           - "页面出现可见链接「${fixture.minimal.post1.title}」「关于」，点击目标分别为 /posts/hello-huan/ 与 /about/"
-          - "文章链接共 3 条（含「草稿文章」——FIXTURES.md minimal 偏差 1：列表聚合泄露 draft，显式断言不绕开）"
+          - "文章链接共 2 条（「你好 huan」「关于」），**不含**「草稿文章」——fix Task 1 后首页聚合零 draft 泄露"
         hints:
           - "链接是 a.post-link（fixture layouts/index.html 遍历 RegularPages 输出）"
           - "首页 head 含 generator meta（内置模板渲染）——不要断言 fixture 模板细节"

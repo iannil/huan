@@ -53,7 +53,7 @@
 
 ### 已知状态偏差（实测发现，写用例时必须绕开或显式断言）
 
-1. **draft 泄露进列表/聚合渲染**：静态 build 后 `public/index.html`、`public/posts/index.html` 及 RSS（`index.xml`、`posts/index.xml`）、`sitemap.xml` 均包含 `/posts/draft-post/` 条目；daemon 运行时 GET `/posts/draft-post/` 返回 200 完整渲染页。仅「draft 单页不落盘」与「公开 JSON API（/api/v1/pages、public/api/posts.json）排除 draft」两条防线有效。spec 已将「draft 不进公开 API」列为回归断言（bld-004、历史安全 bug），列表泄露如需修复请另立任务并同步本表。
+1. ~~**draft 泄露进列表/聚合渲染**~~ **已修复（2026-08-15，fix-e2e-found-bugs Task 1）**：原缺陷——静态 build 后 `public/index.html`、`posts/index.html`、RSS、`sitemap.xml` 均含 `/posts/draft-post/` 条目，daemon 运行时 GET `/posts/draft-post/` 返回 200；仅「draft 单页不落盘」与「公开 JSON API 排除」两条防线有效。修复：`PopulateSitePages` 加 `includeDrafts` 过滤，聚合上下文（sitemap/RSS/首页/列表/tag）不再含 draft（`-D` 时含，语义保留）。原文保留如下：spec 已将「draft 不进公开 API」列为回归断言（bld-004、历史安全 bug）。修复后断言口径：bld-004 扩回完整（sitemap 聚合零泄露）、sr-001 首页 2 条链接不含 draft。
 2. **`/api/v1/posts` 端点不存在**（404），公开 API 断言一律用 `/api/v1/pages`。
 3. 公开 API 中 about 的 `section` 为空串，而 admin status 的 sectionBreakdown 用 `_root` 键——两套口径不同，勿混用断言。
 
