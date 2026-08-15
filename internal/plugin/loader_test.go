@@ -151,8 +151,14 @@ func TestLoader_Resolve_PrefersHuanHome(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Setenv("HUAN_HOME", huanHome)
 
-	// Same-named .so in both dirs; $HUAN_HOME must win.
-	homeSo := filepath.Join(huanHome, "cloudflare.so")
+	// Create $HUAN_HOME/plugins subdirectory (new layout since 8d06b30)
+	homePluginsDir := filepath.Join(huanHome, "plugins")
+	if err := os.MkdirAll(homePluginsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same-named .so in both dirs; $HUAN_HOME/plugins must win.
+	homeSo := filepath.Join(homePluginsDir, "cloudflare.so")
 	projSo := filepath.Join(projectDir, "cloudflare.so")
 	if err := os.WriteFile(homeSo, []byte("home"), 0644); err != nil {
 		t.Fatal(err)
@@ -163,7 +169,7 @@ func TestLoader_Resolve_PrefersHuanHome(t *testing.T) {
 
 	l := NewLoader(projectDir)
 	if got := l.Resolve("cloudflare.so"); got != homeSo {
-		t.Errorf("Resolve() = %q, want %q ($HUAN_HOME priority)", got, homeSo)
+		t.Errorf("Resolve() = %q, want %q ($HUAN_HOME/plugins priority)", got, homeSo)
 	}
 }
 
