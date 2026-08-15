@@ -588,8 +588,15 @@ func PopulateSitePages(siteCtx *SiteContext, site *content.Site, lookup map[*con
 
 // LinkPageRelationships fills in Pages/RegularPages/RegularPagesRecursive
 // on a Context after all contexts are built, via a page→context lookup.
-func LinkPageRelationships(ctx *Context, p *content.Page, lookup map[*content.Page]*Context) {
+// includeDrafts=false filters draft pages from the linked slices the same
+// way PopulateSitePages does, so RSS (which renders section/home .RegularPages)
+// and list aggregations never expose drafts when -D is off — closing the
+// draft-leak gap missed by the site-level filter alone.
+func LinkPageRelationships(ctx *Context, p *content.Page, lookup map[*content.Page]*Context, includeDrafts bool) {
 	for _, child := range p.Pages {
+		if !includeDrafts && child.Draft {
+			continue
+		}
 		if c, ok := lookup[child]; ok {
 			ctx.Pages = append(ctx.Pages, c)
 		}
@@ -609,11 +616,17 @@ func LinkPageRelationships(ctx *Context, p *content.Page, lookup map[*content.Pa
 	// p.RegularPagesRecursive carries the full descendant set when a template
 	// explicitly asks for the recursive view.
 	for _, child := range p.RegularPages {
+		if !includeDrafts && child.Draft {
+			continue
+		}
 		if c, ok := lookup[child]; ok {
 			ctx.RegularPages = append(ctx.RegularPages, c)
 		}
 	}
 	for _, child := range p.RegularPagesRecursive {
+		if !includeDrafts && child.Draft {
+			continue
+		}
 		if c, ok := lookup[child]; ok {
 			ctx.RegularPagesRecursive = append(ctx.RegularPagesRecursive, c)
 		}

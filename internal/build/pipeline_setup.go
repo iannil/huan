@@ -120,7 +120,7 @@ func (p *pipeline) buildContexts() {
 	}
 	for _, pg := range p.site.Pages {
 		if ctx, ok := lookup[pg]; ok {
-			tmpl.LinkPageRelationships(ctx, pg, lookup)
+			tmpl.LinkPageRelationships(ctx, pg, lookup, p.opts.IncludeDrafts)
 		}
 	}
 	tmpl.PopulateSitePages(siteCtx, p.site, lookup, p.opts.IncludeDrafts)

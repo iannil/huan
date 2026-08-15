@@ -84,7 +84,7 @@ func TestLinkPageRelationships_SectionContextRegularPagesFollowsNearestIndexMd(t
 	}
 	for _, p := range site.Pages {
 		if ctx, ok := lookup[p]; ok {
-			LinkPageRelationships(ctx, p, lookup)
+			LinkPageRelationships(ctx, p, lookup, true)
 		}
 	}
 
