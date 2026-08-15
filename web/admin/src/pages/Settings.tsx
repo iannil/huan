@@ -59,7 +59,7 @@ export default function Settings() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [activeNav, setActiveNav] = useState('info')
-  const hasChanges = useRef(false)
+  const [hasChanges, setHasChanges] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const fetchSettings = useCallback(() => {
@@ -69,7 +69,7 @@ export default function Settings() {
       .then((d) => {
         if (d) {
           setSettings(d)
-          hasChanges.current = false
+          setHasChanges(false)
         }
       })
       .catch(() => {})
@@ -122,7 +122,7 @@ export default function Settings() {
     value: SiteSettings[K]
   ) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
-    hasChanges.current = true
+    setHasChanges(true)
   }
 
   const updateParam = <K extends keyof SiteSettings['params']>(
@@ -133,7 +133,7 @@ export default function Settings() {
       ...prev,
       params: { ...prev.params, [key]: value },
     }))
-    hasChanges.current = true
+    setHasChanges(true)
   }
 
   const save = async () => {
@@ -147,7 +147,7 @@ export default function Settings() {
       })
       if (res.ok) {
         setSaveState('saved')
-        hasChanges.current = false
+        setHasChanges(false)
         setTimeout(() => setSaveState('idle'), 2000)
       } else {
         const err = await res.json()
@@ -319,7 +319,7 @@ export default function Settings() {
           {/* Save bar */}
           <div className="sticky bottom-0 mt-10 -mx-6 px-6 py-4 bg-background/90 backdrop-blur-sm border-t border-border flex items-center justify-between rounded-b-lg">
             <div className="flex items-center gap-2">
-              {hasChanges.current && (
+              {hasChanges && (
                 <span className="text-xs text-muted-foreground">有未保存的更改</span>
               )}
               {saveState === 'saved' && (
@@ -334,7 +334,7 @@ export default function Settings() {
             </div>
             <button
               onClick={save}
-              disabled={saveState === 'saving' || !hasChanges.current}
+              disabled={saveState === 'saving' || !hasChanges}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {saveState === 'saving' ? (

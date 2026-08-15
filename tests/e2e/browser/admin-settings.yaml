@@ -89,11 +89,10 @@ tests:
         hints:
           - "window.prompt 应答：dialog accept \"${token}\""
       - action: interact
-        intent: 在站点标题输入框填 huan E2E 浏览器改站名，点击保存设置
+        intent: 在站点标题输入框填 huan E2E 浏览器改站名，确认保存按钮已启用，点击保存设置
         hints:
           - "保存条在页面底部吸底；按钮文字「保存设置」"
-          - "实测按钮启用态可能滞后（hasChanges ref 不触发 re-render）：若按钮仍灰，
-            点击页面其他空白处再回来重试（最多 2 次）"
+          - "修复后（fix Task 3，useState 重渲染）：修改任一输入框后保存按钮**立即**从禁用变为可点击；若仍灰说明回归"
           - "保存成功 UI 反馈（「已保存」绿字）是 2s 瞬态且不稳定，不作为断言面"
       - action: wait
         for: seconds
@@ -101,6 +100,7 @@ tests:
       - action: verify
         milestone: 修改已提交
         expect:
+          - "保存按钮已从禁用变为可点击（修改后立即生效，fix Task 3）"
           - "站点标题输入框保持显示 huan E2E 浏览器改站名"
           - "页面无红色错误提示（保存条区域无报错文案）"
         hints:
