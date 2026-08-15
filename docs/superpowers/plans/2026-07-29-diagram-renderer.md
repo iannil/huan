@@ -4,6 +4,10 @@
 
 **Goal:** Build a `.so` post-build plugin that renders Mermaid/PlantUML/GraphViz/D2 fenced code blocks into inline SVG at build time via a self-hosted Kroki backend, with a content-hash cache and client-side fallback when Kroki is unreachable.
 
+> **状态**：✅ 已完成（2026-07-29，checkbox 于 2026-08-15 回勾）。
+> 实测后追加修正（`8d06b30`）：Kroki 宿主端口 8000→1314；`extract.go` 正则加固（属性引号兼容）；`internal/plugin/loader.go` searchDirs 由 `$HUAN_HOME` 根目录更正为 `$HUAN_HOME/plugins`。
+> Task 7 Step 4 冒烟测试的执行痕迹即上述实测修正提交；`go test ./plugins/diagram-renderer/` 于 2026-08-15 复跑全绿。
+
 **Architecture:** Approach A (pure post-build plugin, zero changes to `internal/markdown`). goldmark/chroma render diagram fences as normal highlighted code blocks; the plugin's `OnOutputWritten` hook scans output HTML, losslessly recovers each diagram's source from the chroma block, calls Kroki for SVG, and replaces the block with `<figure>`. On failure it keeps `<pre class="mermaid">` and injects `mermaid.js`. Mirrors the existing `plugins/seo-injector` and `plugins/html-injector` structure.
 
 **Tech Stack:** Go 1.26, `pkg/plugin` capability interfaces (`PostBuildHook`, `SchemaProvider`, `MetadataProvider`), stdlib `net/http`, `crypto/sha256`, `html`, `regexp`. Built with `go build -buildmode=plugin` via `scripts/build-plugins.sh`. Self-hosted Kroki (`yuzutech/kroki`) in Docker.
@@ -36,7 +40,7 @@
   - `func ParseConfig(raw map[string]any) (*Config, error)`
   - `func (c *Config) ConfigSchema() plugin.Schema`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package main
@@ -109,12 +113,12 @@ func TestParseConfigTypeError(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestDefaultConfig -v`
 Expected: FAIL — `undefined: DefaultConfig`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package main
@@ -287,12 +291,12 @@ func (c *Config) ConfigSchema() plugin.Schema {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestParseConfig -v && go test ./... -run TestDefaultConfig -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/diagram-renderer/config.go plugins/diagram-renderer/config_test.go
@@ -324,7 +328,7 @@ git commit -m "feat(diagram-renderer): config parsing and schema"
   - `func findDiagramBlocks(htmlSrc string, languages []string) []diagramBlock`
   - `func extractSource(codeInner string) string` — strips `<span>` tags and unescapes entities.
 
-- [ ] **Step 0: Preserve declared fence language in renderer.go**
+- [x] **Step 0: Preserve declared fence language in renderer.go**
 
 In `internal/markdown/renderer.go`, inside `renderFencedCodeBlock`, the
 `guessSyntax` branch currently always overwrites `langStr`. Change it to only
@@ -352,7 +356,7 @@ unaffected (their `lexers.Get` succeeds, skipping this branch). If any existing
 test asserted the old relabel-to-guess behavior for a declared-but-unknown
 fence, report it — do not silently change the test.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 The golden test renders real markdown through the project's own renderer, then asserts `findDiagramBlocks` recovers the source byte-for-byte. This pins the extraction to chroma's actual output shape.
 
@@ -404,12 +408,12 @@ func TestFindDiagramBlocksIgnoresNonAllowlisted(t *testing.T) {
 
 > Note: the `want` string in the first test is the expected byte-for-byte recovery. If chroma's entity encoding differs (e.g. it emits `&#34;` for `"`), Step 2 will reveal the actual bytes — copy them into `want` exactly. This is expected: the test's job is to lock whatever the real pipeline produces.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestFindDiagramBlocks -v`
 Expected: FAIL — `undefined: findDiagramBlocks`. (After implementing, if the `want` literal differs from actual output, read the failure's `got:` value and set `want` to it — chroma round-trips all characters, so `got` is the correct recovered source.)
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package main
@@ -468,12 +472,12 @@ func extractSource(codeInner string) string {
 }
 ```
 
-- [ ] **Step 4: Run tests; reconcile the golden literal if needed**
+- [x] **Step 4: Run tests; reconcile the golden literal if needed**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestFindDiagramBlocks -v`
 Expected: PASS. If `TestFindDiagramBlocksGolden` fails on the `want` literal, copy the `got:` bytes from the failure into `want` and re-run — that is the correct recovered source for this pipeline.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/diagram-renderer/extract.go plugins/diagram-renderer/extract_test.go
@@ -497,7 +501,7 @@ git commit -m "feat(diagram-renderer): lossless source extraction from chroma bl
   - `func (c *Cache) Get(key string) (string, bool)`
   - `func (c *Cache) Put(key, svg string) error`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package main
@@ -539,12 +543,12 @@ func TestCacheKeyStableAndDistinct(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestCache -v`
 Expected: FAIL — `undefined: NewCache`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package main
@@ -588,12 +592,12 @@ func (c *Cache) Put(key, svg string) error {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestCache -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/diagram-renderer/cache.go plugins/diagram-renderer/cache_test.go
@@ -616,7 +620,7 @@ git commit -m "feat(diagram-renderer): content-hash SVG cache"
   - `func (k *KrokiClient) Render(ctx context.Context, lang, source string) (string, error)`
   - `func sanitizeSVG(svg string) string` — strips `<?xml…?>`/`<!DOCTYPE…>` prefix and ensures the root `<svg>` carries `class="kroki"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package main
@@ -671,12 +675,12 @@ func TestKrokiRenderErrorStatus(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestKroki -v`
 Expected: FAIL — `undefined: NewKrokiClient`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package main
@@ -754,12 +758,12 @@ func min(a, b int) int {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestKroki -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/diagram-renderer/kroki.go plugins/diagram-renderer/kroki_test.go
@@ -781,7 +785,7 @@ git commit -m "feat(diagram-renderer): Kroki HTTP client and SVG sanitize"
   - `func fallbackReplacement(b diagramBlock, cfg *Config) (replacement string, needsMermaidJS bool)` — per `cfg.FallbackMode`: `client` → `<pre class="mermaid">SOURCE</pre>` (+needsMermaidJS) for `mermaid`, else keep `b.Full`; `codeblock`/`fail` → keep `b.Full`.
   - `func injectMermaidJS(htmlSrc, mermaidJS string) string` — inserts the script tags once before `</body>`; no-op if already present or no `</body>`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package main
@@ -839,12 +843,12 @@ func TestInjectMermaidJSOnce(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run 'TestWrapSVG|TestFallback|TestInjectMermaid' -v`
 Expected: FAIL — `undefined: wrapSVG`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package main
@@ -892,12 +896,12 @@ func injectMermaidJS(htmlSrc, mermaidJS string) string {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run 'TestWrapSVG|TestFallback|TestInjectMermaid' -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/diagram-renderer/fallback.go plugins/diagram-renderer/fallback_test.go
@@ -926,7 +930,7 @@ git commit -m "feat(diagram-renderer): svg wrapping and client-side fallback"
   - `func InitPlugin(cfg map[string]any) (interface{}, error)` (in plugin_main.go)
   - Compile-time asserts: `var _ plugin.PostBuildHook = (*DiagramRenderer)(nil)`, `var _ plugin.SchemaProvider = (*DiagramRenderer)(nil)`.
 
-- [ ] **Step 1: Write the failing end-to-end test**
+- [x] **Step 1: Write the failing end-to-end test**
 
 ```go
 package main
@@ -1061,12 +1065,12 @@ func TestExcludeKinds(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd plugins/diagram-renderer && go test ./... -run TestOnOutputWritten -v`
 Expected: FAIL — `undefined: New`.
 
-- [ ] **Step 3: Write plugin.go**
+- [x] **Step 3: Write plugin.go**
 
 ```go
 package main
@@ -1260,7 +1264,7 @@ var _ plugin.PostBuildHook = (*DiagramRenderer)(nil)
 var _ plugin.SchemaProvider = (*DiagramRenderer)(nil)
 ```
 
-- [ ] **Step 4: Write plugin_main.go**
+- [x] **Step 4: Write plugin_main.go**
 
 ```go
 package main
@@ -1278,17 +1282,17 @@ func InitPlugin(cfg map[string]any) (interface{}, error) {
 func main() {}
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd plugins/diagram-renderer && go test ./... -v`
 Expected: PASS (all tasks' tests green together).
 
-- [ ] **Step 6: Verify it builds as a Go plugin**
+- [x] **Step 6: Verify it builds as a Go plugin**
 
 Run: `cd plugins/diagram-renderer && go build -buildmode=plugin -o /tmp/diagram-renderer.so .`
 Expected: builds with no error and produces `/tmp/diagram-renderer.so`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add plugins/diagram-renderer/plugin.go plugins/diagram-renderer/plugin_main.go plugins/diagram-renderer/plugin_test.go
@@ -1317,7 +1321,7 @@ git commit -m "feat(diagram-renderer): plugin orchestration and InitPlugin"
 - Consumes: the built `diagram-renderer.so` from Task 6.
 - Produces: runnable Kroki stack + user-facing enablement docs.
 
-- [ ] **Step 1: Generalize build-plugins.sh to build root-module plugins**
+- [x] **Step 1: Generalize build-plugins.sh to build root-module plugins**
 
 The current loop skips any dir without `go.mod`, silently excluding the
 root-module diagram-renderer. Remove ONLY the `[ -f "$dir/go.mod" ] || continue`
@@ -1333,7 +1337,7 @@ Expect a `building diagram-renderer -> diagram-renderer.so` line, a final
 `built 8 plugin(s)` count, and `/tmp/huan-plugins-verify/diagram-renderer.so`
 present. If any previously-building plugin now fails, STOP and report.
 
-- [ ] **Step 2: Create the Kroki Docker stack**
+- [x] **Step 2: Create the Kroki Docker stack**
 
 Create `deploy/kroki/docker-compose.yml`:
 
@@ -1356,7 +1360,7 @@ networks:
     name: huan_net
 ```
 
-- [ ] **Step 3: Write the plugin doc**
+- [x] **Step 3: Write the plugin doc**
 
 Create `docs/plugins/diagram-renderer.md` documenting: what it does (build-time Mermaid/PlantUML/GraphViz/D2 → inline SVG), the `huan.yaml` config block (copy the full block from the spec §4), how to start Kroki (`docker compose -f deploy/kroki/docker-compose.yml up -d`), the fallback behavior (Kroki down → `<pre class="mermaid">` + mermaid.js, build never aborts), and the enablement steps:
 
@@ -1376,7 +1380,7 @@ Create `docs/plugins/diagram-renderer.md` documenting: what it does (build-time 
 4. Write a ```mermaid fenced block in any content file and run `huan build`.
 ```
 
-- [ ] **Step 4: Manual smoke test (end to end)**
+- [x] **Step 4: Manual smoke test (end to end)**
 
 Run:
 ```bash
@@ -1388,7 +1392,7 @@ grep -rl '<figure class="diagram' release/ && echo "SVG OK"
 ```
 Expected: at least one output page contains `<figure class="diagram diagram-mermaid"><svg`. If Kroki is stopped, re-running instead yields `<pre class="mermaid">` + one mermaid.js script, and the build still succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deploy/kroki/docker-compose.yml docs/plugins/diagram-renderer.md

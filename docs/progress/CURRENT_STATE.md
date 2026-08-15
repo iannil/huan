@@ -1,6 +1,6 @@
 # huan 项目状态（CURRENT STATE）
 
-> **当前版本**：v0.6.0+ · **分支**：master · **最后更新**：2026-07-25
+> **当前版本**：v0.7.1（tag v0.7.0，2026-07-28） · **分支**：master · **最后更新**：2026-08-15
 > **定位**：huan daemon — 持久化运行的服务端内容引擎
 > **入口**：新会话先读 `CLAUDE.md` + `docs/INDEX.md`
 >
@@ -14,7 +14,7 @@
 
 - `huan daemon` — 持久化进程，提供：静态文件服务 + JIT 按需渲染 + 内容查询 REST API + SSE 实时推送 + Admin 管理后台 + 插件热插拔
 - `huan build` / `huan serve` / `huan deploy` / `huan release` / `huan translate` — 传统 SSG 模式仍完整保留
-- **版本节奏**：v0.5.0（2026-06-30 交付 v1.0 hard gate 1-5）→ v0.6.0+（2026-07-20 起 daemon 时代）→ v1.0.0（gate 6 90 天稳定性，2026-09-11 后）
+- **版本节奏**：v0.5.0（2026-06-30 交付 v1.0 hard gate 1-5）→ v0.6.0+（2026-07-20 起 daemon 时代）→ v0.7.0/v0.7.1（2026-07-28~30 插件契约收敛 + diagram-renderer + 一键发布）→ v1.0.0（gate 6 90 天稳定性，2026-09-11 后）
 
 ---
 
@@ -22,6 +22,7 @@
 
 | 版本 | 时间 | 关键变更 |
 |------|------|---------|
+| **v0.7.0 / v0.7.1** | 2026-07-28~30 | **插件体系成熟**：能力契约收敛到 `pkg/`（ADR 0013）+ Hook 契约拆分修复 .so 钩子静默失效（ADR 0014）+ diagram-renderer 插件 + `release.sh` 一键发布 + `--plugins` flag。详见 3.11~3.13 |
 | **v0.6.0+** | 2026-07-20~ | **Daemon 时代**：持久化服务端内容引擎。四大运行时能力全部就绪（静态服务 + JIT 按需渲染 + 内容查询 REST API + SSE 实时推送） |
 | **v0.5.0** | 2026-06-30 | **v1.0 hard gate 1-5 全交付**：定位拆段 / no-op funcs 三档 / I/O 包测试 / Admin 安全边界 / BuildSite 6 文件重构 |
 | **v0.4.x** | 2026-06-14~27 | i18n 翻译系统 + Stage 4 Admin Panel v0.4.0~v0.4.2 增量演进 |
@@ -103,6 +104,26 @@
 - `EventSubscriber` 接口：插件可订阅 daemon EventBus 事件
 - 生命周期集成：加载时自动注册/卸载时自动注销
 
+### 3.11 插件能力契约收敛 + Hook 拆分（2026-07-28，ADR 0013/0014）
+
+- **契约统一到 `pkg/`**：所有跨 `.so` 边界的能力契约（Deployer / Translator / ImageProcessor / ThemePlugin / PostBuildHook）必须声明在 `pkg/` 下；`internal/` 仅保留类型别名回填。护栏：`TestCapabilityContractsLiveInPkg`（go/ast 扫描）+ `diagnoseCapabilityGap`（Find 落空时枚举已加载插件、指向 contract mismatch）
+- **Hook 契约拆分**（ADR 0014，修复静默失效 bug）：`pkg/plugin.PostBuildHook`（embed Plugin + 仅 `OnOutputWritten(ctx, outputDir)`，唯一可跨 .so）；`internal/build.Hook`（`*content.Page` 三方法）保留为编译期富页面钩子。pipeline 在 `build.Hook` 之外桥接调用 `PostBuildHook`——此前 seo-injector / sitemap-enhancer / html-injector 三个 .so 插件因契约分叉钩子从未被调用
+- 插件查找顺序：`$HUAN_HOME/plugins`（默认 `~/.huan/plugins`）→ `<项目>/plugins`；命令按能力 `plugin.Find[T]` 发现插件，不硬编码插件名
+
+### 3.12 diagram-renderer 插件（2026-07-29）
+
+- `plugins/diagram-renderer/`（root-module 插件，无 go.mod）：```mermaid / plantuml / graphviz / d2 fence 构建期经自托管 Kroki 渲染为内联 SVG `<figure>`
+- 内容哈希磁盘缓存（`.huan/cache/diagrams`）；Kroki 失败降级 `<pre class="mermaid">` + mermaid.js 客户端渲染（幂等注入）；collection-not-interruption（出错只 warn 不 abort）
+- Kroki Docker 栈：`deploy/kroki/docker-compose.yml`（宿主端口 1314，独立网络 `huan_net`）
+- 配套核心修复：`internal/markdown/renderer.go` 保留 fence 声明语言（无 lexer 的声明语言不再被 guessSyntax 覆盖，与 Hugo 一致）
+- `scripts/build-plugins.sh` 支持两种插件形态：构建门控从 `go.mod` 改为 `Name()`（self-contained-module 与 root-module 统一构建）
+- 配置总览示例：`huan.example.yaml`
+
+### 3.13 一键发布 + `--plugins` flag（2026-07-30）
+
+- **`scripts/release.sh`**：一条命令产出 huan 二进制 + 全部插件 .so + checksums.txt + manifest.json，输出 `release/v{version}/{os}-{arch}/`（避免 Go 子命令的鸡生蛋问题）
+- **`huan build/dev --plugins <dir>`**：覆盖默认插件目录 `<sourceDir>/plugins/`；`$HUAN_HOME/plugins` 仍最高优先；空值 = 默认行为
+
 ---
 
 ## 四、Daemon 运行时能力栈
@@ -179,10 +200,14 @@ huan/
 │   ├── release/             # 跨平台打包
 │   ├── version/             # VCS info
 │   └── equiv/               # 三维度等价算法
-├── plugins/                 # 独立 .so 插件仓库
+├── pkg/                     # 跨 .so 边界的能力契约（plugin/translate/image/deploy）
+├── plugins/                 # 独立 .so 插件仓库（8 个）
 │   ├── cloudflare/          # Cloudflare deploy 插件
 │   ├── qwen3/               # Qwen3 翻译插件
-│   └── image-pipeline/      # 图片管线插件
+│   ├── image-pipeline/      # 图片管线插件
+│   ├── seo-injector/ / sitemap-enhancer/ / html-injector/   # SEO 三件套（PostBuildHook）
+│   ├── diagram-renderer/    # 构建期图表 SVG 渲染（root-module 形态）
+│   └── zhurongshuo/         # zhurongshuo 主题插件
 ├── web/admin/               # Admin React SPA
 ├── scripts/                 # diff-build / diff-summary / diff-patterns
 ├── docs/                    # 文档
@@ -218,9 +243,9 @@ Hugo 等价是 v0.x 早期阶段的目标，**当前 v0.6+ daemon 时代已不�
 | 3 | I/O 包有测试 | ✅ 完成 | v0.5.0 |
 | 4 | Admin 安全边界（L1+L2+L4） | ✅ 完成 | v0.5.0 |
 | 5 | BuildSite 拆 ≤80 行 stage | ✅ 完成 | v0.5.0 |
-| 6 | zhurongshuo 生产稳定 90 天 + 自己满意 | ⏳ 2026-06-13 → **2026-09-11**（已 42 天） | v1.0.0 |
+| 6 | zhurongshuo 生产稳定 90 天 + 自己满意 | ⏳ 2026-06-13 → **2026-09-11**（已 63 天，剩 ~4 周） | v1.0.0 |
 
-v0.5.0 交付 gate 1-5（2026-06-30）→ 等 73 天 → **v1.0.0（2026-09-11 后）**。Daemon 时代的功能（v0.6.x 系列）在等待期内正常迭代。
+v0.5.0 交付 gate 1-5（2026-06-30）→ 等 90 天 → **v1.0.0（2026-09-11 后）**。Daemon 时代的功能（v0.6.x ~ v0.7.x 系列）在等待期内正常迭代。
 
 ---
 

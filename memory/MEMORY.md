@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-07-28（**插件契约主动收敛**：ImageProcessor 迁 pkg/image、diagnoseCapabilityGap 诊断 + TestCapabilityContractsLiveInPkg 护栏，见 ADR 0013）
+> 最近更新：2026-08-15（补记 07-29~30：diagram-renderer 插件、release.sh、--plugins flag，版本至 v0.7.1）
 
 ## 用户偏好
 
@@ -33,9 +33,9 @@
 - 之前的 SSG / 替代 Hugo / 三维度等价 / v1.0 hard gate / 9 步执行计划 / stage 1-4 等全部开发计划已归档到 `docs/archived/`
 - `docs/technical-plan.md`（Hugo 等价时代的设计参考）已归档到 `docs/archived/technical-plan.md`
 
-### 当前版本：v0.6.0+
+### 当前版本：v0.7.1
 
-最新版本标签：v0.5.0（2026-06-30）。v0.5.0 之后 ~80 个 commit 均为 daemon 时代功能（v0.6.x 系列，未发 tag）。
+最新版本标签：v0.7.0（2026-07-28）。当前 VERSION = 0.7.1（2026-07-30）。一键发布：`bash scripts/release.sh`（产物 `release/v{version}/{os}-{arch}/`，含二进制 + 插件 + checksums + manifest）。
 
 ### 已存在的代码资产（仍有效）
 
@@ -58,6 +58,19 @@
 - **内容查询 REST API**：`/api/v1/pages`、`/pages/{url}`、`/tags`、`/sections`（公开只读，无 token）；`internal/daemon/contentindex/` 的 `ContentIndex`（从预构建 `/api/{section}.json` 加载内存索引）+ `Handler`
 - **SSE 实时推送**：`GET /api/v1/events`（text/event-stream，公开只读）；`internal/daemon/sse/` 的 `SSEHub`（非阻塞广播 + 15s 心跳 + maxClients 上限）+ `SubscribeBus`（桥接 EventBus 5 类事件：build/content/plugin）
 - daemon 四大核心运行时能力全部就绪：静态服务 + JIT 按需渲染 + 内容查询 + 实时推送
+
+### 2026-07-29 新增：diagram-renderer 插件
+
+- **构建期图表渲染插件**（`plugins/diagram-renderer/`，root-module 插件、无 go.mod）：```mermaid/plantuml/graphviz/d2 fence 经自托管 Kroki（Docker `deploy/kroki/`，宿主端口 1314，网络 `huan_net`）渲染为内联 SVG `<figure>`；内容哈希磁盘缓存（`.huan/cache/diagrams`）；Kroki 失败降级为 `<pre class="mermaid">` + mermaid.js 客户端渲染（每页一次幂等注入）；collection-not-interruption（出错只 warn 不 abort 构建）
+- **配套核心修复**：`internal/markdown/renderer.go` 保留 fence 声明语言——声明了但无 lexer 的语言（mermaid 等）不再被 guessSyntax 覆盖为猜测名，仅 fence 无语言时才采用猜测名（与 Hugo 一致）
+- **build-plugins.sh 支持两种插件形态**：构建门控从 `go.mod` 存在性改为 `Name()` 存在性——self-contained-module（有 go.mod）与 root-module（无 go.mod、属 huan 模块，测试需导入 `internal/*`）统一构建
+- **当日另修两 bug**：SEO/HTML 注入器输出扫描改递归 WalkDir（`Glob **` 非递归通配，子目录漏扫）；三插件 nil-logf panic（`InitPlugin` 必须走 `New()` 构造）
+- 配置示例总览：`huan.example.yaml`（全量字段 + 8 插件）
+
+### 2026-07-30 新增：release.sh + --plugins flag
+
+- **一键发布**：`scripts/release.sh`（Shell 而非 Go 子命令，避免鸡生蛋）——二进制 + 插件 + checksums + manifest；产物 `release/v{version}/{os}-{arch}/`
+- **`--plugins` flag**：`huan build/dev --plugins <dir>` 覆盖默认 `<sourceDir>/plugins/`；`$HUAN_HOME/plugins` 仍最高优先；空值 = 默认行为
 
 ### 2026-07-23~25 新增：插件管理后台 + SEO 编译期插件 + 事件订阅
 
@@ -92,7 +105,7 @@
 - **公开 API 契约独立于开发标志**（2026-07-22）：`GenerateContentAPI` 强制 `includeDrafts=false`
 - **预构建数据源 + 运行时查询层**（2026-07-22）：内容查询 API 复用 `/api/{section}.json` 数据源
 - **SSE 优先于 WebSocket**（2026-07-22）：单向推送匹配需求，HTTP 原生，浏览器 EventSource 原生支持
-- **插件查找顺序 `$HUAN_HOME`→项目**（2026-07-28）：`internal/plugin.HuanHome()`（默认 `~/.huan`）优先于 `<项目>/plugins`；同名插件高优先级目录胜出。`Loader.Resolve`/`Scan*` 统一走 `searchDirs`
+- **插件查找顺序 `$HUAN_HOME/plugins`→项目**（2026-07-28 定，**07-29 `8d06b30` 更正**：根目录改为 `$HUAN_HOME/plugins` 子目录）：`internal/plugin.HuanHome()`（默认 `~/.huan`）下取 `plugins/` 子目录，优先于 `<项目>/plugins`；同名插件高优先级目录胜出。`Loader.Resolve`/`Scan*` 统一走 `searchDirs`
 - **命令按能力发现插件，不硬编码插件名**（2026-07-28）：deploy/translate/image 用 `plugin.Find[Deployer/Translator/ImageProcessor]` + `loadConfiguredPlugins`（加载 yaml 声明插件）挑选；插件名只存在于 huan.yaml
 - **插件 .so 命名/发布约定**（2026-07-28）：文件名 = 配置名下划线→连字符（`internal/plugin.SoFileName`，如 `qwen3_translate`→`qwen3-translate.so`）；编译产物发布到 `release/plugins/`（gitignore，`scripts/build-plugins.sh` 重建）
 - **`.Site.Data` 不按语言作用域**（2026-07-28）：huan 递归加载 `data/`，`data/en/*.yaml` 挂在 `.Site.Data.en.*`；模板需自行按 `$.Site.LanguageCode` 覆盖（见 `practices/list.html`）
@@ -115,6 +128,14 @@
 ### 2026-07-25 新增
 - **文档需定期整理**：不维护的文档会累积大量冗余（daily/ 双份、reports/ 双份、progress/ 空目录）。维护规范 `docs/standards/documentation.md` 已执行，但需定期跟进
 - **git filter-repo 有效清理大文件历史**：`archived/hugo/` 44MB 使用 filter-repo 从 Git 历史彻底删除，仓库从 ~50MB 降到 ~8MB
+
+### 2026-07-29 新增
+- **chroma 会覆盖声明语言**：声明但无 lexer 的 fence 语言被 guessSyntax 覆盖为猜测 lexer 名；按 `data-lang` 恢复源语言的方案必须先在 renderer 层保留声明语言
+- **`filepath.Glob` 的 `**` 不是递归通配**：递归扫描一律用 `filepath.WalkDir`
+- **.so 插件 `InitPlugin` 必须走完整构造函数**（如 `New()`）：直接构造结构体会留下 nil 字段（logf）panic
+
+### 2026-08-15 新增
+- **执行完 plan 要当场回勾 checkbox**：07-29/30 两个 plan（diagram-renderer 39 项、plugins-flag 17 项）代码全部完成但 checkbox 全空，16 天后只能靠 git 考古重建执行情况（本批补账即为此付出的代价）
 
 ## 文档与导航
 
