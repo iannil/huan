@@ -75,7 +75,7 @@
   - 两条硬规则：http step 的 expect 必含 status+body；写操作（POST/PUT/DELETE/fs.write/cli 写类）后必跟 fs.assert。
   - 所有启动/构建命令必带 `HUAN_HOME=$site/.huan-home`（空目录隔离）——宿主 `~/.huan` 陈旧 .so 会毒化项目本地同名插件加载（静默零注入）。
 - **已知引擎偏差（写断言绕开或显式断言，修复后须同步 FIXTURES.md）**：draft 泄露进 sitemap/RSS/列表聚合渲染（仅单页不落盘+公开 JSON API 排除两条防线有效）；en 文章列表 relPath 丢语言后缀+filePath 双拼（浏览器删 en 文章必 500，P1 未修）；Settings 页 hasChanges ref 不重渲染（P2 未修）；dev 无 pluginManager、daemon build 不传 PluginRegistry。
-- **首份基线**：`docs/reports/e2e/2026-08-15-system-baseline.md`（首次全量实跑：API 抽样 66/66、CLI 15/15、browser P0 5/5 全过、零 YAML 修正）——后续回归以它为对照锚点。
+- **首份基线**：`docs/reports/e2e/2026-08-15-system-baseline.md`（首次全量实跑：API 抽样 65/65、CLI 15/15、browser 10/10、P0 全过、零 YAML 修正）——后续回归以它为对照锚点。
 
 ## 关键决策
 

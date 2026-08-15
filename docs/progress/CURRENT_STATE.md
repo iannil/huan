@@ -267,7 +267,7 @@ v0.5.0 交付 gate 1-5（2026-06-30）→ 等 73 天 → **v1.0.0（2026-09-11 �
 
 ### 首份基线
 
-- 报告：[`docs/reports/e2e/2026-08-15-system-baseline.md`](../reports/e2e/2026-08-15-system-baseline.md)（首次全量实跑：API 抽样 66/66、CLI 15/15、browser P0 5/5 全过，零失败零 YAML 修正）
+- 报告：[`docs/reports/e2e/2026-08-15-system-baseline.md`](../reports/e2e/2026-08-15-system-baseline.md)（首次全量实跑：API 抽样 65/65、CLI 15/15、browser 10/10、P0 全过（90/90），零失败零 YAML 修正）
 - 该基线是后续回归的对照锚点；重跑优先 P0 集与报告中的抽样集。
 - 已知引擎偏差（draft 聚合泄露、en 文章 relPath 丢后缀等）见基线报告 bug 清单与 FIXTURES.md 各「已知状态偏差」节——写断言前必读，绕开或显式断言。
 

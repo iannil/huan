@@ -54,8 +54,8 @@ browser 旅程（agent-browser 实走；截图存 `docs/reports/e2e/assets/20260
 
 ### 汇总
 
-- **通过率：API 抽样 66/66，CLI 15/15，browser 10/10（P0 旅程 5/5 全过）——0 失败**
-- **P0 状态：全过**（API 套件 P0 50 例全跑全过；CLI P0 9 例全过；browser P0 旅程 lg-001/bc-001/bc-002/sr-001/sr-002 全过）
+- **通过率：API 抽样 65/65，CLI 15/15，browser 10/10（P0 旅程 5/5 全过）——90/90 零失败**
+- **P0 状态：全过**（API 套件 P0 52 例全跑全过；CLI P0 9 例全过；browser P0 旅程 lg-001/bc-001/bc-002/sr-001/sr-002 全过）
 - **YAML 修正清单：无**——本次全量实跑未发现任何「断言与实测不符」（Task 5-12 写套件时的两次预校准已消化全部偏差，含 FIXTURES 偏差 4 的 total 口径）
 - teardown：`pgrep -f huan-e2e/huan` 无残留；`/tmp/huan-e2e/sites|artifacts/$run_id` 已清理（截图已拷出）
 
