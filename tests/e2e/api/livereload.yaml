@@ -1,0 +1,193 @@
+# 套件：livereload —— dev 的 /livereload WebSocket 推送
+#
+# 目的：验证 LiveReload 推送链路——WS 升级握手 101（含 Sec-WebSocket-Accept）、
+#       握手后 hello 帧（official-7 协议串）、内容文件变更触发的 reload 广播、
+#       /livereload.js 静态脚本可获取。
+#
+# runtime: dev · fixture: minimal · 端口: 13280（RUNBOOK §3 端口表 livereload 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.1 启动 dev（--port 13280 --bind 127.0.0.1），探活打 /。
+#           watcher 默认开启（勿加 --disableWatch——reload 广播依赖内容 watch）。
+#
+# 挂载差异（RUNBOOK §4.3）：/livereload WS + /livereload.js 只挂载在 dev——
+#       daemon 无此路由。
+#
+# 期望值出处：internal/dev/livereload.go + patterns.md §2 + 本套件
+#   2026-08-15 实测校准（dev@13280，探针记录见 task-8-report.md）：
+#   - 握手：HTTP/1.1 101 Switching Protocols + Sec-Websocket-Accept 头
+#     （coder/websocket Accept，InsecureSkipVerify 允许任意 origin）。
+#   - hello 帧（HandleConn 首写）：
+#     {"command":"hello","protocols":["http://livereload.com/protocols/official-7"],
+#      "serverName":"huan"}
+#   - reload 广播（BroadcastReload）：
+#     {"command":"reload","path":"/","liveCSS":true}
+#     触发条件：dev watcher 检测内容文件变更 → rebuild → hub.BroadcastReload()
+#     （实测 fs.write 新建/修改 content/ 下 .md 后 ~2s 内收到）。
+#   - /livereload.js：200 application/javascript，首行
+#     "// Vendored from livereload-js v4.0.2 dist/livereload.js"。
+#   - 帧断言工具：curl 只能做握手层（patterns.md §2）；帧级断言用 python3
+#     标准库手搓 WS 客户端（patterns.md §2 的 8 行内核扩展：读帧需处理
+#     长度位与掩码——服务端→客户端帧不掩码，客户端→服务端帧必掩码）。
+#
+# 浏览器层旅程（连接后改文件 → 页面自动刷新）归 browser 套件 site-rendering
+# 的 LiveReload 用例（agent-browser 两 tab 并开），本套件只做协议层。
+suite: livereload
+module: dev-livereload
+fixture: minimal
+runtime: dev
+tests:
+  - id: lr-001
+    name: GET /livereload WS 升级握手返回 101 Switching Protocols
+    severity: P0
+    # patterns.md §2 的 curl 握手命令（curl 只能做升级握手层，不能完整说 WS 帧）：
+    #   curl -s -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
+    #     -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+    #     --max-time 3 http://127.0.0.1:13280/livereload | head -5
+    # 期待首行 HTTP/1.1 101 Switching Protocols + Sec-Websocket-Accept 头
+    # （实测 2026-08-15：Sec-Websocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=，
+    # 该值由固定 Key 经 SHA1+base64 决定，可作确定性断言）。
+    steps:
+      - action: http
+        method: GET
+        path: /livereload
+        headers:
+          Connection: Upgrade
+          Upgrade: websocket
+          Sec-WebSocket-Version: "13"
+          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+        expect:
+          status: 101
+          headers:
+            Upgrade: websocket
+            Sec-Websocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+          body: { matches: "(?s)^\\s*$" }   # 101 响应无 HTTP body（升级后为 WS 帧）
+
+  - id: lr-002
+    name: 握手后收到 hello 帧（official-7 协议串）
+    severity: P0
+    # patterns.md §2 的 python3 WS 客户端内核（实测 2026-08-15 通过）：
+    #   python3 - <<'EOF' | tee $artifacts/lr-hello.txt
+    #   import socket, base64, os
+    #   s = socket.create_connection(("127.0.0.1", 13280), 3)
+    #   key = base64.b64encode(os.urandom(16)).decode()
+    #   req = (f"GET /livereload HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\n"
+    #          f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+    #          f"Sec-WebSocket-Version: 13\r\n\r\n")
+    #   s.sendall(req.encode())
+    #   resp = b""
+    #   while b"\r\n\r\n" not in resp: resp += s.recv(4096)
+    #   assert b"101" in resp.split(b"\r\n")[0]
+    #   h = s.recv(2); ln = h[1] & 0x7F                      # 读帧头+长度
+    #   data = b""
+    #   while len(data) < ln: data += s.recv(ln - len(data))
+    #   print(data.decode())   # 期待 hello JSON
+    #   EOF
+    # 期待帧负载：
+    #   {"command":"hello","protocols":["http://livereload.com/protocols/official-7"],
+    #    "serverName":"huan"}
+    # （livereload.go HandleConn：握手成功即首写 hello，writeTimeout=100ms——
+    # 客户端须立即读帧；服务端→客户端帧不掩码，读帧无需异或。）
+    steps:
+      - action: sse.subscribe           # 复用订阅动词承载「WS 连接后按持续读帧」
+        path: /livereload
+        duration: 3
+        expect:
+          event_types: [hello]
+      # 断言口径（python3 探测）：帧 JSON 满足
+      #   command=="hello" and "official-7" in protocols and serverName=="huan"
+
+  - id: lr-003
+    name: 内容文件变更广播 reload 帧
+    severity: P0
+    preconditions:
+      - lr-002
+    # 实测（2026-08-15，dev@13280）：WS 连接保持 → fs.write 修改
+    # content/posts/hello-huan.md → watcher 重建 → hub.BroadcastReload()
+    # → 客户端 ~2s 内收到 {"command":"reload","path":"/","liveCSS":true}。
+    # 执行形态（lr-002 脚本扩展：连接后延时 2s 触发 fs.write，循环读帧直到
+    # command=="reload" 或超时 10s）：
+    #   python3 - <<'EOF' | tee $artifacts/lr-reload.txt
+    #   import socket, base64, os, threading, time, json
+    #   s = socket.create_connection(("127.0.0.1", 13280), 3)
+    #   key = base64.b64encode(os.urandom(16)).decode()
+    #   req = (f"GET /livereload HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\n"
+    #          f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+    #          f"Sec-WebSocket-Version: 13\r\n\r\n")
+    #   s.sendall(req.encode())
+    #   resp = b""
+    #   while b"\r\n\r\n" not in resp: resp += s.recv(4096)
+    #   def read_frame(sock):
+    #       h = sock.recv(2); ln = h[1] & 0x7F; data = b""
+    #       while len(data) < ln: data += sock.recv(ln - len(data))
+    #       return data.decode(errors="replace")
+    #   def touch_after(sec):
+    #       time.sleep(sec)
+    #       with open(os.environ["site"] + "/content/posts/hello-huan.md", "a") as f:
+    #           f.write("\nlr-003 reload probe.\n")
+    #   threading.Thread(target=touch_after, args=(2,), daemon=True).start()
+    #   deadline = time.time() + 10
+    #   while time.time() < deadline:
+    #       try:
+    #           s.settimeout(1); f = read_frame(s)
+    #       except socket.timeout: continue
+    #       d = json.loads(f)
+    #       if d.get("command") == "reload": print("RELOAD:", f); break
+    #   EOF
+    steps:
+      - action: sse.subscribe           # WS 连接保持 + 循环读帧（同 lr-002 脚本扩展）
+        path: /livereload
+        duration: 10
+        expect:
+          event_types: [hello, reload]
+      - action: fs.write                 # 触发器：改已有内容文件 → watcher → reload 广播
+        path: $site/content/posts/hello-huan.md
+        content: |
+          ---
+          title: 你好 huan
+          date: 2026-08-10
+          tags: [go, e2e]
+          description: 第一篇正式文章
+          draft: false
+          ---
+          这是 <strong>huan</strong> E2E 测试固定数据的第一篇文章。lr-003 reload 探针正文。
+      - action: fs.assert                # 硬规则 2：写操作后必跟 fs.assert
+        path: $site/content/posts/hello-huan.md
+        exists: true
+        contains: lr-003 reload 探针正文。
+      - action: wait                     # 等订阅窗口收完 reload 帧
+        for: seconds
+        seconds: 8
+    cleanup:                             # 还原 fixture 原文（FIXTURES.md minimal 文件清单）
+      - action: fs.write
+        path: $site/content/posts/hello-huan.md
+        content: |
+          ---
+          title: 你好 huan
+          date: 2026-08-10
+          tags: [go, e2e]
+          description: 第一篇正式文章
+          ---
+
+          这是 <strong>huan</strong> E2E 测试固定数据的第一篇文章。
+
+          第二段：验证 <em>中文 CJK</em> 排版与摘要生成。
+      - action: wait
+        for: seconds
+        seconds: 2
+
+  - id: lr-004
+    name: GET /livereload.js 返回 200 且为 JS
+    severity: P0
+    # 实测（2026-08-15）：200 application/javascript（Content-Type 头），
+    # 首行 "// Vendored from livereload-js v4.0.2 dist/livereload.js"
+    # （server.go:66 内嵌 livereloadJS，Cache-Control: public, max-age=3600）。
+    steps:
+      - action: http
+        method: GET
+        path: /livereload.js
+        expect:
+          status: 200
+          headers:
+            Content-Type: application/javascript
+          body: { contains: "// Vendored from livereload-js v4.0.2" }

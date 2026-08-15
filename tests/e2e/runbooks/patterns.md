@@ -152,15 +152,18 @@ printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\
 ```bash
 # ${bin} 是从本仓库（或本 worktree）go build 出来的，.so 也要在同一目录树下编译：
 cd <仓库根或 worktree 根>    # 即构建 ${bin} 时所在的目录
-go build -buildmode=plugin -o $site/plugins/seo-injector.so ./plugins/seo-injector
-go build -buildmode=plugin -o $site/plugins/sitemap-enhancer.so ./plugins/sitemap-enhancer
+# 注意：seo-injector 与 sitemap-enhancer 是独立 Go module（有自己的 go.mod），
+# 必须在各自子目录内编译（顶层 `go build ./plugins/seo-injector` 报
+# "main module does not contain package"，实测 2026-08-15）：
+( cd plugins/seo-injector && go build -buildmode=plugin -o $site/plugins/seo-injector.so . )
+( cd plugins/sitemap-enhancer && go build -buildmode=plugin -o $site/plugins/sitemap-enhancer.so . )
 ```
 
 要点：
 - 输出到 `$site/plugins/`（项目本地插件目录），并保持 `HUAN_HOME=$site/.huan-home` 隔离（RUNBOOK §2.1），否则 `~/.huan` 旧 .so 先被扫到并毒化同名插件。
 - 编译顺序无关，但两枚 .so 与 `${bin}` 必须同一次工作区状态产出；`${bin}` 重建后旧 .so 全部作废需重编。
 - fixture 目录本身不含 .so（.gitignore 排除），每次 run 现场编译。
-- `internal/plugin/testdata/simple_plugin/` 同法：`go build -buildmode=plugin -o $site/plugins/simple-plugin.so ./internal/plugin/testdata/simple_plugin`（plugins-admin 套件的 load 用例用）。
+- `internal/plugin/testdata/simple_plugin/` 属主 module，在 worktree 根直接编译：`go build -buildmode=plugin -o $site/plugins/simple-plugin.so ./internal/plugin/testdata/simple_plugin`（plugins-admin 套件的 load/reload 用例用）。其 `InitPlugin` 契约是 `func(map[string]any) (interface{}, error)`——返回 `plugin.Plugin` 会因跨模块接口身份校验失败报 "InitPlugin has wrong signature"（实测 2026-08-15 修复在案，勿回退）。
 
 ## 8. 报告路径常量
 

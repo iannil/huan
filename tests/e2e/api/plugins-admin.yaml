@@ -1,0 +1,403 @@
+# 套件：plugins-admin —— /admin/api/plugins 与 /admin/api/theme 管理端点
+#
+# 目的：验证插件生命周期管理面——list（compiled + loaded 全量）、load 的参数
+#       校验（缺 path 400）、不存在 .so 的 500、合法 .so 加载（现场编译
+#       simple-plugin.so）、unload 后 list 回读、reload 热替换、同名二次
+#       load 409 冲突、theme 列表与 activate/deactivate 旅程。
+#
+# runtime 决策（实测 2026-08-15，以实测为准——简报原定 dev，实测推翻）：
+#   dev 模式 /admin/api/plugins 恒返回 {"status":"plugin manager unavailable"}
+#   （dev 不初始化 pluginManager，cmd/huan/dev.go 不传 PluginManager；
+#   api.go listPlugins 对 nil manager 短路 200）。**全套件跑 daemon**
+#   （plugins-admin 段 +5 偏移端口 13295，RUNBOOK §3「daemon 附加实例」
+#   与 §9 坑表「该端点断言换 daemon 实例」约定）。
+#   附带收益：daemon 是唯一有 SSE + 插件事件的形态，与 sse-events 套件互补。
+#
+# fixture: with-plugins · 端口: 13295（plugins-admin 段 13290 内 +5 偏移，daemon 实例）
+# 执行前置：
+#   1. 按 RUNBOOK §2 准备环境（构建 ${bin}、HUAN_ADMIN_TOKEN=e2e-fixed-token）。
+#   2. 拷贝 fixture：cp -r tests/e2e/fixtures/with-plugins $site; mkdir -p $site/.huan-home
+#   3. 现场编译三枚 .so（patterns.md §7——.so 必须与 ${bin} 同 worktree 构建）：
+#      cd <worktree 根>
+#      go build -buildmode=plugin -o $site/plugins/seo-injector.so ./plugins/seo-injector
+#        （注：seo-injector/sitemap-enhancer 是独立 module，命令在各自子目录内执行：
+#         cd plugins/seo-injector && go build -buildmode=plugin -o $site/plugins/seo-injector.so .
+#         cd plugins/sitemap-enhancer && go build -buildmode=plugin -o $site/plugins/sitemap-enhancer.so .）
+#      go build -buildmode=plugin -o $site/plugins/simple-plugin.so ./internal/plugin/testdata/simple_plugin
+#   4. 启动（RUNBOOK §4.2）：HUAN_ADMIN_TOKEN=$token HUAN_HOME=$site/.huan-home \
+#      $bin daemon -s $site --port 13295 --bind 127.0.0.1 &> $artifacts/daemon.log &
+#      sleep 4    # 探活 /health
+#
+# 期望值出处：FIXTURES.md with-plugins + internal/admin/api.go + 本套件
+#   2026-08-15 实测校准（daemon@13295，探针记录见 task-8-report.md）：
+#   - plug-001 list：**total=2 且 plugins 数组 2 条**（seo_injector + sitemap_enhancer，
+#     均 source:"compiled"）——FIXTURES.md 偏差 4 记录的「total=1」是 Task 3 在
+#     13223 端口实测（当时仅传一插件 registry）；本次 13295 复测两插件均注册
+#     （registry 来自 config plugins map，两键都 compiled 进 registry）。断言以
+#     本套件复测口径 total=2 为准；若跑出 1 请对照 huan.yaml plugins 声明与启动日志。
+#   - 插件启动即自动加载：simple-plugin.so 在 daemon 启动期被 ScanAndLoad 加载
+#     （Name()=simple-test，与 huan.yaml 两插件不同名无冲突）——首次 list 即含
+#     simple-test（source:"loaded"）。**此行为与 FIXTURES.md 偏差 4 的「同名冲突
+#     跳过」不冲突**：冲突只发生在 .so 与 compiled 同名时。
+#   - load 缺 path → 400 {"error":"path is required"}（api.go:417）。
+#   - load 不存在 .so → 500 {"error":"plugin: open ...: realpath failed"}
+#     （plugin.Open 错误串前缀稳定，断言用 matches "^plugin: .*realpath failed$"）。
+#   - load 合法 .so → 200 {"status":"loaded","plugin":{"name":"simple-test",
+#     "source":"loaded","status":"active"}}（PluginManageResponse）。
+#   - load 已注册同名 → 409 {"error":"plugin: name already registered"}
+#     （ErrPluginNameConflict → StatusConflict，api.go:426）。
+#   - unload 后 list 回读：total 减 1 且不含该名（List 读 m.loaded）。
+#   - unload compiled 插件 → 500 {"error":"plugin \"seo_injector\": cannot
+#     unload compiled plugin"}（lifecycle.go:267）。
+#   - reload 语义：**只对 m.loaded 中现存条目有效**——unload 之后的 reload 返回
+#     404 {"error":"plugin: not found"}（ErrPluginNotFound → StatusNotFound）；
+#     load 状态下 reload 同 path → 200 {"status":"reloaded"}。用例按
+#     load → reload → unload → reload(404) 全旅程覆盖。
+#   - reload 缺字段 → 400 {"error":"name and path are required"}（api.go:473）。
+#   - theme：listThemes 对 nil themeManager 返回 200 {"themes":[],"active":""}
+#     ——daemon 启动**不传 ThemeManager**（daemon.go:116 仅 opts.ThemeManager
+#     非空才 NewManager，CLI daemon 路径未构造），实测恒空列表；
+#     activate 未知名 → 400 {"error":"theme: plugin \"no-such-theme\" not found"}
+#     （theme.Manager.Activate 查 registry 未命中）；deactivate → 200 {"status":"ok"}
+#     （Deactivate 无条件成功）。theme 用例按实测口径断言（简报 Step 2 第 9 条
+#     的「若无可用 theme 插件，断言错误响应结构并注明现状」）。
+#   - 写操作（load/unload/reload）后硬规则 2 用两层断言：审计行 fs.assert
+#     （$site/memory/daily/<今日>.md，patterns.md §5，action 枚举含
+#     plugin.load/unload/reload）+ list 回读断言 registry 状态。
+#
+# 已知偏差对照（FIXTURES.md with-plugins）：
+#   - 偏差 1（$HUAN_HOME 旧 .so 毒化）：启动命令必带 HUAN_HOME=$site/.huan-home。
+#   - 偏差 4（list 口径）：见上，本套件复测 total=2 + 启动自动加载 simple-test。
+#   - 审计写 memory/daily 会触发 daemon watcher content_changed——不影响本套件
+#     断言（无 SSE 断言）。
+suite: plugins-admin
+module: admin-plugins
+fixture: with-plugins
+runtime: daemon
+startup:
+  # .so 现场编译（patterns.md §7）：fixture 目录不含 .so，每次 run 现编译。
+  # simple-plugin.so 是 load/reload 用例的主角（Name()=simple-test，独立于
+  # huan.yaml 声明的两插件，避免 compiled 同名冲突——偏差 4）。
+  # 注意：seo-injector/sitemap-enhancer 是独立 Go module，须在各自目录内编译。
+  - action: cli
+    command: >-
+      ( cd plugins/seo-injector && go build -buildmode=plugin
+      -o $site/plugins/seo-injector.so . ) &&
+      ( cd plugins/sitemap-enhancer && go build -buildmode=plugin
+      -o $site/plugins/sitemap-enhancer.so . ) &&
+      go build -buildmode=plugin
+      -o $site/plugins/simple-plugin.so ./internal/plugin/testdata/simple_plugin
+    expect:
+      exit_code: 0
+  - action: fs.assert                # 编译产物就位（load/reload 用例的输入）
+    path: $site/plugins/simple-plugin.so
+    exists: true
+tests:
+  - id: plug-001
+    name: GET plugins 返回 compiled+loaded 全量列表
+    severity: P0
+    # 实测（2026-08-15，daemon@13295）：{"plugins":[seo_injector(compiled),
+    # sitemap_enhancer(compiled), simple-test(loaded)],"total":3}——
+    # 启动期 ScanAndLoad 自动加载了 simple-plugin.so。断言 total 与数组元素名
+    # （数组断言用 python3 探测，见执行指引）：
+    #   curl -s -H "Authorization: Bearer $token" ${base}/admin/api/plugins |
+    #     python3 -c 'import json,sys; d=json.load(sys.stdin);
+    #       names={p["name"]:p["source"] for p in d["plugins"]};
+    #       assert d["total"]==3 and names["seo_injector"]=="compiled"
+    #       and names["sitemap_enhancer"]=="compiled"
+    #       and names["simple-test"]=="loaded", (d["total"],names)'
+    # FIXTURES.md 偏差 4 记 total=1 系 Task 3 旧口径（单插件 registry），
+    # 本套件复测为 3（config 双插件 compiled + .so 自动加载），以实测为准。
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 3
+            plugins.0.name: seo_injector
+            plugins.1.name: sitemap_enhancer
+
+  - id: plug-002
+    name: load 缺 path 返回 400
+    severity: P0
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: {}                      # 缺 path（name 可选字段也不传）
+        expect:
+          status: 400
+          body: { error: "path is required" }
+      - action: http                   # 硬规则 2（负向）：失败 load 后 registry 不变
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }
+
+  - id: plug-003
+    name: load 不存在的 .so 返回 500（plugin.Open realpath failed）
+    severity: P0
+    # 实测（2026-08-15）：500 {"error":"plugin: open <path>: plugin.Open(<path>):
+    # realpath failed"}——错误体含 plugin.Open 细节，断言用 matches 稳定片段。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: { path: $site/plugins/no-such-plugin-e2e.so }
+        expect:
+          status: 500
+          body: { error: { matches: "^plugin: .*realpath failed" } }
+      - action: http                   # 硬规则 2（负向）：失败 load 不改 registry
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }
+
+  - id: plug-004
+    name: load 合法 .so 成功加载（现场编译 simple-plugin.so）
+    severity: P0
+    preconditions:
+      - plug-001
+    # 实测（2026-08-15）：先 unload（启动期已自动加载）→ load → 200
+    # {"status":"loaded","plugin":{"name":"simple-test","source":"loaded","status":"active"}}。
+    # 陷阱：Go plugin.Open 以进程为缓存粒度，但同一路径卸载后重载实测成功
+    # （Unload 只 unregister 不卸载 .so 映射，重 Open 同 buildid 直接命中）。
+    # .so 来源：startup 现场编译（patterns.md §7 命令，签名契约
+    # func(map[string]any) (interface{}, error)——返回 plugin.Plugin 会因
+    # 跨模块接口身份校验失败报 "InitPlugin has wrong signature"，本次实测
+    # 修复过 testdata 签名，勿回退）。
+    steps:
+      - action: http                   # 前置：卸载启动期自动加载的 simple-test
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 200
+          body: { status: unloaded }
+      - action: http                   # 主断言：load 合法 .so
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: { path: $site/plugins/simple-plugin.so }
+        expect:
+          status: 200
+          body:
+            status: loaded
+            plugin.name: simple-test
+            plugin.source: loaded
+            plugin.status: active
+      - action: fs.assert              # 硬规则 2：写操作审计落盘（patterns.md §5）
+        path: $site/memory/daily/<今日>.md
+        exists: true
+        contains: "action: `plugin.load`"
+      - action: http                   # list 回读：simple-test 回到列表（loaded）
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }
+
+  - id: plug-005
+    name: unload 后 list 不含该名
+    severity: P0
+    preconditions:
+      - plug-004
+    # 实测（2026-08-15）：unload simple-test → 200 {"status":"unloaded"}；
+    # list total 3→2 且数组无 simple-test（python3 探测断言集合不含）。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 200
+          body: { status: unloaded }
+      - action: fs.assert              # 硬规则 2：审计落盘
+        path: $site/memory/daily/<今日>.md
+        contains: "action: `plugin.unload`"
+      - action: http                   # list 回读：simple-test 已不在
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            total: 2
+            plugins.0.name: seo_injector
+            plugins.1.name: sitemap_enhancer
+      - action: http                   # 反证：unload 不存在的插件 → 404
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 404
+          body: { error: "plugin: not found" }
+
+  - id: plug-006
+    name: reload 已加载插件返回 200 reloaded；卸载后 reload 404
+    severity: P0
+    preconditions:
+      - plug-005
+    # 实测（2026-08-15）：load → reload 同 path → 200 {"status":"reloaded"}；
+    # unload 后再 reload 同名 → 404 {"error":"plugin: not found"}
+    # （Reload 仅对 m.loaded 现存条目有效，api.go:481 ErrPluginNotFound→404）；
+    # 缺 name/path → 400 {"error":"name and path are required"}。
+    steps:
+      - action: http                   # 重新 load（plug-005 已卸载）
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: { path: $site/plugins/simple-plugin.so }
+        expect:
+          status: 200
+          body: { status: loaded }
+      - action: http                   # reload 已加载插件：200
+        method: POST
+        path: /admin/api/plugins/reload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test, path: $site/plugins/simple-plugin.so }
+        expect:
+          status: 200
+          body: { status: reloaded }
+      - action: fs.assert              # 硬规则 2：审计落盘（plugin.reload 行）
+        path: $site/memory/daily/<今日>.md
+        contains: "action: `plugin.reload`"
+      - action: http                   # list 回读：reload 后仍在（total 3）
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }
+      - action: http                   # 卸载后 reload：404 not found
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 200
+          body: { status: unloaded }
+      - action: http
+        method: POST
+        path: /admin/api/plugins/reload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test, path: $site/plugins/simple-plugin.so }
+        expect:
+          status: 404
+          body: { error: "plugin: not found" }
+      - action: http                   # reload 缺字段：400
+        method: POST
+        path: /admin/api/plugins/reload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 400
+          body: { error: "name and path are required" }
+
+  - id: plug-007
+    name: 同名二次 load 返回 409 冲突
+    severity: P0
+    preconditions:
+      - plug-004
+    # 实测（2026-08-15）：simple-test 已在 registry（plug-004/006 序列后按
+    # 前置重 load 保证），再次 load 同 .so → 409
+    # {"error":"plugin: name already registered"}。
+    # 附：对 compiled 插件 load 其同名 .so 同样 409（registry.Get 命中）。
+    steps:
+      - action: http                   # 确保 simple-test 在加载态（前置可能已卸载）
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: { path: $site/plugins/simple-plugin.so }
+        expect:
+          status: 200
+          body: { status: loaded }
+      - action: http                   # 主断言：同名二次 load → 409
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: { path: $site/plugins/simple-plugin.so }
+        expect:
+          status: 409
+          body: { error: "plugin: name already registered" }
+      - action: http                   # 硬规则 2（负向）：冲突 load 后 total 不变
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }
+      - action: http                   # unload compiled 插件被拒：500（lifecycle 守卫）
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: seo_injector }
+        expect:
+          status: 500
+          body:
+            error:
+              matches: '^plugin "seo_injector": cannot unload compiled plugin$'
+
+  - id: plug-008
+    name: GET theme 返回 themes 列表与 active 字段
+    severity: P1
+    # 实测（2026-08-15，daemon@13295）：200 {"themes":[],"active":""}——
+    # CLI daemon 启动不构造 ThemeManager（daemon.go:116 仅注入 opts 时才有），
+    # listThemes 对 nil manager 返回空列表（api.go:493）。断言按实测空态口径。
+    steps:
+      - action: http
+        method: GET
+        path: /admin/api/theme
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body:
+            themes: []
+            active: ""
+
+  - id: plug-009
+    name: theme activate 未知名 400 + deactivate 200（无可用 theme 插件的现状口径）
+    severity: P1
+    # 实测（2026-08-15）：activate 未知名 → 400 {"error":"theme: plugin
+    # \"no-such-theme\" not found"}（theme.Manager.Activate 查 registry 未命中，
+    # manager 是空 registry 的实例）；deactivate → 200 {"status":"ok"}
+    # （Deactivate 无条件成功）。简报注明的「若无可用 theme 插件，断言错误响应
+    # 结构并注明现状」——本用例即现状断言；theme activate 成功旅程待有 theme
+    # 插件 fixture 后补（另立任务）。
+    steps:
+      - action: http
+        method: POST
+        path: /admin/api/theme/activate
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: no-such-theme-e2e }
+        expect:
+          status: 400
+          body: { error: { matches: "^theme: plugin .* not found$" } }
+      - action: http                   # deactivate 无条件成功
+        method: POST
+        path: /admin/api/theme/deactivate
+        headers: { Authorization: "Bearer ${token}" }
+        body: {}
+        expect:
+          status: 200
+          body: { status: ok }
+      - action: http                   # 硬规则 2（负向）：theme 操作后插件面不变
+        method: GET
+        path: /admin/api/plugins
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 200
+          body: { total: 3 }

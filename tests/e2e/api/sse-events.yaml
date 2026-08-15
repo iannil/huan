@@ -1,0 +1,233 @@
+# 套件：sse-events —— daemon SSE 事件流（/api/v1/events）
+#
+# 目的：验证 SSE 推送链路——订阅即建立（text/event-stream 响应头）、15s 心跳
+#       注释行、事件触发与广播：build 类事件（content_changed → build_completed
+#       增量链）、content 事件（fs.watch 直改内容文件）、plugin 事件
+#       （plugins/load + plugins/unload 的 plugin_loaded/plugin_unloaded 广播）。
+#
+# runtime: daemon · fixture: minimal · 端口: 13270（RUNBOOK §3 端口表 sse-events 段）
+# 执行前置：按 RUNBOOK §2 准备环境（构建 ${bin}、拷贝 fixture 到 ${site}、
+#           HUAN_HOME=$site/.huan-home、HUAN_ADMIN_TOKEN=e2e-fixed-token），
+#           按 §4.2 启动 daemon（--port 13270 --bind 127.0.0.1），探活打 /health。
+#
+# 挂载差异（RUNBOOK §4.3）：SSE /api/v1/events 只挂载在 daemon——dev 模式 404。
+#
+# 期望值出处：internal/daemon/sse/hub.go + 本套件 2026-08-15 实测校准
+#   （daemon@13270，探针记录见 task-8-report.md）：
+#   - 订阅响应头：Content-Type: text/event-stream + Cache-Control: no-cache +
+#     X-Accel-Buffering: no（serving 层 SSE 写头）。
+#   - 心跳：每 15s 一条 `:heartbeat` SSE 注释行（hub.go startHeartbeat，
+#     broadcastRaw(":heartbeat\n\n")）——macOS 无 timeout 命令，订阅一律
+#     curl -sN --max-time N 截断（patterns.md §1）；**20s 窗口实测收 2 条**，
+#     duration 需 ≥20s 才稳定（15s 心跳 + 建连相位差）。
+#   - 事件行格式：`event: <type>` + `data: {json}` 两行 + 空行。
+#   - POST /admin/api/build → **content_changed {trigger:admin}**（TriggerRebuild
+#     发布的是 content_changed 而非 build_started，builder.go:345）；随后
+#     HandleContentChanged 走增量构建。**增量无受影响页时（如「0 file changes」）
+#     不发 build_completed**（IncrementalBuild 在 affected==0 时提前 return）。
+#   - 稳定收 build_completed 的触发方式：直改**已存在**的内容文件（fs.write
+#     hello-huan.md）→ content_changed {changed_files:[...]} → 增量重渲染
+#     affected>0 → build_completed {incremental:true,pages:N}。新建文件实测
+#     走「no pages affected」路径（DAG 未收录新文件）不发 build_completed。
+#   - plugin 事件：daemon 起在 with-plugins fixture + 现场编译 .so 时，
+#     plugins/load → `plugin_loaded {name,source:"loaded",path}`、
+#     plugins/unload → `plugin_unloaded {name}`（lifecycle.go publishEvent）。
+#     本套件 fixture 为 minimal（无插件依赖），sse-005 用段内 +5 偏移端口
+#     13275 起第二个 daemon 实例（fixture: with-plugins）——RUNBOOK §3
+#     「daemon 附加实例 各段 +5」约定的合法用法。
+#
+# 已知偏差对照（FIXTURES.md / 实测）：
+#   - admin 审计写 $site/memory/daily/*.md 会被 daemon watcher 捕获并发
+#     content_changed（memory/ 不在 watcher 跳过表）——断言事件**类型集合**
+#     时用 grep 精确匹配目标 event: 行，勿断言「无其他事件」。
+#   - daemon watcher 不监听 layouts/（watcher.go isSkippedDir 含 layouts），
+#     模板变更不产生任何事件——不能用作 build 事件触发器。
+suite: sse-events
+module: daemon-sse-events
+fixture: minimal
+runtime: daemon
+tests:
+  - id: sse-001
+    name: 订阅 /api/v1/events 即建立（响应头 text/event-stream）
+    severity: P0
+    # patterns.md §1：curl -s -i -N --max-time 3 取响应头首 3 行。
+    steps:
+      - action: sse.subscribe
+        path: /api/v1/events
+        duration: 3
+        expect:
+          headers:
+            Content-Type: text/event-stream
+            Cache-Control: no-cache
+            X-Accel-Buffering: no
+
+  - id: sse-002
+    name: 15s 心跳——20s 窗口内收到冒号开头的 SSE 注释行
+    severity: P1
+    # hub.go heartbeatInterval=15s，broadcastRaw 发送 ":heartbeat" 注释行。实测
+    # --max-time 20 窗口收 2 条（首条相位随建连时刻漂移，20s 是「至少 1 条」
+    # 的稳定窗口；15s 窗口可能恰好 0 条——抖动源，duration 定 20）。
+    # 断言：grep -c '^:heartbeat' 输出 >= 1。
+    steps:
+      - action: sse.subscribe
+        path: /api/v1/events
+        duration: 20
+        expect:
+          heartbeat: true
+
+  - id: sse-003
+    name: POST /admin/api/build 触发 content_changed 事件（trigger=admin）
+    severity: P0
+    # 实测（2026-08-15，daemon@13270）：后台订阅 1s → POST build 202
+    # {"status":"rebuild triggered"} → 流内收
+    #   event: content_changed
+    #   data: {"trigger":"admin"}
+    # 注意：TriggerRebuild 发的是 content_changed（非 build_started）；本用例
+    # 断言 build 触发链的第一跳。build_completed 的稳定断言在 sse-004
+    # （admin 触发的重排队列实测走「0 file changes」路径，不发 build_completed）。
+    # 执行形态（patterns.md §1）：curl -sN --max-time 8 后台收流 → sleep 1 →
+    # POST → wait 收流进程 → grep '^event: content_changed' + grep '"trigger":"admin"'。
+    steps:
+      - action: sse.subscribe
+        path: /api/v1/events
+        duration: 8
+        expect:
+          event_types: [content_changed]
+      - action: http                   # 触发器（在订阅窗口内执行）
+        method: POST
+        path: /admin/api/build
+        headers: { Authorization: "Bearer ${token}" }
+        expect:
+          status: 202
+          body: { status: "rebuild triggered" }
+          side_effect: async-rebuild   # 异步重建（_schema.md 硬规则 2 例外）
+
+  - id: sse-004
+    name: 直改内容文件收到 content_changed + build_completed（增量链）
+    severity: P0
+    # 实测（2026-08-15）：fs.write 覆盖**已存在**的 posts/hello-huan.md（改正文）
+    # → watcher（content/ 在监听表内）发布 content_changed {changed_files:[绝对路径]}
+    # → HandleContentChanged 增量构建（affected>0）→ build_completed
+    #   {"incremental":true,"pages":3}。两条事件按序出现在同一流内。
+    # 陷阱（实测）：新建文件（DAG 未收录）走「no pages affected」不发
+    #   build_completed——触发器必须改已有文件。
+    # 执行形态：curl -sN --max-time 10 后台收流 → sleep 1 → fs.write → wait →
+    #   grep '^event: ' | sort | uniq -c 断言两类型 + grep '"incremental":true'。
+    steps:
+      - action: sse.subscribe
+        path: /api/v1/events
+        duration: 10
+        expect:
+          event_types: [content_changed, build_completed]
+      - action: fs.write               # 触发器：改已有内容文件（在订阅窗口内执行）
+        path: $site/content/posts/hello-huan.md
+        content: |
+          ---
+          title: 你好 huan
+          date: 2026-08-10
+          tags: [go, e2e]
+          description: 第一篇正式文章
+          draft: false
+          ---
+          这是 <strong>huan</strong> E2E 测试固定数据的第一篇文章。SSE 增量探测正文。
+      - action: fs.assert              # 硬规则 2：写操作后必跟 fs.assert
+        path: $site/content/posts/hello-huan.md
+        exists: true
+        contains: SSE 增量探测正文。
+      - action: wait                   # 等订阅窗口收完增量构建事件
+        for: seconds
+        seconds: 9
+    cleanup:                           # 还原 fixture 原文（FIXTURES.md minimal 文件清单）
+      - action: fs.write
+        path: $site/content/posts/hello-huan.md
+        content: |
+          ---
+          title: 你好 huan
+          date: 2026-08-10
+          tags: [go, e2e]
+          description: 第一篇正式文章
+          ---
+
+          这是 <strong>huan</strong> E2E 测试固定数据的第一篇文章。
+
+          第二段：验证 <em>中文 CJK</em> 排版与摘要生成。
+      - action: wait
+        for: seconds
+        seconds: 3
+
+  - id: sse-005
+    name: 插件 load/unload 广播 plugin_loaded / plugin_unloaded 事件
+    severity: P1
+    # 实测（2026-08-15，daemon@13275，fixture with-plugins + 现场编译 .so）：
+    # plugins/load simple-plugin.so →
+    #   event: plugin_loaded
+    #   data: {"name":"simple-test","path":".../plugins/simple-plugin.so","source":"loaded"}
+    # plugins/unload →
+    #   event: plugin_unloaded
+    #   data: {"name":"simple-test"}
+    # 附带噪音：admin 审计写 memory/daily/*.md 会触发 content_changed（watcher
+    # 不跳过 memory/），断言用 grep '^event: plugin_loaded' / '^event: plugin_unloaded'
+    # 精确匹配，勿断言「仅这两类」。
+    # 执行前置（旁路实例，段内 +5 端口 13275，RUNBOOK §3「daemon 附加实例」）：
+    #   export site2=/tmp/huan-e2e/sites/$run_id-with-plugins
+    #   cp -r tests/e2e/fixtures/with-plugins $site2 && mkdir -p $site2/.huan-home
+    #   cd <worktree 根> && go build -buildmode=plugin \
+    #     -o $site2/plugins/simple-plugin.so ./internal/plugin/testdata/simple_plugin
+    #   HUAN_ADMIN_TOKEN=$token HUAN_HOME=$site2/.huan-home \
+    #     $bin daemon -s $site2 --port 13275 --bind 127.0.0.1 &> $artifacts/daemon-sse005.log &
+    #   sleep 4    # 探活 /health
+    # 执行形态：curl -sN --max-time 10 后台收流 → sleep 1 → POST load → sleep 1 →
+    #   POST unload → wait → grep 两个 event: 行。
+    # 已知偏差对照（FIXTURES.md with-plugins 偏差 4）：启动期 ScanAndLoad 的
+    #   .so 与 compiled 同名冲突被跳过——simple-plugin.so 的 Name()=simple-test
+    #   与 huan.yaml 声明的两插件不同名，启动即加载成功（list total 含它），
+    #   load 用例先 unload 再 load 避免冲突 409。
+    steps:
+      - action: http                   # 先卸载（启动期已自动加载），保证 load 干净
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 200
+          body: { status: unloaded }
+      - action: sse.subscribe          # 订阅窗口：覆盖 load + unload 两次广播
+        path: /api/v1/events
+        duration: 10
+        expect:
+          event_types: [plugin_loaded, plugin_unloaded]
+      - action: http                   # 触发器 1：load → plugin_loaded（窗口内执行）
+        method: POST
+        path: /admin/api/plugins/load
+        headers: { Authorization: "Bearer ${token}" }
+        body: { path: $site2/plugins/simple-plugin.so }
+        expect:
+          status: 200
+          body:
+            status: loaded
+            plugin.name: simple-test
+            plugin.source: loaded
+        # 硬规则 2 说明：插件 load 的可观察落盘是审计行（memory/daily），由
+        # sse-005 尾部的 fs.assert 断言；进程内 registry 状态由 unload 步骤
+        # 的 200 回读断言（卸载不存在的插件会 404）。
+      - action: wait
+        for: seconds
+        seconds: 1
+      - action: http                   # 触发器 2：unload → plugin_unloaded（窗口内执行）
+        method: POST
+        path: /admin/api/plugins/unload
+        headers: { Authorization: "Bearer ${token}" }
+        body: { name: simple-test }
+        expect:
+          status: 200
+          body: { status: unloaded }
+      - action: fs.assert              # 硬规则 2：写操作审计落盘（load 与 unload 两行）
+        path: $site2/memory/daily/<今日>.md
+        exists: true
+        contains: "action: `plugin.load`"
+      - action: fs.assert
+        path: $site2/memory/daily/<今日>.md
+        contains: "action: `plugin.unload`"
+      - action: wait                   # 等订阅窗口收完
+        for: seconds
+        seconds: 9
