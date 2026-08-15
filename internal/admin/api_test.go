@@ -662,3 +662,23 @@ func TestListPlugins_NoManager_Returns503(t *testing.T) {
 		t.Fatalf("status = %d, want 503", w.Code)
 	}
 }
+
+// TestRealFilePath_Idempotent verifies realFilePath does not double a
+// language suffix already present in relPath — regression for the
+// `.en.en.md` path shown in the multi-language editor header (ContentEdit
+// renders detail.filePath, which was built by realFilePath over a relPath
+// that already carried the suffix).
+func TestRealFilePath_Idempotent(t *testing.T) {
+	tests := []struct{ relPath, lang, want string }{
+		{"posts/hello.md", "en", "posts/hello.en.md"},   // neutral → suffixed
+		{"posts/hello.en.md", "en", "posts/hello.en.md"}, // already suffixed → unchanged (no double)
+		{"posts/hello.md", "zh-cn", "posts/hello.zh-cn.md"},
+		{"posts/hello.zh-cn.md", "zh-cn", "posts/hello.zh-cn.md"},
+		{"posts/hello.md", "", "posts/hello.md"}, // empty lang → unchanged
+	}
+	for _, tc := range tests {
+		if got := realFilePath(tc.relPath, tc.lang); got != tc.want {
+			t.Errorf("realFilePath(%q, %q) = %q, want %q", tc.relPath, tc.lang, got, tc.want)
+		}
+	}
+}

@@ -456,8 +456,16 @@ func realFilePath(relPath, lang string) string {
 	if lang == "" {
 		return relPath
 	}
-	ext := filepath.Ext(relPath)
-	return relPath[:len(relPath)-len(ext)] + "." + lang + ext
+	ext := filepath.Ext(relPath)         // ".md"
+	trimmed := (relPath)[:len(relPath)-len(ext)] // "products/huan" or "products/huan.en"
+	// Idempotent: if the base already ends with "."+lang (relPath was passed
+	// with its language suffix already present, e.g. "products/huan.en.md"
+	// with lang "en"), don't double the suffix — that produced the
+	// `.en.en.md` path shown in the multi-language editor header.
+	if strings.HasSuffix(trimmed, "."+lang) {
+		return relPath
+	}
+	return trimmed + "." + lang + ext
 }
 
 // marshalMapToStruct unmarshals a map into a struct via YAML round-trip.

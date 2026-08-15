@@ -284,8 +284,16 @@ func (h *apiHandler) getStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// siteTitle is read live from settings so a settings PUT (which triggers
+	// an async rebuild) is immediately reflected in status.title — the
+	// handler-built static copy would otherwise keep the stale title on the
+	// Dashboard header/overview.
+	title := h.siteTitle
+	if s, err := readSettings(h.sourceDir); err == nil && s.Title != "" {
+		title = s.Title
+	}
 	writeJSON(w, http.StatusOK, StatusResponse{
-		Title:            h.siteTitle,
+		Title:            title,
 		BaseURL:          h.baseURL,
 		ServeURL:         h.serveURL,
 		Total:            total,
