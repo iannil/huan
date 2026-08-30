@@ -73,8 +73,10 @@
                     </div>
                 {{ end }}
 
-                {{/* Introduction */}}
-                {{ with (first 1 (where $allPages "File.BaseFileName" "introduction")) }}
+                {{/* Introduction (only root-level, not part-XX sub-introductions) */}}
+                {{ $introPages := where $allPages "File.BaseFileName" "introduction" }}
+                {{ $rootIntro := where $introPages "File.Dir" $practiceDir }}
+                {{ with (first 1 $rootIntro) }}
                     {{ if $partTitles }}
                         <div class="listing_title section-title">{{ i18n "practice_intro" }}</div>
                     {{ end }}
