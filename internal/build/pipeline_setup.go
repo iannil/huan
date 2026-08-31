@@ -4,6 +4,7 @@ package build
 // (siteCtx + per-page context + link relationships).
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -14,6 +15,18 @@ import (
 	tmpl "github.com/iannil/huan/internal/template"
 )
 
+// sameDir reports whether two paths refer to the same directory. Used as a
+// safety guard: the daemon builds with OutputDir == SourceDir, and wiping
+// the source would be catastrophic.
+func sameDir(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return filepath.Clean(absA) == filepath.Clean(absB)
+}
+
 // setupTemplatesAndWriter loads templates + i18n bundle, configures the
 // renderer with the cfg.BaseURL FuncMap, and constructs the writer with
 // minify + canonify options matching cfg.
@@ -22,6 +35,11 @@ import (
 // i18nFunc reads the right bundle), and BEFORE any template that calls
 // `i18n` is executed.
 func (p *pipeline) setupTemplatesAndWriter() error {
+	if p.cfg.ShouldCleanPublishDir() && !sameDir(p.opts.OutputDir, p.opts.SourceDir) {
+		if err := output.CleanPublishDir(p.opts.OutputDir); err != nil {
+			return fmt.Errorf("clean publish dir: %w", err)
+		}
+	}
 	tmpls, err := tmpl.LoadAllTemplates(p.opts.SourceDir, p.cfg.BaseURL, p.themeManager)
 	if err != nil {
 		return err

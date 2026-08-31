@@ -160,7 +160,12 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 			}
 		}
 
-		// Dispatch to single-language BuildSite
+		// Dispatch to single-language BuildSite.
+		// Safety with cleanPublishDir (default on): each language builds into
+		// its own output dir (zh-cn -> docs, others -> docs/<code>), and the
+		// default language always comes first via SortedLanguages, so a later
+		// language only cleans its own subdirectory of already-generated
+		// output and regenerates it immediately. No cross-language wipe.
 		built, err := BuildSite(langOpts)
 		if err != nil {
 			return result, fmt.Errorf("build language %s: %w", code, err)

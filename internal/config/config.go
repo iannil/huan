@@ -21,6 +21,9 @@ type Config struct {
 	Title        string            `yaml:"title"`
 	LanguageCode string            `yaml:"languageCode"`
 	PublishDir   string            `yaml:"publishDir"`
+	// CleanPublishDir wipes the output dir before building. Default true.
+	// Set false to keep stale files (legacy behavior).
+	CleanPublishDir *bool            `yaml:"cleanPublishDir"`
 	Paginate     int               `yaml:"paginate"`
 	Minify       bool              `yaml:"minify"`
 	HasCJKLang   bool              `yaml:"hasCJKLanguage"`
@@ -197,4 +200,10 @@ func Defaults() *Config {
 // Now returns the current time, exposed to templates.
 func (c *Config) Now() time.Time {
 	return time.Now()
+}
+
+// ShouldCleanPublishDir reports the effective cleanPublishDir setting,
+// defaulting to true when unset.
+func (c *Config) ShouldCleanPublishDir() bool {
+	return c.CleanPublishDir == nil || *c.CleanPublishDir
 }
