@@ -362,3 +362,61 @@ func writeFile(t *testing.T, dir, relPath, content string) {
 		t.Fatalf("write %s: %v", full, err)
 	}
 }
+
+// TestBuildMultiSite_DefaultLanguageFirstOrder verifies that even when a
+// non-default language has a smaller weight (so SortedLanguages puts it
+// first), BuildMultiSite moves the default language to the front of the
+// build order. Otherwise the default language's cleanPublishDir would wipe
+// the non-default language's output under the publishDir root.
+func TestBuildMultiSite_DefaultLanguageFirstOrder(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "huan.yaml", `
+baseURL: https://example.com/
+title: Test
+languageCode: zh-cn
+publishDir: docs
+defaultContentLanguage: zh-cn
+languages:
+  en:
+    weight: 1
+    languageName: English
+    languageCode: en
+    baseURL: /en
+  zh-cn:
+    weight: 5
+    languageName: 中文
+    languageCode: zh-cn
+`)
+	writeFile(t, dir, filepath.Join("content", "posts", "foo.md"), `---
+title: "Foo"
+date: 2026-06-14T00:00:00Z
+---
+Hello world.
+`)
+	writeFile(t, dir, filepath.Join("content", "posts", "foo.en.md"), `---
+title: "Foo EN"
+date: 2026-06-14T00:00:00Z
+---
+Hello world, English.
+`)
+
+	res, err := BuildMultiSite(Options{SourceDir: dir, OutputDir: filepath.Join(dir, "docs")})
+	if err != nil {
+		t.Fatalf("BuildMultiSite: %v", err)
+	}
+	if len(res.PerLanguage) != 2 {
+		t.Fatalf("got %d language builds, want 2", len(res.PerLanguage))
+	}
+	if res.PerLanguage[0].Code != "zh-cn" {
+		t.Errorf("first built language = %q, want zh-cn (default must build first even though en has smaller weight)", res.PerLanguage[0].Code)
+	}
+	// The non-default language's output subdirectory must still exist after
+	// the cleaning default build. (Rendered HTML files are not asserted here;
+	// the minimal test templates render no content pages.)
+	if fi, err := os.Stat(filepath.Join(dir, "docs", "en")); err != nil || !fi.IsDir() {
+		t.Errorf("docs/en missing or not a dir after build (wiped by default-language clean?): %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "docs")); err != nil || !fi.IsDir() {
+		t.Errorf("docs missing or not a dir after build: %v", err)
+	}
+}

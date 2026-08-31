@@ -15,9 +15,10 @@ import (
 // BuildMultiSite when huan.yaml declares more than one language under the
 // `languages:` block (see docs/adr/0007-i18n-build-system.md).
 type MultiSiteResult struct {
-	// PerLanguage holds the build result for each configured language, in
-	// weight-ascending then code-alphabetical order (matches
-	// config.SortedLanguages()).
+	// PerLanguage holds the build result for each configured language, with
+	// the default language first, then the rest in weight-ascending then
+	// code-alphabetical order (matches config.SortedLanguages(), with the
+	// default hoisted to the front).
 	PerLanguage []LanguageBuildResult
 
 	// TotalDuration is the wall-clock time of the entire multi-language build.
@@ -81,7 +82,23 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 	defaultCode := masterCfg.DefaultLanguageCode()
 	result := &MultiSiteResult{}
 
-	for _, entry := range masterCfg.SortedLanguages() {
+	// SortedLanguages orders by weight/code only, which does NOT guarantee the
+	// default language comes first (a user may give a non-default language a
+	// smaller weight). Since the default language builds into the publishDir
+	// root and cleanPublishDir wipes it, it MUST build first — otherwise a
+	// later default build would delete other languages' output under the root.
+	// Move the default language to the front, preserving weight/code order
+	// among the rest.
+	langs := masterCfg.SortedLanguages()
+	for i, entry := range langs {
+		if entry.Code == defaultCode {
+			langs = slices.Delete(langs, i, i+1)
+			langs = slices.Insert(langs, 0, entry)
+			break
+		}
+	}
+
+	for _, entry := range langs {
 		code := entry.Code
 		lang := entry.Lang
 
@@ -163,9 +180,10 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		// Dispatch to single-language BuildSite.
 		// Safety with cleanPublishDir (default on): each language builds into
 		// its own output dir (zh-cn -> docs, others -> docs/<code>), and the
-		// default language always comes first via SortedLanguages, so a later
-		// language only cleans its own subdirectory of already-generated
-		// output and regenerates it immediately. No cross-language wipe.
+		// default language is always moved to the front of the build order
+		// (see above), so a later language only cleans its own subdirectory
+		// of already-generated output and regenerates it immediately.
+		// No cross-language wipe.
 		built, err := BuildSite(langOpts)
 		if err != nil {
 			return result, fmt.Errorf("build language %s: %w", code, err)
