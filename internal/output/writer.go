@@ -142,8 +142,10 @@ func (w *Writer) WriteBytes(relPath string, data []byte) error {
 	return nil
 }
 
-// CopyStatic copies all files from srcDir into publishDir, preserving relative paths.
-func (w *Writer) CopyStatic(srcDir string) error {
+// CopyStatic copies all files from srcDir into publishDir, preserving relative
+// paths. Files whose slash-relative path starts with one of the excludes
+// prefixes (e.g. "en/") are skipped; nil/empty excludes copies everything.
+func (w *Writer) CopyStatic(srcDir string, excludes []string) error {
 	_, err := os.Stat(srcDir)
 	if os.IsNotExist(err) {
 		return nil
@@ -165,6 +167,12 @@ func (w *Writer) CopyStatic(srcDir string) error {
 			return err
 		}
 		relPath = filepath.ToSlash(relPath)
+
+		for _, ex := range excludes {
+			if strings.HasPrefix(relPath, ex) {
+				return nil
+			}
+		}
 
 		return w.copyFile(path, relPath)
 	})

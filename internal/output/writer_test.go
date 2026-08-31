@@ -89,13 +89,51 @@ func TestWriter_CopyStaticMirrorsDirectory(t *testing.T) {
 
 	publishDir := filepath.Join(tmp, "out")
 	w := NewWriter(publishDir)
-	if err := w.CopyStatic(staticDir); err != nil {
+	if err := w.CopyStatic(staticDir, nil); err != nil {
 		t.Fatalf("CopyStatic: %v", err)
 	}
 
 	for _, rel := range []string{"css/main.css", "js/app.js"} {
 		if _, err := os.Stat(filepath.Join(publishDir, rel)); err != nil {
 			t.Errorf("expected %s copied: %v", rel, err)
+		}
+	}
+}
+
+// TestWriter_CopyStaticExcludesPrefix verifies that excludes skip files whose
+// slash-relative path starts with any of the given prefixes (e.g. "en/").
+func TestWriter_CopyStaticExcludesPrefix(t *testing.T) {
+	root := t.TempDir()
+	staticDir := filepath.Join(root, "static")
+	for _, f := range []string{
+		"llms.txt",
+		"en/llms.txt",
+		"en/sub/deep.txt",
+		"energy/note.txt", // 以 "en" 开头的其他目录不能被误伤
+	} {
+		p := filepath.Join(staticDir, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := filepath.Join(root, "out")
+	w := NewWriter(out)
+	if err := w.CopyStatic(staticDir, []string{"en/"}); err != nil {
+		t.Fatalf("CopyStatic: %v", err)
+	}
+
+	for _, gone := range []string{"en/llms.txt", "en/sub/deep.txt"} {
+		if _, err := os.Stat(filepath.Join(out, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s should be excluded", gone)
+		}
+	}
+	for _, kept := range []string{"llms.txt", "energy/note.txt"} {
+		if _, err := os.Stat(filepath.Join(out, kept)); err != nil {
+			t.Errorf("%s should be copied: %v", kept, err)
 		}
 	}
 }

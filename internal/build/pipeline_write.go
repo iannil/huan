@@ -18,7 +18,7 @@ func (p *pipeline) copyStaticAndFinalize() {
 	if themeName != "" {
 		themeStatic := filepath.Join(p.opts.SourceDir, "themes", themeName, "static")
 		if _, err := os.Stat(themeStatic); err == nil {
-			if err := p.writer.CopyStatic(themeStatic); err != nil {
+			if err := p.writer.CopyStatic(themeStatic, nil); err != nil {
 				p.logf("  WARN: theme static: %v\n", err)
 			}
 		}
@@ -28,7 +28,7 @@ func (p *pipeline) copyStaticAndFinalize() {
 	p.writeThemePluginAssets()
 
 	projectStatic := filepath.Join(p.opts.SourceDir, "static")
-	if err := p.writer.CopyStatic(projectStatic); err != nil {
+	if err := p.writer.CopyStatic(projectStatic, nil); err != nil {
 		p.logf("  WARN: static: %v\n", err)
 	}
 
