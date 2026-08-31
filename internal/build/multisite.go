@@ -3,6 +3,7 @@ package build
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,6 +92,9 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		if lang.Title != "" {
 			langCfg.Title = lang.Title
 		}
+		// Override Params per-language config (empty fields keep top-level
+		// params) so non-default languages see translated site metadata.
+		applyLanguageParams(&langCfg.Params, lang.Params)
 		// Override LanguageCode: explicit lang.LanguageCode wins, else use code
 		if lang.LanguageCode != "" {
 			langCfg.LanguageCode = lang.LanguageCode
@@ -174,12 +178,25 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 // sectionInList reports whether the given top-level section name is present in
 // list. Used by the per-language PageFilter to classify pages.
 func sectionInList(top string, list []string) bool {
-	for _, s := range list {
-		if s == top {
-			return true
-		}
+	return slices.Contains(list, top)
+}
+
+// applyLanguageParams overrides top-level Params with per-language values.
+// Only non-empty per-language fields win; empty fields keep the top-level
+// value (partial override, matching the previous site_translations behavior).
+func applyLanguageParams(dst *config.ParamsConfig, lang config.LanguageParamsConfig) {
+	if lang.SubTitle != "" {
+		dst.SubTitle = lang.SubTitle
 	}
-	return false
+	if lang.FooterSlogan != "" {
+		dst.FooterSlogan = lang.FooterSlogan
+	}
+	if lang.Description != "" {
+		dst.Description = lang.Description
+	}
+	if len(lang.Keywords) > 0 {
+		dst.Keywords = lang.Keywords
+	}
 }
 
 // buildAvailableTranslations scans the content directory and returns a map

@@ -69,6 +69,22 @@ type LanguageConfig struct {
 	// section's default-language content pages are included as-is, while the
 	// section index uses this language's `_index.<lang>.md` sidecar.
 	NeutralSections []string `yaml:"neutralSections"`
+
+	// Params overrides the top-level `params:` block for this language's
+	// build (e.g. translated subTitle / description / keywords). Only fields
+	// that are relevant per-language are honored: subTitle, footerSlogan,
+	// keywords, description. Empty fields fall back to the top-level params.
+	Params LanguageParamsConfig `yaml:"params"`
+}
+
+// LanguageParamsConfig is the per-language subset of ParamsConfig honored by
+// `languages.<code>.params`. Fields left empty keep the top-level `params:`
+// value for this language's build.
+type LanguageParamsConfig struct {
+	SubTitle     string   `yaml:"subTitle"`
+	FooterSlogan string   `yaml:"footerSlogan"`
+	Keywords     []string `yaml:"keywords"`
+	Description  string   `yaml:"description"`
 }
 
 // IsMultiLanguage reports whether cfg has a non-empty Languages map with at
@@ -164,7 +180,7 @@ func (c *Config) LanguageName(langCode string) string {
 
 // IsDefaultLanguageCurrent returns true when cfg.LanguageCode matches the
 // default language code (i.e. this build is rendering the default language).
-// Used to decide whether site_translations injection applies.
+// Used to decide whether per-language params overrides apply.
 //
 // Returns true for single-language configs.
 func (c *Config) IsDefaultLanguageCurrent() bool {

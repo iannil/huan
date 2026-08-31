@@ -25,10 +25,14 @@
 | [`adr/0005-remove-encrypt-and-v02-feature-batch.md`](adr/0005-remove-encrypt-and-v02-feature-batch.md) | **ADR 0005：v0.2 系列决策** | Accepted |
 | [`adr/0006-remove-encryptgroups-dead-config.md`](adr/0006-remove-encryptgroups-dead-config.md) | **ADR 0006：移除 `encryptGroups` dead config** | Accepted |
 | [`adr/0007-i18n-build-system.md`](adr/0007-i18n-build-system.md) | **ADR 0007：i18n 多语言构建系统** | Accepted |
-| [`adr/0008-translator-capability-qwen3-plugin.md`](adr/0008-translator-capability-qwen3-plugin.md) | **ADR 0008：Translator capability + Qwen3 插件** | Accepted |
+| [`adr/0008-translator-capability-qwen3-plugin.md`](adr/0008-translator-capability-qwen3-plugin.md) | **ADR 0008：Translator capability + Qwen3 插件** | Superseded by [ADR 0015](adr/0015-deprecate-qwen3-translate.md) |
 | [`adr/0009-self-contained-downstream-deploys.md`](adr/0009-self-contained-downstream-deploys.md) | **ADR 0009：Self-contained downstream deploys** | Accepted |
 | [`adr/0010-v1-0-scope-and-positioning-split.md`](adr/0010-v1-0-scope-and-positioning-split.md) | **ADR 0010：v1.0 scope + 定位拆段** | Accepted |
 | [`adr/0011-admin-security-boundary.md`](adr/0011-admin-security-boundary.md) | **ADR 0011：Admin 安全边界** | Accepted |
+| [`adr/0012-theme-plugin-system.md`](adr/0012-theme-plugin-system.md) | **ADR 0012：主题插件系统** | Accepted |
+| [`adr/0013-plugin-contract-convergence.md`](adr/0013-plugin-contract-convergence.md) | **ADR 0013：插件契约收敛** | Accepted |
+| [`adr/0014-hook-contract-split.md`](adr/0014-hook-contract-split.md) | **ADR 0014：Hook 契约拆分** | Accepted |
+| [`adr/0015-deprecate-qwen3-translate.md`](adr/0015-deprecate-qwen3-translate.md) | **ADR 0015：废弃 qwen3-translate 插件与 Translator 翻译基建** | Accepted |
 | [`standards/equivalence.md`](standards/equivalence.md) | **三维度等价标准**（Hugo 等价历史参考） | 永久（历史参考） |
 | [`standards/documentation.md`](standards/documentation.md) | 文档规范 | 永久 |
 | [`templates/progress-template.md`](templates/progress-template.md) | 进行中工作模板 | 引用 |

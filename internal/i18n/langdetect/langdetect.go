@@ -1,6 +1,6 @@
-// Package langdetect provides language-mix detection helpers shared between
-// the qwen3 translation quality gate and the i18n audit tooling. All functions
-// are pure (no I/O, no state) and operate on already-extracted text.
+// Package langdetect provides language-mix detection helpers used by the i18n
+// audit tooling. All functions are pure (no I/O, no state) and operate on
+// already-extracted text.
 package langdetect
 
 import (

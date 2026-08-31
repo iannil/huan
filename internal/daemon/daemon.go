@@ -21,7 +21,6 @@ import (
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
-	"github.com/iannil/huan/internal/translate"
 )
 
 // Options configures the daemon.
@@ -168,10 +167,7 @@ func Run(opts Options) error {
 			if _, ok := p.(deploy.Deployer); ok {
 				caps = append(caps, "deploy")
 			}
-			if _, ok := p.(translate.Translator); ok {
-				caps = append(caps, "translate")
-			}
-			if _, ok := p.(image.ImageProcessor); ok {
+				if _, ok := p.(image.ImageProcessor); ok {
 				caps = append(caps, "image")
 			}
 			if _, ok := p.(theme.ThemePlugin); ok {

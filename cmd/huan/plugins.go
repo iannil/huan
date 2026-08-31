@@ -11,7 +11,6 @@ import (
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
-	"github.com/iannil/huan/internal/translate"
 )
 
 // newPluginRegistry is the composition root for the unified plugin system
@@ -140,9 +139,6 @@ func capabilityLabels(p plugin.Plugin) []string {
 	var labels []string
 	if _, ok := p.(deploy.Deployer); ok {
 		labels = append(labels, "deploy")
-	}
-	if _, ok := p.(translate.Translator); ok {
-		labels = append(labels, "translate")
 	}
 	if _, ok := p.(image.ImageProcessor); ok {
 		labels = append(labels, "image")

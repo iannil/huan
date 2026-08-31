@@ -13,7 +13,7 @@
 **huan** 是用 Go 编写的 **local-first single-user content engine with built-in admin**，当前核心能力是 **daemon 持久化服务端模式**。
 
 - `huan daemon` — 持久化进程，提供：静态文件服务 + JIT 按需渲染 + 内容查询 REST API + SSE 实时推送 + Admin 管理后台 + 插件热插拔
-- `huan build` / `huan serve` / `huan deploy` / `huan release` / `huan translate` — 传统 SSG 模式仍完整保留
+- `huan build` / `huan serve` / `huan deploy` / `huan release` — 传统 SSG 模式仍完整保留（`huan translate` 已随 qwen3 插件废弃移除，见 ADR 0011）
 - **版本节奏**：v0.5.0（2026-06-30 交付 v1.0 hard gate 1-5）→ v0.6.0+（2026-07-20 起 daemon 时代）→ v0.7.0/v0.7.1（2026-07-28~30 插件契约收敛 + diagram-renderer + 一键发布）→ v1.0.0（gate 6 90 天稳定性，2026-09-11 后）
 
 ---
@@ -48,7 +48,7 @@
 ### 3.2 热插拔插件系统（2026-07-21）
 
 - **`internal/plugin/`** 新增：`Loader`（.so 文件加载）、`LifecycleManager`（生命周期管理）、`GRPCStub`（gRPC 预留骨架）
-- **独立 .so 插件仓库**：`plugins/cloudflare/`、`plugins/qwen3/`、`plugins/image-pipeline/`。自包含类型复制模式
+- **独立 .so 插件仓库**：`plugins/cloudflare/`、`plugins/image-pipeline/`。自包含类型复制模式（qwen3 已废弃，ADR 0011）
 - **Admin API**：`/admin/api/plugins/*`（list/load/unload/reload）
 - **CLI**：`huan plugin load/unload/reload/list`
 - **EventBus 插件事件**：Loaded/Unloaded/Reloaded/Error
@@ -106,7 +106,7 @@
 
 ### 3.11 插件能力契约收敛 + Hook 拆分（2026-07-28，ADR 0013/0014）
 
-- **契约统一到 `pkg/`**：所有跨 `.so` 边界的能力契约（Deployer / Translator / ImageProcessor / ThemePlugin / PostBuildHook）必须声明在 `pkg/` 下；`internal/` 仅保留类型别名回填。护栏：`TestCapabilityContractsLiveInPkg`（go/ast 扫描）+ `diagnoseCapabilityGap`（Find 落空时枚举已加载插件、指向 contract mismatch）
+- **契约统一到 `pkg/`**：所有跨 `.so` 边界的能力契约（Deployer / ImageProcessor / ThemePlugin / PostBuildHook；Translator 已废弃）必须声明在 `pkg/` 下；`internal/` 仅保留类型别名回填。护栏：`TestCapabilityContractsLiveInPkg`（go/ast 扫描）+ `diagnoseCapabilityGap`（Find 落空时枚举已加载插件、指向 contract mismatch）
 - **Hook 契约拆分**（ADR 0014，修复静默失效 bug）：`pkg/plugin.PostBuildHook`（embed Plugin + 仅 `OnOutputWritten(ctx, outputDir)`，唯一可跨 .so）；`internal/build.Hook`（`*content.Page` 三方法）保留为编译期富页面钩子。pipeline 在 `build.Hook` 之外桥接调用 `PostBuildHook`——此前 seo-injector / sitemap-enhancer / html-injector 三个 .so 插件因契约分叉钩子从未被调用
 - 插件查找顺序：`$HUAN_HOME/plugins`（默认 `~/.huan/plugins`）→ `<项目>/plugins`；命令按能力 `plugin.Find[T]` 发现插件，不硬编码插件名
 
@@ -154,7 +154,7 @@
 | `deploy` | 部署到 Cloudflare | ✅ 稳定 |
 | `plugin` | 插件管理（load/unload/reload/list） | ✅ v0.6+ 新增 |
 | `release` | 本地打包发布 | ✅ 稳定 |
-| `translate` | 翻译内容（qwen3 插件） | ✅ 稳定 |
+
 | `version` | 输出版本 + git SHA | ✅ 稳定 |
 | `env` | 打印环境信息 | ✅ 稳定 |
 | `config` | 打印解析后配置 | ✅ 稳定 |
@@ -192,7 +192,6 @@ huan/
 │   │   ├── contentindex/    # 内容查询索引
 │   │   └── sse/             # SSE 实时推送
 │   ├── deploy/              # Deployer 接口 + Report
-│   ├── translate/           # Translator 接口 + types
 │   ├── plugin/              # 统一插件宿主（Loader / LifecycleManager / GRPCStub / MetadataProvider / EventSubscriber）
 │   ├── image/               # ImageProcessor 接口
 │   ├── seo/                 # SEO 编译期插件（injector / sitemap / htmlinjector）
@@ -200,10 +199,9 @@ huan/
 │   ├── release/             # 跨平台打包
 │   ├── version/             # VCS info
 │   └── equiv/               # 三维度等价算法
-├── pkg/                     # 跨 .so 边界的能力契约（plugin/translate/image/deploy）
+├── pkg/                     # 跨 .so 边界的能力契约（plugin/image/deploy）
 ├── plugins/                 # 独立 .so 插件仓库（8 个）
 │   ├── cloudflare/          # Cloudflare deploy 插件
-│   ├── qwen3/               # Qwen3 翻译插件
 │   ├── image-pipeline/      # 图片管线插件
 │   ├── seo-injector/ / sitemap-enhancer/ / html-injector/   # SEO 三件套（PostBuildHook）
 │   ├── diagram-renderer/    # 构建期图表 SVG 渲染（root-module 形态）

@@ -37,7 +37,7 @@ type I18nStaleReport struct {
 	Stale int
 
 	// Missing counts sidecars whose frontmatter lacks source_hash entirely
-	// (e.g. hand-created without going through translate plugin).
+	// (e.g. hand-created sidecar).
 	Missing int
 
 	// StaleFiles lists paths of stale sidecars (for error reporting).
@@ -68,12 +68,9 @@ func (r *I18nStaleReport) Error() string {
 			b.WriteString("    - " + f + "\n")
 		}
 	}
-	if r.Stale > 0 {
-		b.WriteString("\nRun `huan translate qwen3` to refresh stale translations.\n")
-	}
-	if r.Missing > 0 {
-		b.WriteString("\nRun `huan translate backfill` to stamp source_hash on sidecars that\n")
-		b.WriteString("already match the current source (sidecar body left untouched).\n")
+	if r.Stale > 0 || r.Missing > 0 {
+		b.WriteString("\nRe-translate or manually update the listed sidecars to match the current\n")
+		b.WriteString("source, then stamp the matching source_hash into their frontmatter.\n")
 	}
 	b.WriteString("\nOr set HUAN_STRICT_I18N=false to bypass (not recommended in CI).")
 	return b.String()
@@ -117,11 +114,9 @@ func checkStaleTranslations(contentDir string) (*I18nStaleReport, error) {
 			return nil // source gone/unreadable; skip (separate concern)
 		}
 
-		// Empty-body sources (e.g. section _index.md with only frontmatter) are
-		// SKIPPED by `huan translate` (translate_cmd.go), so their sidecars never
-		// receive a source_hash. Don't flag them as stale/missing — mirror the
-		// translator's own skip rule so manually-authored _index.<lang>.md don't
-		// break strict CI.
+		// Empty-body sources (e.g. section _index.md with only frontmatter)
+		// never receive a source_hash. Don't flag them as stale/missing —
+		// manually-authored _index.<lang>.md must not break strict CI.
 		if markdownBodyIsEmpty(string(srcData)) {
 			return nil
 		}

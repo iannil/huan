@@ -9,7 +9,6 @@ import (
 	"github.com/iannil/huan/internal/deploy"
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
-	"github.com/iannil/huan/internal/translate"
 )
 
 // stubDeployer is a minimal deploy.Deployer implementation for testing
@@ -18,14 +17,6 @@ type stubDeployer struct{ name string }
 
 func (s *stubDeployer) Name() string { return s.name }
 func (s *stubDeployer) Deploy(_ context.Context, _ deploy.Options) (*deploy.Report, error) {
-	return nil, nil
-}
-
-// stubTranslator is a minimal translate.Translator for testing.
-type stubTranslator struct{ name string }
-
-func (s *stubTranslator) Name() string { return s.name }
-func (s *stubTranslator) Translate(_ context.Context, _ translate.Request) (*translate.Response, error) {
 	return nil, nil
 }
 
@@ -94,14 +85,6 @@ func TestCapabilityLabels_DeployerPluginReturnsDeployLabel(t *testing.T) {
 	labels := capabilityLabels(d)
 	if len(labels) != 1 || labels[0] != "deploy" {
 		t.Errorf("labels = %v, want [deploy]", labels)
-	}
-}
-
-func TestCapabilityLabels_TranslatorPluginReturnsTranslateLabel(t *testing.T) {
-	tr := &stubTranslator{name: "x"}
-	labels := capabilityLabels(tr)
-	if len(labels) != 1 || labels[0] != "translate" {
-		t.Errorf("labels = %v, want [translate]", labels)
 	}
 }
 

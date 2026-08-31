@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-08-15（补记 07-29~30：diagram-renderer 插件、release.sh、--plugins flag，版本至 v0.7.1）
+> 最近更新：2026-08-31（废弃 qwen3-translate 插件与 Translator 基建，ADR 0015；site_translations 迁移至 languages.<code>.params）
 
 ## 用户偏好
 
@@ -39,8 +39,8 @@
 
 ### 已存在的代码资产（仍有效）
 
-- `huan build` / `huan serve` / `huan deploy` / `huan release` / `huan translate` / `huan daemon` 等 CLI 子命令（16 个）
-- `internal/build/`、`internal/template/`、`internal/markdown/`、`internal/output/`、`internal/admin/`、`internal/i18n/`、`internal/translate/`、`internal/plugin/`、`internal/deploy/`、`internal/observability/`、`internal/image/`、`internal/daemon/`、`internal/seo/` 等内部包
+- `huan build` / `huan serve` / `huan deploy` / `huan release` / `huan daemon` 等 CLI 子命令（`huan translate` 已于 2026-08-31 随 qwen3 插件废弃移除，见 ADR 0015）
+- `internal/build/`、`internal/template/`、`internal/markdown/`、`internal/output/`、`internal/admin/`、`internal/i18n/`、`internal/plugin/`、`internal/deploy/`、`internal/observability/`、`internal/image/`、`internal/daemon/`、`internal/seo/` 等内部包
 - Admin Panel（Go API + React SPA）：ContentList / ContentEdit / ContentNew / Settings / Dashboard + 插件管理
 - i18n 多语言系统（zh-cn + en /en/）
 - huan daemon — 核心定位
@@ -48,7 +48,7 @@
 ### 2026-07-21 新增：插件化架构 + 增量构建
 
 - **热插拔插件系统**：`internal/plugin/` 新增 `Loader`（.so 加载）、`LifecycleManager`（生命周期）、`GRPCStub`（gRPC 预留骨架）；Admin API `/admin/api/plugins/*`（list/load/unload/reload）；CLI `plugin load/unload/reload`
-- **独立 .so 插件仓库**：`plugins/cloudflare/`（deploy 能力）、`plugins/qwen3/`（translate 能力）、`plugins/image-pipeline/`（image 能力）。自包含类型复制模式
+- **独立 .so 插件仓库**：`plugins/cloudflare/`（deploy 能力）、`plugins/image-pipeline/`（image 能力）。自包含类型复制模式（qwen3 翻译插件已于 2026-08-31 废弃删除，ADR 0015）
 - **图片管线插件**：构建时自动压缩/多尺寸/HTML srcset 注入；`internal/image/processor.go` 的 `ImageProcessor` capability 接口
 - **增量构建**：`internal/build/cache.go` 的 `PipelineCache`（缓存渲染基础设施）；`IncrementalRender`（DAG 驱动部分重渲染）；`HasTemplateChanges`（模板变更检测 → 全量回退）；`dag.OrderByDependency`（拓扑排序）。daemon 文件变更走增量路径
 
@@ -109,8 +109,8 @@
 - **预构建数据源 + 运行时查询层**（2026-07-22）：内容查询 API 复用 `/api/{section}.json` 数据源
 - **SSE 优先于 WebSocket**（2026-07-22）：单向推送匹配需求，HTTP 原生，浏览器 EventSource 原生支持
 - **插件查找顺序 `$HUAN_HOME/plugins`→项目**（2026-07-28 定，**07-29 `8d06b30` 更正**：根目录改为 `$HUAN_HOME/plugins` 子目录）：`internal/plugin.HuanHome()`（默认 `~/.huan`）下取 `plugins/` 子目录，优先于 `<项目>/plugins`；同名插件高优先级目录胜出。`Loader.Resolve`/`Scan*` 统一走 `searchDirs`
-- **命令按能力发现插件，不硬编码插件名**（2026-07-28）：deploy/translate/image 用 `plugin.Find[Deployer/Translator/ImageProcessor]` + `loadConfiguredPlugins`（加载 yaml 声明插件）挑选；插件名只存在于 huan.yaml
-- **插件 .so 命名/发布约定**（2026-07-28）：文件名 = 配置名下划线→连字符（`internal/plugin.SoFileName`，如 `qwen3_translate`→`qwen3-translate.so`）；编译产物发布到 `release/plugins/`（gitignore，`scripts/build-plugins.sh` 重建）
+- **命令按能力发现插件，不硬编码插件名**（2026-07-28）：deploy/image 用 `plugin.Find[Deployer/ImageProcessor]` + `loadConfiguredPlugins`（加载 yaml 声明插件）挑选；插件名只存在于 huan.yaml（Translator capability 已废弃）
+- **插件 .so 命名/发布约定**（2026-07-28）：文件名 = 配置名下划线→连字符（`internal/plugin.SoFileName`，如 `seo_injector`→`seo-injector.so`）；编译产物发布到 `release/plugins/`（gitignore，`scripts/build-plugins.sh` 重建）
 - **`.Site.Data` 不按语言作用域**（2026-07-28）：huan 递归加载 `data/`，`data/en/*.yaml` 挂在 `.Site.Data.en.*`；模板需自行按 `$.Site.LanguageCode` 覆盖（见 `practices/list.html`）
 - **catalogSections 会丢弃全部内容页**（2026-07-28）：仅渲染 `_index.<lang>` 索引，用于未翻译章节占位；若章节已翻译并要显示目录，须从 catalogSections 移除该 section
 - **能力契约一律置于 `pkg/`**（2026-07-28，ADR 0013）：所有 embed `plugin.Plugin` 且跨 `.so` 边界的能力契约必须在 `pkg/`（Deployer/Translator/ImageProcessor/ThemePlugin），`internal/` 仅用类型别名回填以保调用点零改动。护栏二道：`TestCapabilityContractsLiveInPkg`（go/ast 扫描，`internal/` 新增同类契约即 CI 红）+ `diagnoseCapabilityGap`（`Find[T]` 落空且 registry 非空时枚举已加载插件、指向 contract mismatch，替代裸 `no X available`）。插件侧加编译期断言（如 image-pipeline `var _ pkgimage.ImageProcessor`）实现 host+plugin 同源锁步。白名单例外 3 项：`EventSubscriber`（引用 internal eventbus、无 .so 用者、不 embed Plugin，YAGNI 推迟、纯留痕）、`GRPCPlugin`（gRPC 跨进程，不受 .so 类型同一性约束）、`Hook`（`internal/build.Hook` 用 `[]*content.Page` 无法迁 pkg/，.so 安全版 `pkg/plugin.Hook` 用 `[]any` 已存在）。**后续待办（同类 bug，未修）**：`internal/build/pipeline.go:75` 断言 `internal/build.Hook`（`[]*content.Page`），而已发布 .so 插件实现 `pkg/plugin.Hook`（`[]any`）——结构不同接口、无桥接 adapter，这些插件 hook 很可能从未被构建管线调用；候选独立后续计划（加桥接 adapter 或统一两个 Hook 接口）。→ **已由 ADR 0014 解决**（见下条）。

@@ -1,6 +1,6 @@
 # ADR 0008：Translator capability + Qwen3 首发 plugin
 
-- **状态**：Proposed（待 PR1 落地后转 Accepted）
+- **状态**：Superseded by [ADR 0011](0011-deprecate-qwen3-translate.md)（2026-08-31 废弃 qwen3 插件与 Translator capability）
 - **日期**：2026-06-14
 - **决策者**：用户（owner）+ Claude（grill-me 收敛）
 - **依赖**：[ADR 0003](0003-unified-plugin-system.md)（统一插件系统）

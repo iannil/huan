@@ -178,13 +178,13 @@ func TestLoader_Resolve_FallsBackToProject(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Setenv("HUAN_HOME", huanHome)
 
-	projSo := filepath.Join(projectDir, "qwen3.so")
+	projSo := filepath.Join(projectDir, "seo-injector.so")
 	if err := os.WriteFile(projSo, []byte("proj"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	l := NewLoader(projectDir)
-	if got := l.Resolve("qwen3.so"); got != projSo {
+	if got := l.Resolve("seo-injector.so"); got != projSo {
 		t.Errorf("Resolve() = %q, want project fallback %q", got, projSo)
 	}
 }

@@ -30,6 +30,9 @@ languages:
     baseURL: /en                     # 相对路径前缀
     excludeSections: [hidden]        # 该语言排除的 section
     neutralSections: [gallery]       # 该语言无需翻译的 section
+    params:                          # 该语言覆盖的站点参数（空字段回退顶层 params）
+      subTitle: English Subtitle
+      description: English site description
 
 # ---------- 作者 ----------
 
@@ -173,29 +176,6 @@ plugins:
   # ---- zhurongshuo — 祝融说主题插件（特定站点专属） ----
   zhurongshuo:
     category: static
-
-  # ---- qwen3_translate — 本地 LLM 翻译（i18n 构建） ----
-  qwen3_translate:
-    endpoint: http://localhost:11434
-    model: qwen3:14b
-    fallback_model: qwen3:7b
-    timeout_seconds: 600
-    concurrency: 1
-    system_prompt_file: i18n/translate-prompt-zh-en.md
-    glossary_file: i18n/terms.yaml
-    quality:
-      length_ratio_min: 0.5
-      length_ratio_max: 3.5
-      target_language_threshold: 0.8
-      markdown_structure_tolerance: 3
-      enforce_glossary: true
-      retry_on_violation: 1
-    site_translations:
-      en:
-        subTitle: FORM NOT VOID, MIND NO CORE
-        description: DESCRIPTION TEXT
-        keywords: [Keyword1, Keyword2]
-        footerSlogan: FOOTER SLOGAN
 
   # ---- image-pipeline — 图像处理（缩放、格式转换、srcset） ----
   image_pipeline:

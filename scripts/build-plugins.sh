@@ -5,7 +5,6 @@
 #
 # The output file name is derived from each plugin's Name() (the huan.yaml key),
 # converting underscores to hyphens per the loader convention:
-#   Name()=="qwen3_translate"  ->  qwen3-translate.so
 #   Name()=="seo_injector"     ->  seo-injector.so
 # This matches internal/plugin.SoFileName so `huan` resolves published plugins
 # by config key (see $HUAN_HOME / <project>/plugins lookup in loader.go).

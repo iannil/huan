@@ -78,8 +78,8 @@ func HuanHome() string {
 
 // SoFileName returns the conventional .so file name for a plugin whose config
 // key / Name() is `name`. huan.yaml plugin keys use underscores
-// (e.g. qwen3_translate); the .so files on disk use hyphens
-// (e.g. qwen3-translate.so). Callers derive filenames from config keys via this
+// (e.g. seo_injector); the .so files on disk use hyphens
+// (e.g. seo-injector.so). Callers derive filenames from config keys via this
 // helper instead of hardcoding plugin file names.
 func SoFileName(name string) string {
 	return strings.ReplaceAll(name, "_", "-") + ".so"

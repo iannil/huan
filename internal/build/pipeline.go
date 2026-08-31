@@ -141,8 +141,7 @@ func newPipeline(opts Options) *pipeline {
 // --- Stage 1: Load + apply config ---
 
 // loadConfig resolves cfg from CfgOverride (per-language path) or disk,
-// then applies serve-mode overrides (BaseURLOverride, MinifyOverride) and
-// the multi-language site_translations injection.
+// then applies serve-mode overrides (BaseURLOverride, MinifyOverride).
 //
 // All side effects on cfg are confined to this stage — later stages see a
 // stable cfg that doesn't shift under them.
@@ -166,11 +165,11 @@ func (p *pipeline) loadConfig() error {
 		p.cfg.Minify = *p.opts.MinifyOverride
 	}
 
-	// Inject site_translations BEFORE BuildTree (which calls paramsToMap) so
-	// the per-language Params propagate to templates. Multi-language only.
+	// Per-language Params overrides are applied by BuildMultiSite when it
+	// clones the master cfg (see applyLanguageParams in multisite.go); this
+	// stage only logs which language the current build renders.
 	if p.cfg.IsMultiLanguage() && !p.cfg.IsDefaultLanguageCurrent() {
-		injectSiteTranslations(p.cfg, p.cfg.LanguageCode)
-		p.logf("  i18n inject: site_translations for %s\n", p.cfg.LanguageCode)
+		p.logf("  i18n: per-language params for %s\n", p.cfg.LanguageCode)
 	}
 
 	p.logf("Building site: %s\n", p.cfg.Title)
@@ -302,7 +301,7 @@ func (p *pipeline) checkStaleTranslations(contentDir string) error {
 		return fmt.Errorf("%s", report.Error())
 	}
 	if report.Stale > 0 || report.Missing > 0 {
-		p.logf("  WARN: stale translations found (run `huan translate qwen3` to refresh):\n%s\n",
+		p.logf("  WARN: stale translations found:\n%s\n",
 			report.Error())
 	}
 	return nil

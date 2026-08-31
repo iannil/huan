@@ -53,7 +53,7 @@ func TestExtractSourceHash(t *testing.T) {
 	markdown := `---
 translation_of: posts/foo.md
 source_hash: abc123def456
-model: qwen3
+model: test-model
 ---
 
 Body content.
