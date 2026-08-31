@@ -28,8 +28,23 @@ func (p *pipeline) copyStaticAndFinalize() {
 	p.writeThemePluginAssets()
 
 	projectStatic := filepath.Join(p.opts.SourceDir, "static")
-	if err := p.writer.CopyStatic(projectStatic, nil); err != nil {
+	// Plain copy skips the language-local staticRoot subtree (it is remapped
+	// below) and any explicitly excluded prefixes.
+	excludes := append([]string{}, p.opts.StaticExclude...)
+	if p.opts.StaticRoot != "" {
+		excludes = append(excludes, p.opts.StaticRoot+"/")
+	}
+	if err := p.writer.CopyStatic(projectStatic, excludes); err != nil {
 		p.logf("  WARN: static: %v\n", err)
+	}
+	// Language-local static: copy static/<staticRoot>/ to this build's
+	// output root (e.g. static/en/llms.txt → docs/en/llms.txt for the en
+	// build). Runs for every language; sites without staticRoot are no-ops.
+	if p.opts.StaticRoot != "" {
+		langStatic := filepath.Join(projectStatic, p.opts.StaticRoot)
+		if err := p.writer.CopyStatic(langStatic, nil); err != nil {
+			p.logf("  WARN: lang static: %v\n", err)
+		}
 	}
 
 	files, bytes := p.writer.Stats()

@@ -287,6 +287,59 @@ languages:
 	}
 }
 
+// TestMultiSiteStaticExclude verifies that a non-default language with
+// staticExclude: ["en/"] does not copy static/en/ into its own output dir
+// (no docs/en/en), while staticRoot: "en" remaps static/en/* into the en
+// build's output root (so static/en/llms.txt lands at docs/en/llms.txt).
+func TestMultiSiteStaticExclude(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "huan.yaml", `
+baseURL: https://example.com/
+title: Test
+languageCode: zh-cn
+publishDir: docs
+defaultContentLanguage: zh-cn
+languages:
+  zh-cn:
+    weight: 1
+    languageName: 中文
+    languageCode: zh-cn
+  en:
+    weight: 2
+    languageName: English
+    languageCode: en
+    baseURL: /en
+    staticExclude: ["en/"]
+    staticRoot: "en"
+`)
+	writeFile(t, dir, filepath.Join("content", "posts", "foo.md"), `---
+title: "Foo"
+date: 2026-06-14T00:00:00Z
+---
+Hello world.
+`)
+	writeFile(t, dir, filepath.Join("static", "llms.txt"), "default llms")
+	writeFile(t, dir, filepath.Join("static", "en", "llms.txt"), "en llms")
+	out := filepath.Join(dir, "docs")
+
+	if _, err := BuildMultiSite(Options{SourceDir: dir, OutputDir: out}); err != nil {
+		t.Fatalf("BuildMultiSite: %v", err)
+	}
+
+	// staticRoot remaps static/en/* into the en build's output root.
+	if _, err := os.Stat(filepath.Join(out, "en", "llms.txt")); err != nil {
+		t.Errorf("docs/en/llms.txt should exist (copied by en build's staticRoot): %v", err)
+	}
+	// staticExclude skips static/en/ in the en build's plain copy → no docs/en/en.
+	if _, err := os.Stat(filepath.Join(out, "en", "en")); !os.IsNotExist(err) {
+		t.Error("docs/en/en should NOT exist")
+	}
+	// docs/llms.txt intact from default build.
+	if _, err := os.Stat(filepath.Join(out, "llms.txt")); err != nil {
+		t.Errorf("docs/llms.txt should exist: %v", err)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

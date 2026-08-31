@@ -33,6 +33,10 @@ languages:
     params:                          # 该语言覆盖的站点参数（空字段回退顶层 params）
       subTitle: English Subtitle
       description: English site description
+# 语言级 static 配置（可选）：
+#   en:
+#     staticExclude: ["en/"]   # 该语言的 plain static 拷贝跳过 static/en/
+#     staticRoot: "en"         # static/en/* 映射为该语言输出根的本地 static
 
 # ---------- 作者 ----------
 

@@ -75,6 +75,17 @@ type LanguageConfig struct {
 	// that are relevant per-language are honored: subTitle, footerSlogan,
 	// keywords, description. Empty fields fall back to the top-level params.
 	Params LanguageParamsConfig `yaml:"params"`
+
+	// StaticExclude lists slash-path prefixes under static/ skipped when
+	// copying static assets for THIS language's build (e.g. ["en/"] on the
+	// en language prevents static/en/ from landing at <out>/en/en/).
+	StaticExclude []string `yaml:"staticExclude"`
+
+	// StaticRoot maps a static/ subdirectory to this language's output root.
+	// e.g. "en" makes static/en/* the language-local static dir, copied to
+	// the output root of this language's build (replacing the plain static/
+	// copy for those prefixed files).
+	StaticRoot string `yaml:"staticRoot"`
 }
 
 // LanguageParamsConfig is the per-language subset of ParamsConfig honored by

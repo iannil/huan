@@ -139,6 +139,8 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		// Inject cfg override + page filter + translations map
 		langOpts.CfgOverride = &langCfg
 		langOpts.AvailableTranslations = available
+		langOpts.StaticExclude = lang.StaticExclude
+		langOpts.StaticRoot = lang.StaticRoot
 		cc := code
 		def := defaultCode
 		isDefault := code == defaultCode

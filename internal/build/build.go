@@ -73,6 +73,10 @@ type Options struct {
 	// ThemeManager, if non-nil, is used to discover theme hooks
 	// that participate in the build pipeline.
 	ThemeManager *theme.Manager
+
+	// StaticExclude / StaticRoot are injected per-language by BuildMultiSite.
+	StaticExclude []string
+	StaticRoot    string
 }
 
 // RenderPageFunc is the callback signature for single-page rendering.
