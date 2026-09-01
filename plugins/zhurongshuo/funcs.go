@@ -74,3 +74,79 @@ func parseGuideYAML(plain string) (map[string]interface{}, error) {
 	}
 	return data, nil
 }
+
+// svgTextWidth estimates rendered text width. CJK chars and full-width
+// punctuation measure 1.0×fontSize; other (ASCII/Latin) chars ≈0.55×.
+// Estimation, not measurement — budgets in callers leave slack.
+func svgTextWidth(s string, fontSize int) float64 {
+	w := 0.0
+	for _, r := range s {
+		if isWideRune(r) {
+			w += float64(fontSize)
+		} else {
+			w += float64(fontSize) * 0.55
+		}
+	}
+	return w
+}
+
+func isWideRune(r rune) bool {
+	switch {
+	case r >= 0x4E00 && r <= 0x9FFF: // CJK Unified Ideographs
+		return true
+	case r >= 0x3000 && r <= 0x303F: // CJK punctuation
+		return true
+	case r >= 0xFF00 && r <= 0xFFEF: // fullwidth forms
+		return true
+	case r == 0x2014 || r == 0x2026: // em dash, ellipsis
+		return true
+	}
+	return false
+}
+
+// svgTruncate returns s unchanged when it fits maxWidth; otherwise cuts
+// it at the character boundary that fits and appends "…".
+func svgTruncate(s string, maxWidth float64, fontSize int) string {
+	if svgTextWidth(s, fontSize) <= maxWidth {
+		return s
+	}
+	runes := []rune(s)
+	ellipsisW := svgTextWidth("…", fontSize)
+	acc := 0.0
+	for i, r := range runes {
+		rw := svgTextWidth(string(r), fontSize)
+		if acc+rw+ellipsisW > maxWidth {
+			return string(runes[:i]) + "…"
+		}
+		acc += rw
+	}
+	return s
+}
+
+// svgWrap breaks s into lines each fitting maxWidth (CJK char-by-char,
+// ASCII on spaces). The last line may keep a long unbreakable word.
+func svgWrap(s string, maxWidth float64, fontSize int) []string {
+	var lines []string
+	var cur []rune
+	curW := 0.0
+	flush := func() {
+		if len(cur) > 0 {
+			lines = append(lines, string(cur))
+			cur = nil
+			curW = 0.0
+		}
+	}
+	for _, r := range s {
+		rw := svgTextWidth(string(r), fontSize)
+		if r == ' ' && curW == 0 {
+			continue // skip leading spaces
+		}
+		if curW+rw > maxWidth {
+			flush()
+		}
+		cur = append(cur, r)
+		curW += rw
+	}
+	flush()
+	return lines
+}

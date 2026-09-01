@@ -69,6 +69,9 @@ func (t *ZhurongshuoTheme) FuncMap() template.FuncMap {
 		"toc":            toc,
 		"darkModeToggle": darkModeToggle,
 		"parseGuideYAML": parseGuideYAML,
+		"svgTextWidth":   svgTextWidth,
+		"svgTruncate":    svgTruncate,
+		"svgWrap":        svgWrap,
 	}
 }
 
