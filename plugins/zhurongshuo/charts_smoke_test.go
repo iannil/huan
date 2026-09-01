@@ -138,6 +138,16 @@ type chartScratch struct{ m map[string]interface{} }
 
 func (s *chartScratch) Set(k string, v interface{}) interface{} { s.m[k] = v; return "" }
 func (s *chartScratch) Get(k string) interface{}                { return s.m[k] }
+func (s *chartScratch) Add(k string, v interface{}) interface{} {
+	cur, _ := s.m[k].([]interface{})
+	// Engine Scratch.Add concatenates slices (like Hugo); mirror that.
+	if add, ok := v.([]interface{}); ok {
+		s.m[k] = append(cur, add...)
+	} else {
+		s.m[k] = append(cur, v)
+	}
+	return ""
+}
 
 // executeChart renders one partial by name with the given context.
 func executeChart(t *testing.T, tmpl *template.Template, name string, ctx interface{}) string {

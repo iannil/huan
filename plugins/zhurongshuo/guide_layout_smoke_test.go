@@ -16,7 +16,7 @@ type guideLayoutSmokeTestPage struct {
 	Type         string
 	Kind         string
 	Plain        string
-	RawContent    string
+	RawContent   string
 	RelPermalink string
 	File         *guideLayoutSmokeTestFile
 	Site         *guideLayoutSmokeTestSite
@@ -28,16 +28,51 @@ type guideLayoutSmokeTestFile struct {
 	BaseFileName string
 }
 
-type guideLayoutSmokeTestSite struct{}
+type guideLayoutSmokeTestSite struct {
+	Data         map[string]interface{}
+	LanguageCode string
+}
+
+// guideLayoutSmokeTestBookPage mirrors the book page fields the guide
+// layout's map section touches (Title, RelPermalink, File.Dir,
+// RegularPagesRecursive).
+type guideLayoutSmokeTestBookPage struct {
+	Title                 string
+	RelPermalink          string
+	File                  *guideLayoutSmokeTestFile
+	RegularPagesRecursive []interface{}
+}
 
 func (s *guideLayoutSmokeTestSite) GetPage(ref string) interface{} {
 	if ref == "/books/demo-book/" {
-		return map[string]interface{}{
-			"Title":        "演示书",
-			"RelPermalink": "/books/demo-book/",
+		return &guideLayoutSmokeTestBookPage{
+			Title:        "演示书",
+			RelPermalink: "/books/demo-book/",
+			File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/_index.md", Dir: "books/demo-book/", BaseFileName: "_index"},
+			RegularPagesRecursive: []interface{}{
+				&guideLayoutSmokeTestPage{
+					Title: "第一章", RelPermalink: "/books/demo-book/part-01/chapter-01/",
+					File: &guideLayoutSmokeTestFile{Path: "books/demo-book/part-01/chapter-01.md", Dir: "books/demo-book/part-01/", BaseFileName: "chapter-01"},
+				},
+			},
 		}
 	}
 	return map[string]interface{}{"RelPermalink": "", "Title": "", "File": (*guideLayoutSmokeTestFile)(nil)}
+}
+
+// guideLayoutSmokeTestData mirrors data/books.yaml structure for
+// part_titles lookup.
+func guideLayoutSmokeTestData() map[string]interface{} {
+	return map[string]interface{}{
+		"books": map[string]interface{}{
+			"part_titles": map[string]interface{}{
+				"demo-book": map[string]interface{}{"part-01": "第一部：开篇"},
+			},
+		},
+		"practices": map[string]interface{}{
+			"part_titles": map[string]interface{}{},
+		},
+	}
 }
 
 const guideSmokeGuideData = "```guide\nbook: demo-book\nsection: books\nthesis:\n  claim: \"世界是被建构的\"\n  puzzle: \"如果是被建构的，建构者是谁？\"\nmain_chart:\n  chart_type: funnel\n  title: \"建构漏斗\"\n  nodes:\n    - { label: \"感知\" }\n    - { label: \"建构\" }\nconcepts:\n  - name: \"建构\"\n    what: \"心智组装经验\"\n    why: \"没有组装就没有世界\"\nmap:\n  - part: \"part-01\"\n    note: \"第一部分\"\ntakeaways:\n  - \"世界是被建构的\"\n```\n"
@@ -119,6 +154,18 @@ func guideLayoutTestFuncMap() template.FuncMap {
 	fm["failRender"] = failRender
 	fm["guideChartTypes"] = guideChartTypesFn
 	fm["strings_Replace"] = strings.ReplaceAll
+	fm["trimSuffix"] = func(suffix, s string) string { return strings.TrimSuffix(s, suffix) }
+	fm["isset"] = func(m interface{}, key string) bool {
+		switch v := m.(type) {
+		case map[string]interface{}:
+			_, ok := v[key]
+			return ok
+		case map[interface{}]interface{}:
+			_, ok := v[key]
+			return ok
+		}
+		return false
+	}
 	fm["path_Base"] = func(p string) string {
 		p = strings.TrimSuffix(p, "/")
 		if i := strings.LastIndex(p, "/"); i >= 0 {
@@ -150,10 +197,57 @@ func guideLayoutTestFuncMap() template.FuncMap {
 		return false
 	}
 	fm["where"] = func(pages interface{}, field string, val string) interface{} { return pages }
-	fm["sort"] = func(v interface{}) interface{} { return v }
-	fm["append"] = func(slice interface{}, items ...interface{}) []interface{} {
-		s, _ := slice.([]interface{})
-		return append(s, items...)
+	fm["sort"] = func(v interface{}, _ ...string) interface{} { return v }
+	// append mirrors engine appendSliceFunc: variadic; find the []interface{}
+	// arg and append the rest (template pipes pass the slice plus items).
+	fm["append"] = func(args ...interface{}) (interface{}, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("append requires at least 2 arguments")
+		}
+		var slice []interface{}
+		sliceIdx := -1
+		for i, a := range args {
+			if s, ok := a.([]interface{}); ok {
+				slice = s
+				sliceIdx = i
+				break
+			}
+		}
+		if sliceIdx == -1 {
+			return nil, fmt.Errorf("append: no slice argument")
+		}
+		for i, a := range args {
+			if i != sliceIdx {
+				slice = append(slice, a)
+			}
+		}
+		return slice, nil
+	}
+	fm["printf"] = fmt.Sprintf
+	fm["ne"] = func(a, b interface{}) bool { return fmt.Sprintf("%v", a) != fmt.Sprintf("%v", b) }
+	fm["not"] = func(v interface{}) bool {
+		return v == nil || v == false || v == "" || v == interface{}(0.0)
+	}
+	fm["or"] = func(args ...interface{}) interface{} {
+		for _, a := range args {
+			if !(a == nil || a == false || a == "") {
+				return a
+			}
+		}
+		if len(args) > 0 {
+			return args[len(args)-1]
+		}
+		return nil
+	}
+	fm["and"] = func(args ...interface{}) interface{} {
+		var last interface{} = true
+		for _, a := range args {
+			last = a
+			if a == nil || a == false {
+				return a
+			}
+		}
+		return last
 	}
 	fm["absURL"] = func(p string) string { return p }
 	fm["slice"] = func(args ...interface{}) []interface{} { return args }
@@ -167,10 +261,10 @@ func TestGuideLayoutSmokeRender(t *testing.T) {
 		Title:        "演示书 · 可视化导读",
 		Type:         "guide",
 		Kind:         "page",
-		RawContent:    "前言文字。\n\n" + guideSmokeGuideData + "\n后记文字。",
+		RawContent:   "前言文字。\n\n" + guideSmokeGuideData + "\n后记文字。",
 		RelPermalink: "/books/demo-book/guide/",
 		File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/guide/index.md", Dir: "books/demo-book/guide/", BaseFileName: "index"},
-		Site:         &guideLayoutSmokeTestSite{},
+		Site:         &guideLayoutSmokeTestSite{Data: guideLayoutSmokeTestData()},
 	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "single.html", page); err != nil {
@@ -198,7 +292,7 @@ func TestGuideLayoutSmokeFailsOnBadChartType(t *testing.T) {
 		Title: "bad", Type: "guide", Kind: "page", RawContent: bad,
 		RelPermalink: "/books/demo-book/guide/",
 		File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/guide/index.md", Dir: "books/demo-book/guide/", BaseFileName: "index"},
-		Site:         &guideLayoutSmokeTestSite{},
+		Site:         &guideLayoutSmokeTestSite{Data: guideLayoutSmokeTestData()},
 	}
 	var buf bytes.Buffer
 	err := tmpl.ExecuteTemplate(&buf, "single.html", page)
