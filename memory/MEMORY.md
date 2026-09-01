@@ -1,7 +1,7 @@
 # MEMORY — huan 项目长期记忆
 
 > 维护规则：当检测到有意义信息（用户偏好 / 关键决策 / 项目上下文变化）时智能合并；过期信息主动更新或删除。
-> 最近更新：2026-08-31（废弃 qwen3-translate 插件与 Translator 基建，ADR 0015；site_translations 迁移至 languages.<code>.params）
+> 最近更新：2026-09-01（文档同步 v0.8.0：补构建健壮性批次报告，CURRENT_STATE/INDEX 更新，bs-002/双后缀确认已修复 25c801b）
 
 ## 用户偏好
 
