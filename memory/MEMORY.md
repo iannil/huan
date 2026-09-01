@@ -33,9 +33,9 @@
 - 之前的 SSG / 替代 Hugo / 三维度等价 / v1.0 hard gate / 9 步执行计划 / stage 1-4 等全部开发计划已归档到 `docs/archived/`
 - `docs/technical-plan.md`（Hugo 等价时代的设计参考）已归档到 `docs/archived/technical-plan.md`
 
-### 当前版本：v0.7.1
+### 当前版本：v0.8.0
 
-最新版本标签：v0.7.0（2026-07-28）。当前 VERSION = 0.7.1（2026-07-30）。一键发布：`bash scripts/release.sh`（产物 `release/v{version}/{os}-{arch}/`，含二进制 + 插件 + checksums + manifest）。
+最新版本标签：v0.8.0（2026-09-01，含 v0.7.2 qwen3-translate 移除与 08-31 构建健壮性批次）。当前 VERSION = 0.8.0。一键发布：`bash scripts/release.sh`（产物 `release/v{version}/{os}-{arch}/`，含二进制 + 插件 + checksums + manifest）。
 
 ### 已存在的代码资产（仍有效）
 
