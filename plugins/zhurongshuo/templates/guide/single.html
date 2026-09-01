@@ -128,7 +128,9 @@
                 {{ $partSlugs := sort ($scratch.Get "partSlugs") }}
                 {{ $mapNotes := dict }}
                 {{ range (index $g "map") }}
-                    {{ $mapNotes = merge $mapNotes (dict (index . "part") (index . "note")) }}
+                    {{ with $part := index . "part" }}
+                        {{ $mapNotes = merge $mapNotes (dict $part (index . "note")) }}
+                    {{ end }}
                 {{ end }}
                 {{/* 扁平结构书（章节无 part-XX 子目录）：partSlugs 为空时回退单部渲染，
                     全部章节作为一组；map 数据声明的 part 若在 partSlugs 中无对应目录则
