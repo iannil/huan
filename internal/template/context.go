@@ -40,6 +40,7 @@ type Context struct {
 	Content         template.HTML
 	Summary         template.HTML
 	Plain           string
+	RawContent      string
 	RelPermalink    string
 	Permalink       string
 
@@ -377,6 +378,7 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 		Content:         p.Content,
 		Summary:         p.Summary,
 		Plain:           p.Plain,
+		RawContent:      p.RawContent,
 		RelPermalink:    permalinkEncode(p.URL),
 		Permalink:       permalinkEncode(cfg.BaseURL + strings.TrimPrefix(p.URL, "/")),
 		Params:          pageParams(p),
