@@ -31,7 +31,7 @@
     {{ if gt (len $chapters) 5 }}{{ failRender (printf "guide 页 %s chapters 须 3-5 章，实际 %d" $page.File.Path (len $chapters)) }}{{ end }}
     {{ range $ci, $ch := $chapters }}
     <section class="guide_chapter" id="ch-{{ $ci }}">
-        <h2 class="guide_chapter__title">{{ printf "%02d" (add $ci 1) }} · {{ index $ch "title" }}</h2>
+        <h2 class="guide_chapter__title">{{ printf "%02d" (int (add $ci 1)) }} · {{ index $ch "title" }}</h2>
         {{ with index $ch "intro" }}<p class="guide_chapter__intro">{{ . }}</p>{{ end }}
         {{/* 章内分步图：steps 即 nodes，chart partial 复用 */}}
         {{ $steps := index $ch "steps" }}
