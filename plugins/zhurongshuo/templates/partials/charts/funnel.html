@@ -1,0 +1,22 @@
+{{/* funnel: converging funnel — stacked trapezoids, width decreasing top→bottom.
+    Input: {chart: {chart_type, title, nodes}, cfg: {Width, Height, LabelSize, SubLabelSize}} */}}
+{{ $chart := .chart }}{{ $cfg := .cfg }}
+{{ $n := len $chart.nodes }}
+{{ $gap := 8 }}
+{{ $rowH := div (sub (sub $cfg.Height 40) (mul $n $gap)) $n }}
+{{ $topW := sub $cfg.Width 80 }}
+{{ $wStep := div (sub $topW 160) (sub $n 1) }}
+<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--funnel">
+{{ range $i, $node := $chart.nodes }}
+{{ $w := sub $topW (mul $i $wStep) }}
+{{ $y := add 20 (mul $i (add $rowH $gap)) }}
+{{ $cx := div $cfg.Width 2 }}
+{{ $xL := sub $cx (div $w 2) }}
+{{ $xR := add $cx (div $w 2) }}
+{{ $yB := add $y $rowH }}
+{{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
+<polygon points="{{ printf "%.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f" $xL $y $xR $y (sub $xR 8) $yB (add $xL 8) $yB }}" class="guide-chart__shape" />
+{{ if $node.href }}</a>{{ end }}
+{{ template "charts/node_text" (dict "x" $cx "y" (add $y (add (div $rowH 2) 2)) "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" (sub $w 24)) }}
+{{ end }}
+</svg>

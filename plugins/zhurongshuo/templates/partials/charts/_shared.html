@@ -1,0 +1,14 @@
+{{/* charts/node_text: shared node label renderer.
+    Expects dict: {x, y, label, sublabel, labelSize, subLabelSize, anchor, maxWidth}.
+    Renders the label wrapped to maxWidth (multi-line via svgWrap), then the
+    sublabel (truncated to maxWidth) on the first free line below. */}}
+{{ define "charts/node_text" }}
+{{ $d := . }}
+{{ $labelLines := svgWrap $d.label $d.maxWidth $d.labelSize }}
+{{ range $i, $line := $labelLines }}
+<text x="{{ printf "%.1f" $d.x }}" y="{{ printf "%.1f" (add $d.y (mul $i (add $d.labelSize 4))) }}" font-size="{{ $d.labelSize }}" text-anchor="{{ $d.anchor }}" class="guide-chart__label">{{ $line }}</text>
+{{ end }}
+{{ with $d.sublabel }}
+<text x="{{ printf "%.1f" $d.x }}" y="{{ printf "%.1f" (add $d.y (mul (len $labelLines) (add $d.labelSize 5))) }}" font-size="{{ $d.subLabelSize }}" text-anchor="{{ $d.anchor }}" class="guide-chart__sublabel">{{ svgTruncate . $d.maxWidth $d.subLabelSize }}</text>
+{{ end }}
+{{ end }}

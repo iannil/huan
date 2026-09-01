@@ -1,0 +1,38 @@
+{{/* spectrum: horizontal axis with anchor endpoints; middle nodes distributed
+    evenly on the axis with labels alternating above (even i) / below (odd i).
+    Input: {chart, cfg} */}}
+{{ $chart := .chart }}{{ $cfg := .cfg }}
+{{ $n := len $chart.nodes }}
+{{ $x0 := 60.0 }}
+{{ $x1 := sub $cfg.Width 60 }}
+{{ $yMid := div $cfg.Height 2 }}
+{{ $span := sub $x1 $x0 }}
+<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--spectrum">
+<line x1="{{ printf "%.1f" $x0 }}" y1="{{ printf "%.1f" $yMid }}" x2="{{ printf "%.1f" $x1 }}" y2="{{ printf "%.1f" $yMid }}" class="guide-chart__edge" />
+{{/* end caps */}}
+<circle cx="{{ printf "%.1f" $x0 }}" cy="{{ printf "%.1f" $yMid }}" r="3" class="guide-chart__dot" />
+<circle cx="{{ printf "%.1f" $x1 }}" cy="{{ printf "%.1f" $yMid }}" r="3" class="guide-chart__dot" />
+{{ range $i, $node := $chart.nodes }}
+{{/* position along axis: endpoints at x0/x1, middle nodes evenly spaced */}}
+{{ $t := 0 }}
+{{ if gt (printf "%03d" (int $n)) "001" }}{{ $t = div $i (sub $n 1) }}{{ end }}
+{{ $px := add $x0 (mul $span $t) }}
+{{ $isEnd := or (eq $i 0) (eq $i (sub $n 1)) }}
+{{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
+<circle cx="{{ printf "%.1f" $px }}" cy="{{ printf "%.1f" $yMid }}" r="7" class="guide-chart__shape" />
+{{ if $node.href }}</a>{{ end }}
+{{ if $isEnd }}
+{{/* endpoints: text outside the axis ends */}}
+{{ $anchor := "end" }}
+{{ $tx := sub $x0 14 }}
+{{ if eq $i (sub $n 1) }}{{ $anchor = "start" }}{{ $tx = add $x1 14 }}{{ end }}
+{{ template "charts/node_text" (dict "x" $tx "y" (add $yMid 6) "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" $anchor "maxWidth" 120.0) }}
+{{ else }}
+{{/* middle nodes: alternate above/below the axis */}}
+{{ $above := eq (mod $i 2) 0 }}
+{{ $ty := add $yMid 14 }}
+{{ if $above }}{{ $ty = sub $yMid 10 }}{{ end }}
+{{ template "charts/node_text" (dict "x" $px "y" $ty "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" (div $span $n)) }}
+{{ end }}
+{{ end }}
+</svg>

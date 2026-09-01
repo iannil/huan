@@ -1,0 +1,25 @@
+{{/* flow: horizontal pipeline — rects left→right joined by arrowed lines.
+    Input: {chart, cfg} */}}
+{{ $chart := .chart }}{{ $cfg := .cfg }}
+{{ $n := len $chart.nodes }}
+{{ $slotW := div (sub $cfg.Width 100) $n }}
+{{ $boxW := sub $slotW 24 }}
+{{ $boxH := 72 }}
+{{ $y := div (sub $cfg.Height $boxH) 2 }}
+{{ $yMid := add $y (div $boxH 2) }}
+<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--flow">
+<defs>
+<marker id="guide-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="guide-chart__arrow" /></marker>
+</defs>
+{{ range $i, $node := $chart.nodes }}
+{{ $x := add 50 (mul $i $slotW) }}
+{{/* arrow to next node */}}
+{{ if lt (printf "%03d" (int $i)) (printf "%03d" (int (sub $n 1))) }}
+<line x1="{{ printf "%.1f" (add $x $boxW) }}" y1="{{ printf "%.1f" $yMid }}" x2="{{ printf "%.1f" (add (add $x $slotW) 2) }}" y2="{{ printf "%.1f" $yMid }}" class="guide-chart__edge" marker-end="url(#guide-arrow)" />
+{{ end }}
+{{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
+<rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="{{ printf "%.1f" $boxW }}" height="{{ $boxH }}" class="guide-chart__shape" />
+{{ if $node.href }}</a>{{ end }}
+{{ template "charts/node_text" (dict "x" (add $x (div $boxW 2)) "y" (add $y 28) "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" (sub $boxW 12)) }}
+{{ end }}
+</svg>

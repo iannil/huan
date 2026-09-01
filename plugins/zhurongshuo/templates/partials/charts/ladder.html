@@ -1,0 +1,19 @@
+{{/* ladder: ascending stairs bottom-left → top-right. Each node is a rect step
+    with text above; an edge path strings the steps together.
+    Input: {chart, cfg} */}}
+{{ $chart := .chart }}{{ $cfg := .cfg }}
+{{ $n := len $chart.nodes }}
+{{ $stepX := div (sub $cfg.Width 80) $n }}
+{{ $stepY := div (sub $cfg.Height 140) $n }}
+<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--ladder">
+{{ range $i, $node := $chart.nodes }}
+{{ $x := add 40 (mul $i $stepX) }}
+{{ $y := sub (sub $cfg.Height 80) (mul $i $stepY) }}
+{{ $w := sub $stepX 12 }}
+<path d="M {{ printf "%.1f" $x }} {{ printf "%.1f" $cfg.Height }} L {{ printf "%.1f" $x }} {{ printf "%.1f" $y }} L {{ printf "%.1f" (add $x $w) }} {{ printf "%.1f" $y }}" class="guide-chart__edge" fill="none" />
+{{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
+<rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="{{ printf "%.1f" $w }}" height="48" class="guide-chart__shape" />
+{{ if $node.href }}</a>{{ end }}
+{{ template "charts/node_text" (dict "x" (add $x (div $w 2)) "y" (add $y 30) "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" (sub $w 8)) }}
+{{ end }}
+</svg>

@@ -1,0 +1,28 @@
+{{/* layers: horizontal bands stacked top→bottom; each band has a left color
+    strip cycling 3 shade levels and a label left-aligned inside, sublabel
+    right-aligned.
+    Input: {chart, cfg} */}}
+{{ $chart := .chart }}{{ $cfg := .cfg }}
+{{ $n := len $chart.nodes }}
+{{ $gap := 10 }}
+{{ $bandH := sub (div (sub $cfg.Height 60) $n) $gap }}
+{{ $x := 80.0 }}
+{{ $w := sub $cfg.Width 160 }}
+<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--layers">
+{{ range $i, $node := $chart.nodes }}
+{{ $y := add 30 (mul $i (add $bandH $gap)) }}
+{{ $yB := add $y $bandH }}
+{{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
+<rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="{{ printf "%.1f" $w }}" height="{{ printf "%.1f" $bandH }}" class="guide-chart__shape guide-chart__shape--band" />
+{{ if $node.href }}</a>{{ end }}
+<rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="8" height="{{ printf "%.1f" $bandH }}" class="guide-chart__shape guide-chart__shape--l{{ mod $i 3 }}" />
+{{/* thin separator line below the band (except after the last) */}}
+{{ if lt (printf "%03d" (int $i)) (printf "%03d" (int (sub $n 1))) }}
+<line x1="{{ printf "%.1f" $x }}" y1="{{ printf "%.1f" (add $yB (div $gap 2)) }}" x2="{{ printf "%.1f" (add $x $w) }}" y2="{{ printf "%.1f" (add $yB (div $gap 2)) }}" class="guide-chart__edge" />
+{{ end }}
+{{ template "charts/node_text" (dict "x" (add $x 20) "y" (add $y (div $bandH 2)) "label" $node.label "sublabel" "" "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "start" "maxWidth" (sub $w 40)) }}
+{{ with $node.sublabel }}
+<text x="{{ printf "%.1f" (sub (add $x $w) 16) }}" y="{{ printf "%.1f" (add $y (div $bandH 2)) }}" font-size="{{ $cfg.SubLabelSize }}" text-anchor="end" class="guide-chart__sublabel">{{ svgTruncate . (mul $w 0.45) $cfg.SubLabelSize }}</text>
+{{ end }}
+{{ end }}
+</svg>

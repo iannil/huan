@@ -1,0 +1,61 @@
+{{/* cycle: nodes evenly spaced on a circle, clockwise arc arrows between neighbors.
+    huan templates have no trig functions, so node positions come from a
+    precomputed unit-circle table keyed by node count (3–12). Positions are
+    angle i*2π/n − π/2 (first node at top, clockwise order).
+    Input: {chart, cfg} */}}
+{{ $chart := .chart }}{{ $cfg := .cfg }}
+{{ $n := len $chart.nodes }}
+{{ $cx := div $cfg.Width 2 }}
+{{ $cy := div $cfg.Height 2 }}
+{{ $r := sub (div (cond (lt $cfg.Width $cfg.Height) $cfg.Width $cfg.Height) 2) 70 }}
+{{ $table := dict
+    "3"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.8660 "y" 0.5000) "2" (dict "x" -0.8660 "y" 0.5000))
+    "4"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 1.0000 "y" 0.0000) "2" (dict "x" 0.0000 "y" 1.0000) "3" (dict "x" -1.0000 "y" 0.0000))
+    "5"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.9511 "y" -0.3090) "2" (dict "x" 0.5878 "y" 0.8090) "3" (dict "x" -0.5878 "y" 0.8090) "4" (dict "x" -0.9511 "y" -0.3090))
+    "6"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.8660 "y" -0.5000) "2" (dict "x" 0.8660 "y" 0.5000) "3" (dict "x" 0.0000 "y" 1.0000) "4" (dict "x" -0.8660 "y" 0.5000) "5" (dict "x" -0.8660 "y" -0.5000))
+    "7"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.7818 "y" -0.6235) "2" (dict "x" 0.9749 "y" 0.2225) "3" (dict "x" 0.4339 "y" 0.9010) "4" (dict "x" -0.4339 "y" 0.9010) "5" (dict "x" -0.9749 "y" 0.2225) "6" (dict "x" -0.7818 "y" -0.6235))
+    "8"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.7071 "y" -0.7071) "2" (dict "x" 1.0000 "y" 0.0000) "3" (dict "x" 0.7071 "y" 0.7071) "4" (dict "x" 0.0000 "y" 1.0000) "5" (dict "x" -0.7071 "y" 0.7071) "6" (dict "x" -1.0000 "y" 0.0000) "7" (dict "x" -0.7071 "y" -0.7071))
+    "9"  (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.6428 "y" -0.7660) "2" (dict "x" 0.9848 "y" -0.1736) "3" (dict "x" 0.8660 "y" 0.5000) "4" (dict "x" 0.3420 "y" 0.9397) "5" (dict "x" -0.3420 "y" 0.9397) "6" (dict "x" -0.8660 "y" 0.5000) "7" (dict "x" -0.9848 "y" -0.1736) "8" (dict "x" -0.6428 "y" -0.7660))
+    "10" (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.5878 "y" -0.8090) "2" (dict "x" 0.9511 "y" -0.3090) "3" (dict "x" 0.9511 "y" 0.3090) "4" (dict "x" 0.5878 "y" 0.8090) "5" (dict "x" 0.0000 "y" 1.0000) "6" (dict "x" -0.5878 "y" 0.8090) "7" (dict "x" -0.9511 "y" 0.3090) "8" (dict "x" -0.9511 "y" -0.3090) "9" (dict "x" -0.5878 "y" -0.8090))
+    "11" (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.5406 "y" -0.8413) "2" (dict "x" 0.9096 "y" -0.4154) "3" (dict "x" 0.9898 "y" 0.1423) "4" (dict "x" 0.7557 "y" 0.6549) "5" (dict "x" 0.2817 "y" 0.9595) "6" (dict "x" -0.2817 "y" 0.9595) "7" (dict "x" -0.7557 "y" 0.6549) "8" (dict "x" -0.9898 "y" 0.1423) "9" (dict "x" -0.9096 "y" -0.4154) "10" (dict "x" -0.5406 "y" -0.8413))
+    "12" (dict "0" (dict "x" 0.0000 "y" -1.0000) "1" (dict "x" 0.5000 "y" -0.8660) "2" (dict "x" 0.8660 "y" -0.5000) "3" (dict "x" 1.0000 "y" 0.0000) "4" (dict "x" 0.8660 "y" 0.5000) "5" (dict "x" 0.5000 "y" 0.8660) "6" (dict "x" 0.0000 "y" 1.0000) "7" (dict "x" -0.5000 "y" 0.8660) "8" (dict "x" -0.8660 "y" 0.5000) "9" (dict "x" -1.0000 "y" 0.0000) "10" (dict "x" -0.8660 "y" -0.5000) "11" (dict "x" -0.5000 "y" -0.8660))
+}}
+{{/* clamp n to table range */}}
+{{ $key := $n }}
+{{ if lt (printf "%03d" (int $n)) "003" }}{{ $key = 3 }}{{ end }}
+{{ if gt (printf "%03d" (int $n)) "012" }}{{ $key = 12 }}{{ end }}
+{{ $unit := index $table (string $key) }}
+{{/* precompute all node coordinates via scratch (range-scoped vars don't leak) */}}
+{{ $scratch := newScratch }}
+{{ range $i, $node := $chart.nodes }}
+{{ $ui := $i }}
+{{ if ge (printf "%03d" (int $i)) (printf "%03d" (int $key)) }}{{ $ui = mod $i $key }}{{ end }}
+{{ $u := index $unit (string $ui) }}
+{{ $scratch.Set (string $i) (dict "x" (add $cx (mul $r $u.x)) "y" (add $cy (mul $r $u.y))) }}
+{{ $scratch.Set (printf "up%d" $i) (lt (string $u.y) "-") }}
+{{ end }}
+<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--cycle">
+<defs>
+<marker id="guide-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="guide-chart__arrow" /></marker>
+</defs>
+{{/* clockwise arc arrows between consecutive nodes; endpoints at node centers
+    (nodes are painted after edges so the caps are covered) */}}
+{{ range $i, $node := $chart.nodes }}
+{{ $j := add $i 1 }}
+{{ if ge $j $n }}{{ $j = 0 }}{{ end }}
+{{ $p1 := $scratch.Get (string $i) }}
+{{ $p2 := $scratch.Get (string $j) }}
+<path d="M {{ printf "%.1f" $p1.x }} {{ printf "%.1f" $p1.y }} A {{ printf "%.1f" $r }} {{ printf "%.1f" $r }} 0 0 1 {{ printf "%.1f" $p2.x }} {{ printf "%.1f" $p2.y }}" class="guide-chart__edge" fill="none" marker-end="url(#guide-arrow)" />
+{{ end }}
+{{ range $i, $node := $chart.nodes }}
+{{ $p := $scratch.Get (string $i) }}
+{{/* label offset: nodes on upper half get text above, lower half below */}}
+{{ $up := $scratch.Get (printf "up%d" $i) }}
+{{ $textY := add $p.y 58 }}
+{{ if $up }}{{ $textY = sub $p.y 46 }}{{ end }}
+{{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
+<circle cx="{{ printf "%.1f" $p.x }}" cy="{{ printf "%.1f" $p.y }}" r="34" class="guide-chart__shape" />
+{{ if $node.href }}</a>{{ end }}
+{{ template "charts/node_text" (dict "x" $p.x "y" $textY "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" 120.0) }}
+{{ end }}
+</svg>

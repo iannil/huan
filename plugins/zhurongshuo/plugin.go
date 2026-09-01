@@ -10,7 +10,7 @@ import (
 	"github.com/iannil/huan/pkg/plugin"
 )
 
-//go:embed templates/*
+//go:embed templates/* templates/partials/charts/_shared.html
 var templateFS embed.FS
 
 //go:embed assets/*
