@@ -32,7 +32,8 @@
 {{ if ge (printf "%03d" (int $i)) (printf "%03d" (int $key)) }}{{ $ui = mod $i $key }}{{ end }}
 {{ $u := index $unit (string $ui) }}
 {{ $scratch.Set (string $i) (dict "x" (add $cx (mul $r $u.x)) "y" (add $cy (mul $r $u.y))) }}
-{{ $scratch.Set (printf "up%d" $i) (lt (string $u.y) "-") }}
+{{/* string compare vs "0": negative y ("-57.5") sorts before "0" */}}
+{{ $scratch.Set (printf "up%d" $i) (lt (string $u.y) "0") }}
 {{ end }}
 <svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--cycle">
 <defs>

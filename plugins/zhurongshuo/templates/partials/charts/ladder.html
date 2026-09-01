@@ -1,10 +1,16 @@
 {{/* ladder: ascending stairs bottom-left → top-right. Each node is a rect step
-    with text above; an edge path strings the steps together.
+    with centered text; an edge path strings the steps together.
     Input: {chart, cfg} */}}
 {{ $chart := .chart }}{{ $cfg := .cfg }}
 {{ $n := len $chart.nodes }}
 {{ $stepX := div (sub $cfg.Width 80) $n }}
 {{ $stepY := div (sub $cfg.Height 140) $n }}
+{{/* step height shrinks with n so steps never overlap vertically:
+    h = min(48, stepY-8), floored at 24 (keeps the rect visible even
+    when stepY is small; overlap then becomes intentional-free clamp) */}}
+{{ $h := 48.0 }}
+{{ if lt (printf "%06.1f" $stepY) "0056.0" }}{{ $h = sub $stepY 8 }}{{ end }}
+{{ if lt (string $h) "24" }}{{ $h = 24.0 }}{{ end }}
 <svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--ladder">
 {{ range $i, $node := $chart.nodes }}
 {{ $x := add 40 (mul $i $stepX) }}
@@ -12,8 +18,8 @@
 {{ $w := sub $stepX 12 }}
 <path d="M {{ printf "%.1f" $x }} {{ printf "%.1f" $cfg.Height }} L {{ printf "%.1f" $x }} {{ printf "%.1f" $y }} L {{ printf "%.1f" (add $x $w) }} {{ printf "%.1f" $y }}" class="guide-chart__edge" fill="none" />
 {{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
-<rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="{{ printf "%.1f" $w }}" height="48" class="guide-chart__shape" />
+<rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="{{ printf "%.1f" $w }}" height="{{ printf "%.1f" $h }}" class="guide-chart__shape" />
 {{ if $node.href }}</a>{{ end }}
-{{ template "charts/node_text" (dict "x" (add $x (div $w 2)) "y" (add $y 30) "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" (sub $w 8)) }}
+{{ template "charts/node_text" (dict "x" (add $x (div $w 2)) "y" (add $y (div $h 2)) "label" $node.label "sublabel" $node.sublabel "labelSize" $cfg.LabelSize "subLabelSize" $cfg.SubLabelSize "anchor" "middle" "maxWidth" (sub $w 8)) }}
 {{ end }}
 </svg>

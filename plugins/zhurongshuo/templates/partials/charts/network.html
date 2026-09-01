@@ -37,6 +37,8 @@
 {{ if ge (printf "%03d" $ui) (printf "%03d" (int $key)) }}{{ $ui = mod $ui $key }}{{ end }}
 {{ $u := index $unit (string $ui) }}
 {{ $scratch.Set (string $i) (dict "x" (add $cx (mul $r $u.x)) "y" (add $cy (mul $r $u.y))) }}
+{{/* string compare vs "0": negative y sorts before "0" → upper-half flag */}}
+{{ $scratch.Set (printf "up%d" $i) (lt (string $u.y) "0") }}
 {{ end }}
 {{ end }}
 {{/* label → coordinate map for edge lookup */}}
@@ -65,10 +67,11 @@
 {{ end }}
 {{ range $i, $node := $chart.nodes }}
 {{ $p := $scratch.Get (string $i) }}
-{{/* center node bigger circle; satellites r=28 with label offset */}}
+{{/* center node bigger circle; satellites r=28. Label below the node, except
+    for upper-half satellites whose label goes above the node. */}}
 {{ $rad := 28 }}
 {{ $textY := add $p.y 46 }}
-{{ if eq $i 0 }}{{ $rad = 38 }}{{ $textY = add $p.y 56 }}{{ end }}
+{{ if eq $i 0 }}{{ $rad = 38 }}{{ $textY = add $p.y 56 }}{{ else if $scratch.Get (printf "up%d" $i) }}{{ $textY = sub $p.y 40 }}{{ end }}
 {{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
 <circle cx="{{ printf "%.1f" $p.x }}" cy="{{ printf "%.1f" $p.y }}" r="{{ $rad }}" class="guide-chart__shape" />
 {{ if $node.href }}</a>{{ end }}

@@ -203,6 +203,7 @@ func checkCommon(t *testing.T, typ, out string, labels []string) {
 	if !strings.Contains(out, `class="guide-chart guide-chart--`+typ+`"`) {
 		t.Errorf("%s: missing svg root class", typ)
 	}
+	stripped := stripChartTags(out)
 	for _, l := range labels {
 		// Labels may be wrapped across multiple <text> elements or truncated;
 		// compare against tag/whitespace-stripped text, checking the first 4
@@ -212,7 +213,6 @@ func checkCommon(t *testing.T, typ, out string, labels []string) {
 		if len(runes) > 4 {
 			prefix = string(runes[:4])
 		}
-		stripped := stripChartTags(out)
 		if !strings.Contains(stripped, prefix) {
 			t.Errorf("%s: label prefix %q not found in output text", typ, prefix)
 		}
@@ -254,17 +254,18 @@ func TestChartPartialsSmoke(t *testing.T) {
 					[]string{"现象层", "规律层", "原理层", "根基层"},
 				},
 				{
-					"10nodes-longlabel",
+					"4nodes",
 					map[string]interface{}{
-						"chart_type": typ, "title": "极端 " + typ,
+						"chart_type": typ, "title": "四节点 " + typ,
 						"nodes": toIface([]map[string]interface{}{
-							node("这是一个特别特别特别特别特别特别特别特别长的中文标签用来测试截断换行行为", "附注", ""),
+							node("现象层", "观察", ""), node("规律层", "归纳", ""),
+							node("原理层", "抽象", ""), node("根基层", "公理", ""),
 						}),
 					},
-					[]string{"这是一个特别长的中文标签用来测试截断换行行为"},
+					[]string{"现象层", "规律层", "原理层", "根基层"},
 				},
 			}
-			// fix: rebuild 10-node chart properly
+			// 10 nodes with one very long CJK label to stress wrap/truncate.
 			long := "这是一个特别特别特别特别特别特别特别特别长的中文标签用来测试截断换行行为"
 			tenNodes := make([]map[string]interface{}, 10)
 			tenLabels := make([]string, 10)
@@ -276,14 +277,14 @@ func TestChartPartialsSmoke(t *testing.T) {
 				tenNodes[i] = node(l, "", "")
 				tenLabels[i] = l
 			}
-			cases[2] = struct {
+			cases = append(cases, struct {
 				name   string
 				chart  map[string]interface{}
 				labels []string
 			}{"10nodes-longlabel", map[string]interface{}{
 				"chart_type": typ, "title": "极端 " + typ,
 				"nodes": toIface(tenNodes),
-			}, tenLabels}
+			}, tenLabels})
 
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
@@ -345,4 +346,116 @@ func TestSmallCfgRenders(t *testing.T) {
 	}
 	out := executeChart(t, tmpl, "funnel.html", map[string]interface{}{"chart": chart, "cfg": cfg})
 	checkCommon(t, "funnel", out, []string{"甲", "乙", "丙"})
+}
+
+// firstTextYAbove reports whether the first <text> in out sits above yRef
+// (its y attribute is numerically smaller than yRef).
+func firstTextY(t *testing.T, out, label string) float64 {
+	t.Helper()
+	re := regexp.MustCompile(`(?s)<text[^>]*>` + regexp.QuoteMeta(label) + `</text>`)
+	m := re.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("text element for label %q not found", label)
+	}
+	yRe := regexp.MustCompile(`y="(-?[\d.]+)"`)
+	ym := yRe.FindStringSubmatch(m[0])
+	if ym == nil {
+		t.Fatalf("y attribute not found for label %q", label)
+	}
+	var v float64
+	fmt.Sscanf(ym[1], "%f", &v)
+	return v
+}
+
+// TestCycleUpperNodeLabelAbove verifies the upper-half text direction fix:
+// for the top node of a cycle, the label's text baseline must be above the
+// node's circle center (string-compare lt against "-" was always false,
+// which pushed every label below its node).
+func TestCycleUpperNodeLabelAbove(t *testing.T) {
+	tmpl := parseChartPartials(t)
+	chart := map[string]interface{}{
+		"chart_type": "cycle", "title": "循环",
+		"nodes": toIface([]map[string]interface{}{
+			node("顶点", "", ""), node("右点", "", ""), node("底点", "", ""), node("左点", "", ""),
+		}),
+	}
+	out := executeChart(t, tmpl, "cycle.html", map[string]interface{}{"chart": chart, "cfg": defaultCfg()})
+	// cy = 210; top node y = 70, bottom node y = 350.
+	if y := firstTextY(t, out, "顶点"); !(y < 70.0) {
+		t.Errorf("cycle: top node label should be above the node (y < 70), got y=%.1f", y)
+	}
+	if y := firstTextY(t, out, "底点"); !(y > 350.0) {
+		t.Errorf("cycle: bottom node label should be below the node (y > 350), got y=%.1f", y)
+	}
+}
+
+// TestNetworkTopSatelliteLabelAbove verifies network satellites on the upper
+// half place their label above the node circle.
+func TestNetworkTopSatelliteLabelAbove(t *testing.T) {
+	tmpl := parseChartPartials(t)
+	// satellite table (3): idx0 → (1,0) east, idx1 → (-0.5, 0.866) lower-left,
+	// idx2 → (-0.5,-0.866) upper-left. With 4 nodes, node 3 maps to idx2.
+	chart := map[string]interface{}{
+		"chart_type": "network", "title": "网络",
+		"nodes": toIface([]map[string]interface{}{
+			node("核心", "", ""), node("东", "", ""), node("下", "", ""), node("上", "", ""),
+		}),
+	}
+	out := executeChart(t, tmpl, "network.html", map[string]interface{}{"chart": chart, "cfg": defaultCfg()})
+	// upper satellite y = 210 - 0.866*140 ≈ 88.8; its label must be above (y < 88.8).
+	if y := firstTextY(t, out, "上"); !(y < 88.8) {
+		t.Errorf("network: upper-half satellite label should be above the node (y < 88.8), got y=%.1f", y)
+	}
+	// lower satellite y = 210 + 0.866*140 ≈ 331.2; label below (y > 331.2).
+	if y := firstTextY(t, out, "下"); !(y > 331.2) {
+		t.Errorf("network: lower-half satellite label should be below the node (y > 331.2), got y=%.1f", y)
+	}
+}
+
+// TestLadderStepsDoNotOverlap verifies ladder step heights shrink with node
+// count so consecutive rects never overlap vertically (rect height used to
+// be fixed at 48 while stepY=(H-140)/n < 48 for n ≥ 7).
+func TestLadderStepsDoNotOverlap(t *testing.T) {
+	tmpl := parseChartPartials(t)
+	nodes := make([]map[string]interface{}, 10)
+	for i := 0; i < 10; i++ {
+		nodes[i] = node(fmt.Sprintf("阶%d", i), "", "")
+	}
+	chart := map[string]interface{}{"chart_type": "ladder", "title": "阶梯", "nodes": toIface(nodes)}
+	out := executeChart(t, tmpl, "ladder.html", map[string]interface{}{"chart": chart, "cfg": defaultCfg()})
+	rectRe := regexp.MustCompile(`<rect x="([\d.-]+)" y="([\d.-]+)" width="[\d.]+" height="([\d.]+)"`)
+	matches := rectRe.FindAllStringSubmatch(out, -1)
+	if len(matches) != 10 {
+		t.Fatalf("expected 10 step rects, got %d", len(matches))
+	}
+	type box struct{ y, h float64 }
+	var boxes []box
+	for _, m := range matches {
+		var y, h float64
+		fmt.Sscanf(m[2], "%f", &y)
+		fmt.Sscanf(m[3], "%f", &h)
+		boxes = append(boxes, box{y, h})
+	}
+	// Steps ascend left→right (top edge rises by stepY per step) and are
+	// disjoint in x; the invariant to protect is the step height: a rect may
+	// never be taller than the vertical rise per step, else consecutive
+	// steps visually collide (h=48 > stepY for n≥7 was the original bug).
+	stepY := (420.0 - 140.0) / 10.0 // 28 for the default cfg
+	for i, b := range boxes {
+		if b.h > stepY+1e-9 {
+			t.Errorf("ladder: step %d height %.1f exceeds vertical rise per step (%.1f)", i, b.h, stepY)
+		}
+		if b.h < 24.0-1e-9 {
+			t.Errorf("ladder: step %d height %.1f below floor 24", i, b.h)
+		}
+	}
+	// and steps must actually ascend
+	for i := 1; i < len(boxes); i++ {
+		if boxes[i].y > boxes[i-1].y {
+			t.Errorf("ladder: step %d top (%.1f) below step %d (%.1f) — steps must ascend", i, boxes[i].y, i-1, boxes[i-1].y)
+		}
+		if boxes[i].h < 24.0-1e-9 {
+			t.Errorf("ladder: step %d height %.1f below floor 24", i, boxes[i].h)
+		}
+	}
 }
