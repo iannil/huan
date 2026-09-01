@@ -68,6 +68,7 @@ func (t *ZhurongshuoTheme) FuncMap() template.FuncMap {
 		"relatedPosts":   relatedPosts,
 		"toc":            toc,
 		"darkModeToggle": darkModeToggle,
+		"parseGuideYAML": parseGuideYAML,
 	}
 }
 

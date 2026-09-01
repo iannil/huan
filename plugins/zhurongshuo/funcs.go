@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // readingTime estimates reading time for mixed CJK + English content.
@@ -44,4 +47,30 @@ func toc() string { return "" }
 // darkModeToggle returns the HTML for a dark mode toggle button.
 func darkModeToggle() template.HTML {
 	return template.HTML(`<button id="dark-mode-toggle" aria-label="切换深色模式">🌓</button>`)
+}
+
+// parseGuideYAML extracts the first ```guide fenced code block from a
+// page's plain text and parses it as YAML. Guide handbook pages embed
+// their structured content (thesis, main_chart, concepts, map,
+// takeaways) this way; the layout template calls this function with
+// .Plain. A missing block or malformed YAML is a hard error so the
+// build log surfaces it (render errors count into Result.Errors).
+func parseGuideYAML(plain string) (map[string]interface{}, error) {
+	const fence = "```guide"
+	start := strings.Index(plain, fence)
+	if start < 0 {
+		return nil, fmt.Errorf("guide page has no ```guide code block")
+	}
+	rest := plain[start+len(fence):]
+	end := strings.Index(rest, "```")
+	if end < 0 {
+		return nil, fmt.Errorf("guide block not closed with ```")
+	}
+	block := rest[:end]
+	// plainify may have HTML-escaped or joined lines; yaml handles \n.
+	var data map[string]interface{}
+	if err := yaml.Unmarshal([]byte(block), &data); err != nil {
+		return nil, fmt.Errorf("guide block YAML: %w", err)
+	}
+	return data, nil
 }
