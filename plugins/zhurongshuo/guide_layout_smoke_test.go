@@ -130,7 +130,7 @@ func parseGuideLayout(t *testing.T) *template.Template {
 		if _, isStub := stubs[path]; isStub {
 			return nil
 		}
-		if strings.HasPrefix(path, "partials/charts/") || path == "guide/single.html" {
+		if strings.HasPrefix(path, "partials/charts/") || strings.HasPrefix(path, "partials/guide") || path == "guide/single.html" || path == "partials/guide_v2_body.html" {
 			files = append(files, path)
 		}
 		return nil
@@ -150,6 +150,7 @@ func parseGuideLayout(t *testing.T) *template.Template {
 func guideLayoutTestFuncMap() template.FuncMap {
 	fm := chartTestFuncMap()
 	fm["i18n"] = func(key string) string { return key }
+	fm["fileExists"] = func(p string) bool { return false } // Task 4 manual override; none in smoke fixtures
 	fm["parseGuideYAML"] = parseGuideYAML
 	fm["failRender"] = failRender
 	fm["guideChartTypes"] = guideChartTypesFn
@@ -255,17 +256,23 @@ func guideLayoutTestFuncMap() template.FuncMap {
 	return fm
 }
 
-func TestGuideLayoutSmokeRender(t *testing.T) {
-	tmpl := parseGuideLayout(t)
-	page := &guideLayoutSmokeTestPage{
+// newGuideSmokePage builds a guide test page for the given raw guide YAML
+// block, mirroring the v1 smoke test's page construction.
+func newGuideSmokePage(raw string) *guideLayoutSmokeTestPage {
+	return &guideLayoutSmokeTestPage{
 		Title:        "演示书 · 可视化导读",
 		Type:         "guide",
 		Kind:         "page",
-		RawContent:   "前言文字。\n\n" + guideSmokeGuideData + "\n后记文字。",
+		RawContent:   "前言文字。\n\n" + raw + "\n后记文字。",
 		RelPermalink: "/books/demo-book/guide/",
 		File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/guide/index.md", Dir: "books/demo-book/guide/", BaseFileName: "index"},
 		Site:         &guideLayoutSmokeTestSite{Data: guideLayoutSmokeTestData()},
 	}
+}
+
+func TestGuideLayoutSmokeRender(t *testing.T) {
+	tmpl := parseGuideLayout(t)
+	page := newGuideSmokePage(guideSmokeGuideData)
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "single.html", page); err != nil {
 		t.Fatalf("render guide layout: %v", err)
@@ -301,5 +308,47 @@ func TestGuideLayoutSmokeFailsOnBadChartType(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "chart_type") {
 		t.Errorf("error should mention chart_type: %v", err)
+	}
+}
+
+const guideSmokeGuideV2Data = "```guide\nbook: demo-book\nsection: books\nmeta:\n  reading_minutes: 8\nthesis:\n  claim: \"世界是被建构的\"\n  puzzle: \"如果是被建构的，建构者是谁？本书回答这个根本困惑。\"\nhook:\n  scene: \"清晨你睁眼，世界已经在那里等着。但它是怎么到的？\"\n  question: \"世界是谁搭好的？\"\nchapters:\n  - title: \"表层：可见的世界\"\n    intro: \"从可感知的日常表层出发，先看见我们习以为常的东西。\"\n    chart_type: layers\n    steps:\n      - label: \"感知\"\n        sublabel: \"感官接收\"\n        explain: \"感官持续接收外界信号，这是建构的原料。没有原料就没有后续。\"\n      - label: \"命名\"\n        sublabel: \"语言归类\"\n        explain: \"语言把信号归类命名，世界开始有形状。名字即边界。\"\n    pitfall:\n      - misread: \"看见的就是全部\"\n        fix: \"表层只是入口，深层机制尚未展开。\"\n  - title: \"中层：看不见的机制\"\n    intro: \"穿过表层，看承载世界运转的中层机制。\"\n    chart_type: flow\n    steps:\n      - label: \"归类\"\n        sublabel: \"模式抽取\"\n        explain: \"机制把散乱的例子收拢为模式。模式即捷径。\"\n      - label: \"运转\"\n        sublabel: \"规则执行\"\n        explain: \"规则一旦运转，就不再需要逐例审视。机制即省力。\"\n  - title: \"深层：建构的根基\"\n    intro: \"最后抵达根基处，看清建构本身如何可能。\"\n    chart_type: ladder\n    steps:\n      - label: \"奠基\"\n        sublabel: \"前提交换\"\n        explain: \"一切建构都始于不可再追问的前提。前提即选择。\"\n      - label: \"回望\"\n        sublabel: \"整体重构\"\n        explain: \"带着根基回望全程，世界显出它被搭好的痕迹。回望即理解。\"\nconcepts:\n  - name: \"建构\"\n    what: \"心智组装经验\"\n    why: \"没有组装就没有世界\"\nmap:\n  - part: \"part-01\"\n    note: \"第一部分\"\ntakeaways:\n  - \"世界是被建构的\"\nnext:\n  - label: \"读第一部\"\n    href: \"/books/demo-book/part-01/chapter-01/\"\n```\n"
+
+func TestGuideLayoutV2Chapters(t *testing.T) {
+	tmpl := parseGuideLayout(t)
+	page := newGuideSmokePage(guideSmokeGuideV2Data)
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "single.html", page); err != nil {
+		t.Fatalf("render v2: %v", err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		`guide_hook`,           // hook 区块
+		`世界是谁搭好的？`,     // hook.question
+		`guide_chapter`,        // 章节容器
+		`表层：可见的世界`,      // chapter.title
+		`guide_step__explain`,  // step 解释文字容器（与 SVG 内文字区分）
+		`名字即边界。`,          // step.explain
+		`guide_pitfall`,        // 误解区
+		`guide_next`,           // 上手路径区
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("v2 output missing %q", want)
+		}
+	}
+	// v2 不再渲染 v1 的主图标题结构
+	if strings.Contains(out, `guide_mainchart`) {
+		t.Error("v2 layout must not render v1 mainchart section")
+	}
+}
+
+func TestGuideLayoutV1StillWorks(t *testing.T) {
+	tmpl := parseGuideLayout(t)
+	page := newGuideSmokePage(guideSmokeGuideData)
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "single.html", page); err != nil {
+		t.Fatalf("render v1: %v", err)
+	}
+	if !strings.Contains(b.String(), "guide_mainchart") {
+		t.Error("v1 layout regression: mainchart missing")
 	}
 }

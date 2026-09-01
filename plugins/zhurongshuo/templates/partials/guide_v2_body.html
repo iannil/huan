@@ -1,0 +1,111 @@
+{{/* guide_v2_body.html — v2 多章节手册主体。
+    输入: {g, page, bookPage}；g 为 guide v2 YAML map。
+    结构：hook → thesis 总览 → chapters（每章 intro + chart(steps) + step.explain 卡 + pitfall）→ concepts 参考卡 → map 全书地图 → takeaways → next 上手路径。 */}}
+{{ $g := .g }}{{ $page := .page }}{{ $bookPage := .bookPage }}
+<article class="guide_page guide_page--v2">
+    <nav class="guide_breadcrumb">
+        <a href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
+    </nav>
+
+    {{/* ① hook 场景切入 */}}
+    {{ $hook := index $g "hook" }}
+    {{ with $hook }}
+    <section class="guide_hook">
+        <p class="guide_hook__scene">{{ index . "scene" }}</p>
+        <h2 class="guide_hook__question">{{ index . "question" }}</h2>
+    </section>
+    {{ end }}
+
+    {{/* ② thesis 总览 */}}
+    {{ $thesis := index $g "thesis" }}
+    <section class="guide_thesis">
+        <h1 class="guide_thesis__claim">{{ index $thesis "claim" }}</h1>
+        {{ with index $thesis "puzzle" }}<p class="guide_thesis__puzzle">{{ . }}</p>{{ end }}
+        {{ with index (index $g "meta") "reading_minutes" }}<p class="guide_reading_time">⏱ {{ printf "%d" (int .) }} {{ i18n "guide_minutes_unit" }}</p>{{ end }}
+    </section>
+
+    {{/* ③ chapters 逐章展开 */}}
+    {{ $chapters := index $g "chapters" }}
+    {{ if not $chapters }}{{ failRender (printf "guide 页 %s 声明 v2 但 chapters 为空" $page.File.Path) }}{{ end }}
+    {{ if lt (len $chapters) 3 }}{{ failRender (printf "guide 页 %s chapters 须 3-5 章，实际 %d" $page.File.Path (len $chapters)) }}{{ end }}
+    {{ if gt (len $chapters) 5 }}{{ failRender (printf "guide 页 %s chapters 须 3-5 章，实际 %d" $page.File.Path (len $chapters)) }}{{ end }}
+    {{ range $ci, $ch := $chapters }}
+    <section class="guide_chapter" id="ch-{{ $ci }}">
+        <h2 class="guide_chapter__title">{{ printf "%02d" (add $ci 1) }} · {{ index $ch "title" }}</h2>
+        {{ with index $ch "intro" }}<p class="guide_chapter__intro">{{ . }}</p>{{ end }}
+        {{/* 章内分步图：steps 即 nodes，chart partial 复用 */}}
+        {{ $steps := index $ch "steps" }}
+        {{ if not $steps }}{{ failRender (printf "guide 页 %s 第 %d 章 steps 为空" $page.File.Path (add $ci 1)) }}{{ end }}
+        {{ $ct := index $ch "chart_type" }}
+        {{ with $ct }}
+        {{ if not (in (guideChartTypes) .) }}{{ failRender (printf "guide 页 %s 第 %d 章 chart_type '%v' 不受支持" $page.File.Path (add $ci 1) .) }}{{ end }}
+        <div class="guide_chapter__chart">
+            {{ partial (printf "charts/%s.html" .) (dict "chart" (dict "title" (index $ch "title") "nodes" $steps) "cfg" (dict "Width" 760 "Height" 380 "LabelSize" 16 "SubLabelSize" 13)) }}
+        </div>
+        {{ end }}
+        {{/* step 解释卡：图形承结构，文字承解释 */}}
+        <div class="guide_steps">
+            {{ range $si, $st := $steps }}
+            <div class="guide_step">
+                <h3 class="guide_step__label">{{ index $st "label" }}</h3>
+                {{ with index $st "sublabel" }}<p class="guide_step__sublabel">{{ . }}</p>{{ end }}
+                <p class="guide_step__explain">{{ index $st "explain" }}</p>
+            </div>
+            {{ end }}
+        </div>
+        {{/* 常见误解 */}}
+        {{ with index $ch "pitfall" }}
+        <div class="guide_pitfall">
+            <h4 class="guide_pitfall__title">{{ i18n "guide_pitfall_title" }}</h4>
+            {{ range . }}
+            <div class="guide_pitfall__item">
+                <p class="guide_pitfall__misread">✗ {{ index . "misread" }}</p>
+                <p class="guide_pitfall__fix">✓ {{ index . "fix" }}</p>
+            </div>
+            {{ end }}
+        </div>
+        {{ end }}
+    </section>
+    {{ end }}
+
+    {{/* ④ concepts 参考卡（渲染位置移到章节后） */}}
+    {{ $concepts := index $g "concepts" }}
+    {{ with $concepts }}
+    <section class="guide_concepts">
+        <h2 class="guide_section__title">{{ i18n "guide_concepts_title" }}</h2>
+        {{ range . }}
+        <div class="guide_concept_card">
+            <h3>{{ .name }}</h3>
+            <p class="guide_concept__what">{{ .what }}</p>
+            <p class="guide_concept__why">{{ .why }}</p>
+        </div>
+        {{ end }}
+    </section>
+    {{ end }}
+
+    {{/* ⑤ 全书地图：v1/v2 共用 map partial */}}
+    {{ partial "guide/map_body.html" (dict "g" $g "page" $page "bookPage" $bookPage) }}
+
+    {{/* ⑥ takeaways */}}
+    {{ $takeaways := index $g "takeaways" }}
+    {{ with $takeaways }}
+    <section class="guide_takeaways">
+        <h2 class="guide_section__title">{{ i18n "guide_takeaways_title" }}</h2>
+        <ul>{{ range . }}<li>{{ . }}</li>{{ end }}</ul>
+    </section>
+    {{ end }}
+
+    {{/* ⑦ next 上手路径 */}}
+    {{ with index $g "next" }}
+    <section class="guide_next">
+        <h2 class="guide_section__title">{{ i18n "guide_next_title" }}</h2>
+        <div class="guide_next__links">
+            {{ range . }}
+            <a class="guide_next__link" href="{{ index . "href" }}">{{ index . "label" }} →</a>
+            {{ end }}
+        </div>
+    </section>
+    {{ end }}
+
+    <a class="guide_enter_book" href="{{ $bookPage.RelPermalink }}">{{ i18n "guide_enter_book" }}</a>
+</article>
