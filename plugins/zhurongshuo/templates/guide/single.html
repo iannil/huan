@@ -21,12 +21,12 @@
             {{/* 一致性校验：book slug 应与路径推导的目录名一致。
                 guide 页 URL 形如 /books/volume-1/<slug>/guide/，
                 书页 URL 即去掉尾部 guide/ 的前缀。 */}}
-            {{ $bookURL := strings_Replace .RelPermalink "guide/" "" }}
+            {{ $bookURL := trimSuffix "guide/" .RelPermalink }}
             {{ $bookPage := .Site.GetPage $bookURL }}
             {{ if eq $bookPage.RelPermalink "" }}
                 {{ failRender (printf "guide 页 %s 的 book '%s'（section '%s'）找不到对应书籍页 %s" .File.Path $book $section $bookURL) }}
             {{ end }}
-            {{ $pathBook := path_Base (strings_Replace .File.Dir "guide/" "") }}
+            {{ $pathBook := path_Base (trimSuffix "guide/" .File.Dir) }}
             {{ if and $pathBook (ne $book $pathBook) }}
                 {{ failRender (printf "guide 页 %s 的 book '%s' 与路径目录名 '%s' 不一致" .File.Path $book $pathBook) }}
             {{ end }}
