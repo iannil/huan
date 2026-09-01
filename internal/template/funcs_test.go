@@ -2,6 +2,8 @@ package template
 
 import (
 	"html/template"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -424,6 +426,8 @@ func TestPanicOnCall_ApplyPanics(t *testing.T) {
 //
 // ADD HERE when you add a new func to FuncMap. The 守护测试 fails otherwise.
 var testedFuncs = map[string]bool{
+	// File access (covered by TestReadFileAndFileExists)
+	"fileExists": true, "readFile": true,
 	// Math (covered above)
 	"add": true, "sub": true, "mul": true, "div": true, "mod": true,
 	// String / content helpers
@@ -530,4 +534,32 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestReadFileAndFileExists(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.MkdirAll(filepath.Join(dir, "content", "books", "demo", "guide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "content", "books", "demo", "guide", "manual.html"), []byte("<p>manual</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !fileExists("content/books/demo/guide/manual.html") {
+		t.Fatal("fileExists should report true for existing file")
+	}
+	if fileExists("content/books/demo/guide/missing.html") {
+		t.Fatal("fileExists should report false for missing file")
+	}
+	got, err := readFile("content/books/demo/guide/manual.html")
+	if err != nil {
+		t.Fatalf("readFile: %v", err)
+	}
+	if got != "<p>manual</p>" {
+		t.Fatalf("readFile content = %q", got)
+	}
+	if _, err := readFile("content/books/demo/guide/missing.html"); err == nil {
+		t.Fatal("readFile on missing file should error")
+	}
 }

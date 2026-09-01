@@ -162,9 +162,41 @@ func FuncMap(baseURL string) template.FuncMap {
 		"langPrefix":              langPrefixFunc,
 		"translationLinks":        translationLinksFunc,
 		"sectionExcluded":         sectionExcludedFunc,
+		"fileExists":              fileExists,
+		"readFile":                readFile,
 		"safeCSS":                 func(v interface{}) template.CSS { return template.CSS(toString(v)) },
 		"safeHTMLAttr":            func(v interface{}) template.HTMLAttr { return template.HTMLAttr(toString(v)) },
 	}
+}
+
+// resolveSitePath guards template file access to site-relative paths:
+// no absolute paths, no ".." traversal.
+func resolveSitePath(p string) (string, error) {
+	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "..") || strings.Contains(p, "/../") {
+		return "", fmt.Errorf("invalid site-relative path %q", p)
+	}
+	return filepath.Clean(p), nil
+}
+
+func fileExists(p string) bool {
+	clean, err := resolveSitePath(p)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(clean)
+	return err == nil
+}
+
+func readFile(p string) (string, error) {
+	clean, err := resolveSitePath(p)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(clean)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // reflectField reads a named field from a struct using reflection.
