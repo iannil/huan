@@ -246,6 +246,28 @@ tests:
         exists: true
         contains: "<h1 id=page-title>你好（中文版）</h1>"
 
+  - id: cb-guide-001
+    name: guide leaf bundle 构建产物落盘
+    severity: P1
+    # fixture 覆盖：本用例换 with-guide 拷贝（RUNBOOK §2 同法）：
+    #   cp -r tests/e2e/fixtures/with-guide $site-gd && mkdir -p $site-gd/.huan-home
+    # 期望值出处：本 fixture「build 产物锚点」（Task 4 实测）。
+    # e2e 用磁盘 layouts（非 zhurongshuo 插件主题），guide 布局本身测不到；
+    # 此处只验证 huan 引擎对 leaf bundle content/books/demo-book/guide/index.md
+    # （frontmatter type: guide）的 URL 生成：/books/demo-book/guide/index.html。
+    steps:
+      - action: cli
+        command: HUAN_HOME=$site-gd/.huan-home $bin build -s $site-gd
+        expect:
+          exit_code: 0
+          stdout_contains: "Build complete."
+      - action: fs.assert              # guide leaf bundle 锚点
+        path: $site-gd/public/books/demo-book/guide/index.html
+        exists: true
+      - action: fs.assert              # 书页 section 页正常落盘
+        path: $site-gd/public/books/demo-book/index.html
+        exists: true
+
 # startup：为 cb-004 注入 future/expired 内容（fixture 不含，见 FIXTURES.md——
 # minimal 只有 hello-huan/draft-post/about）。字段名 publishDate/expiryDate
 # 实测自 internal/content/load.go:91/97，勿写成 publishdate/expirydate。

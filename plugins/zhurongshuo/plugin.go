@@ -71,7 +71,9 @@ func (t *ZhurongshuoTheme) FuncMap() template.FuncMap {
 		"parseGuideYAML": parseGuideYAML,
 		"svgTextWidth":   svgTextWidth,
 		"svgTruncate":    svgTruncate,
-		"svgWrap":        svgWrap,
+		"svgWrap":         svgWrap,
+		"failRender":      failRender,
+		"guideChartTypes": guideChartTypesFn,
 	}
 }
 

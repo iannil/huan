@@ -114,6 +114,10 @@
         href="/theme/zhurongshuo/css/search.css" />
     <link rel="stylesheet" type="text/css" media="screen"
         href="/theme/zhurongshuo/css/post-share.css" />
+    {{ if eq .Type "guide" }}
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/guide.css" />
+    {{ end }}
 
     <!-- custom css -->
     {{ range .Site.Params.customCSS }}

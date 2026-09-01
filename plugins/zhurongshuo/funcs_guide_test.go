@@ -41,3 +41,24 @@ func TestParseGuideYAMLMalformedYAML(t *testing.T) {
 		t.Fatal("expected error for malformed YAML")
 	}
 }
+
+func TestFailRenderReturnsError(t *testing.T) {
+	if _, err := failRender("book not found"); err == nil {
+		t.Fatal("failRender must return an error")
+	}
+}
+
+func TestGuideChartTypesFn(t *testing.T) {
+	m := map[string]bool{}
+	for _, ct := range guideChartTypesFn() {
+		m[ct] = true
+	}
+	for _, ct := range []string{"funnel", "ladder", "cycle", "layers", "flow", "network", "spectrum"} {
+		if !m[ct] {
+			t.Errorf("guideChartTypes missing %q", ct)
+		}
+	}
+	if m["pie"] {
+		t.Error("guideChartTypes should not contain unsupported type pie")
+	}
+}

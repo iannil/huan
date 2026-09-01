@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -149,4 +150,33 @@ func svgWrap(s string, maxWidth float64, fontSize int) []string {
 	}
 	flush()
 	return lines
+}
+
+// failRender lets guide templates convert content-authoring mistakes
+// (unknown book slug, unsupported chart_type, missing fields) into render
+// errors. huan counts render errors into Result.Errors and logs a WARN
+// per page — surfaced in the build summary "Errors:" line (pipeline_render.go).
+func failRender(msg string) (string, error) {
+	return "", fmt.Errorf("guide: %s", msg)
+}
+
+// guideChartTypes lists chart partials supported by the guide layout.
+// Templates validate main_chart.chart_type against this set before
+// dispatching to charts/<type>.html.
+var guideChartTypes = map[string]bool{
+	"funnel": true, "ladder": true, "cycle": true, "layers": true,
+	"flow": true, "network": true, "spectrum": true,
+}
+
+// guideChartTypesFn exposes the supported chart types to templates as a
+// sorted slice usable with `in`: {{ if not (in (guideChartTypes) $ct) }}...
+// (huan's indexFunc does not look up map[string]bool, so a plain slice
+// composes better with the template builtin set.)
+func guideChartTypesFn() []string {
+	types := make([]string, 0, len(guideChartTypes))
+	for k := range guideChartTypes {
+		types = append(types, k)
+	}
+	sort.Strings(types)
+	return types
 }

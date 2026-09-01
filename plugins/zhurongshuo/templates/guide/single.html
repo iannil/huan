@@ -1,0 +1,156 @@
+{{/*
+    guide/single.html — 可视化导读手册布局（type: guide）。
+    数据来源：正文中的 ```guide YAML 代码块（parseGuideYAML）。
+    五段式结构（spec §2.2）：核心论点 → 主图 → 概念链 → 全书地图 → 收获清单。
+    校验错误经 failRender 变为渲染错误（build WARN + Result.Errors 计数）。
+*/}}{{ partial "head.html" . }}
+
+<body>
+    <div class="main">
+        {{ partial "nav.html" . }}
+        {{ partial "header.html" . }}
+        <div class="content">
+            {{ $g := parseGuideYAML .Plain }}
+
+            {{/* ── 校验区 ── */}}
+            {{ $book := index $g "book" }}
+            {{ $section := index $g "section" }}
+            {{ if or (not $book) (not $section) }}
+                {{ failRender (printf "guide 页 %s 缺少 book 或 section 字段" .File.Path) }}
+            {{ end }}
+            {{/* 一致性校验：book slug 应与路径推导的目录名一致。
+                guide 页 URL 形如 /books/volume-1/<slug>/guide/，
+                书页 URL 即去掉尾部 guide/ 的前缀。 */}}
+            {{ $bookURL := strings_Replace .RelPermalink "guide/" "" }}
+            {{ $bookPage := .Site.GetPage $bookURL }}
+            {{ if eq $bookPage.RelPermalink "" }}
+                {{ failRender (printf "guide 页 %s 的 book '%s'（section '%s'）找不到对应书籍页 %s" .File.Path $book $section $bookURL) }}
+            {{ end }}
+            {{ $pathBook := path_Base (strings_Replace .File.Dir "guide/" "") }}
+            {{ if and $pathBook (ne $book $pathBook) }}
+                {{ failRender (printf "guide 页 %s 的 book '%s' 与路径目录名 '%s' 不一致" .File.Path $book $pathBook) }}
+            {{ end }}
+
+            {{ $main := index $g "main_chart" }}
+            {{ if not (in (guideChartTypes) (index $main "chart_type")) }}
+                {{ failRender (printf "guide 页 %s 的 chart_type '%v' 不受支持" .File.Path (index $main "chart_type")) }}
+            {{ end }}
+
+            {{ $takeaways := index $g "takeaways" }}
+            {{ if not $takeaways }}
+                {{ failRender (printf "guide 页 %s 的 takeaways 为空" .File.Path) }}
+            {{ end }}
+
+            {{ $concepts := index $g "concepts" }}
+            {{ if or (not $concepts) (gt (len $concepts) 6) }}
+                {{ failRender (printf "guide 页 %s 的 concepts 数量须为 1-6，实际 %d" .File.Path (len $concepts)) }}
+            {{ end }}
+
+            {{ $thesis := index $g "thesis" }}
+            {{ if not (index $thesis "claim") }}
+                {{ failRender (printf "guide 页 %s 缺少 thesis.claim" .File.Path) }}
+            {{ end }}
+
+            <article class="guide_page">
+                <nav class="guide_breadcrumb">
+                    <a href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
+                </nav>
+
+                {{/* ① 核心论点 */}}
+                <section class="guide_thesis">
+                    <h1 class="guide_thesis__claim">{{ index $thesis "claim" }}</h1>
+                    {{ with index $thesis "puzzle" }}
+                    <p class="guide_thesis__puzzle">{{ . }}</p>
+                    {{ end }}
+                </section>
+
+                {{/* ② 主图 */}}
+                {{ $mainChart := $main }}
+                <section class="guide_mainchart">
+                    {{ with index $mainChart "title" }}
+                    <h2 class="guide_section__title">{{ . }}</h2>
+                    {{ end }}
+                    {{ partial (printf "charts/%s.html" (index $mainChart "chart_type")) (dict "chart" $mainChart "cfg" (dict "Width" 760 "Height" 420 "LabelSize" 16 "SubLabelSize" 13)) }}
+                </section>
+
+                {{/* ③ 概念链 */}}
+                <section class="guide_concepts">
+                    <h2 class="guide_section__title">{{ i18n "guide_concepts_title" }}</h2>
+                    {{ range $concepts }}
+                    <div class="guide_concept_card">
+                        <h3>{{ .name }}</h3>
+                        <p class="guide_concept__what">{{ .what }}</p>
+                        <p class="guide_concept__why">{{ .why }}</p>
+                        {{ with .chart }}
+                        <div class="guide_concept__chart">
+                            {{ partial (printf "charts/%s.html" .chart_type) (dict "chart" . "cfg" (dict "Width" 320 "Height" 180 "LabelSize" 13 "SubLabelSize" 11)) }}
+                        </div>
+                        {{ end }}
+                    </div>
+                    {{ end }}
+                </section>
+
+                {{/* ④ 全书地图：part 发现 + 章节分组照抄 book/list.html 模式 */}}
+                {{ $bookDir := $bookPage.File.Dir }}
+                {{ $allPages := $bookPage.RegularPagesRecursive }}
+                {{ $specialFiles := slice "prologue" "introduction" "epilogue" "appendix" }}
+                {{ $chapterPages := slice }}
+                {{ range $allPages }}
+                    {{ if not (in $specialFiles .File.BaseFileName) }}
+                        {{ $chapterPages = $chapterPages | append . }}
+                    {{ end }}
+                {{ end }}
+                {{ $scratch := newScratch }}
+                {{ $scratch.Set "partSlugs" (slice) }}
+                {{ range $chapterPages }}
+                    {{ $slug := strings_Replace (strings_Replace .File.Dir $bookDir "") "/" "" }}
+                    {{ if ne $slug "" }}
+                        {{ $existing := $scratch.Get "partSlugs" }}
+                        {{ if not (in $existing $slug) }}
+                            {{ $scratch.Add "partSlugs" (slice $slug) }}
+                        {{ end }}
+                    {{ end }}
+                {{ end }}
+                {{ $partSlugs := sort ($scratch.Get "partSlugs") }}
+                {{ $mapNotes := dict }}
+                {{ range (index $g "map") }}
+                    {{ $mapNotes = merge $mapNotes (dict (index . "part") (index . "note")) }}
+                {{ end }}
+                <section class="guide_map">
+                    <h2 class="guide_section__title">{{ i18n "guide_map_title" }}</h2>
+                    {{ range $partSlugs }}
+                    {{ $dir := printf "%s%s/" $bookDir . }}
+                    <div class="guide_map__part">
+                        <h3 class="guide_map__part_title">
+                            {{ . }}
+                            {{ with index $mapNotes . }}
+                            <span class="guide_map__note">{{ . }}</span>
+                            {{ end }}
+                        </h3>
+                        <ul class="guide_map__chapters">
+                            {{ range sort (where $chapterPages "File.Dir" $dir) "File.BaseFileName" }}
+                            <li><a href="{{ .RelPermalink }}">{{ .Title }}</a></li>
+                            {{ end }}
+                        </ul>
+                    </div>
+                    {{ end }}
+                </section>
+
+                {{/* ⑤ 收获清单 */}}
+                <section class="guide_takeaways">
+                    <h2 class="guide_section__title">{{ i18n "guide_takeaways_title" }}</h2>
+                    <ul>
+                        {{ range $takeaways }}<li>{{ . }}</li>{{ end }}
+                    </ul>
+                </section>
+
+                <a class="guide_enter_book" href="{{ $bookPage.RelPermalink }}">{{ i18n "guide_enter_book" }}</a>
+            </article>
+        </div>
+        <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
+    </div>
+    {{ partial "footer.html" . }}
+    {{ partial "js.html" . }}
+    {{ partial "search.html" . }}
+</body>
+</html>
