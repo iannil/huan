@@ -1,7 +1,7 @@
 # huan 文档导航
 
 > **LLM 入口**：从本文件开始阅读 huan 项目。任何新会话先读 `CLAUDE.md` 与本文件即可掌握全貌。
-> **当前版本**：v0.6.0+（详见 [版本时间线](#版本时间线)）
+> **当前版本**：v0.8.0（2026-09-01，详见 [版本时间线](#版本时间线)）
 > **当前定位**：local-first single-user content engine with built-in admin — daemon 持久化服务端内容引擎
 
 ## 一句话定位
@@ -170,6 +170,7 @@ huan/
 
 | 版本 | 日期 | 关键变更 |
 |------|------|---------|
+| **v0.7.2 / v0.8.0** | 2026-08-31~09-01 | **qwen3-translate 完全移除**（ADR 0015）+ **构建健壮性批次**：cleanPublishDir 默认开 / 每语言 staticExclude+staticRoot / CopyStatic 前缀排除 / 默认语言先构建 |
 | **v0.6.0+** | 2026-07-20~ | **Daemon 时代**：持久化服务端内容引擎。四大运行时能力全部就绪（静态服务 + JIT 按需渲染 + 内容查询 REST API + SSE 实时推送 + 插件热插拔 + 增量构建 + SEO 编译期插件） |
 | **v0.5.0** | 2026-06-30 | **v1.0 hard gate 1-5 全交付**：定位拆段 / no-op funcs 三档 / I/O 包测试 / Admin 安全边界 / BuildSite 6 文件重构 |
 | **v0.4.x** | 2026-06-14~27 | i18n 翻译系统 + Stage 4 Admin Panel v0.4.0~v0.4.2 增量演进 |
