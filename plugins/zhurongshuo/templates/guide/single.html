@@ -10,7 +10,7 @@
         {{ partial "nav.html" . }}
         {{ partial "header.html" . }}
         <div class="content">
-            {{ $g := parseGuideYAML .Plain }}
+            {{ $g := parseGuideYAML .RawContent }}
 
             {{/* ── 校验区 ── */}}
             {{ $book := index $g "book" }}

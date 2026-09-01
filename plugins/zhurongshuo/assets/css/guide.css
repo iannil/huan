@@ -1,0 +1,71 @@
+/* ── 可视化导读手册 · 极简学术风 ─────────────────────────
+   色板：墨 #2c3e50 / 暖米 #f5f1e8 / 灰 #7f8c8d。细线 1px、
+   大留白、衬线标题（继承站点字体栈的 serif）。
+   Class 名以 templates/guide/single.html 与 partials/charts/ 为准。 */
+
+.guide_page { max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.guide_breadcrumb { font-size: 0.9rem; margin-bottom: 8px; }
+.guide_breadcrumb a { color: #7f8c8d; text-decoration: none; border-bottom: 1px dotted #b8b0a0; }
+
+/* ① 核心论点 */
+.guide_thesis { text-align: center; margin: 32px 0 56px; }
+.guide_thesis__claim {
+    font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
+    font-size: 1.8rem; line-height: 1.5; font-weight: 600;
+    color: #2c3e50; margin: 0 0 16px;
+}
+.guide_thesis__puzzle { color: #7f8c8d; font-size: 1.02rem; line-height: 1.9; margin: 0 auto; max-width: 560px; text-align: left; }
+
+/* ② 图表通用（partials/charts/*.html） */
+.guide-chart { width: 100%; height: auto; display: block; margin: 24px 0; }
+.guide-chart__shape { fill: #f5f1e8; stroke: #2c3e50; stroke-width: 1; }
+.guide-chart__shape--l0 { fill: #ede7d9; }
+.guide-chart__shape--l1 { fill: #f5f1e8; }
+.guide-chart__shape--l2 { fill: #faf8f2; }
+.guide-chart__edge { stroke: #2c3e50; stroke-width: 1; fill: none; }
+.guide-chart__arrow { fill: #2c3e50; stroke: none; }
+.guide-chart__label { fill: #2c3e50; }
+.guide-chart__sublabel { fill: #7f8c8d; }
+.guide_mainchart { margin: 24px 0 48px; }
+
+.guide_section__title {
+    font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
+    font-size: 1.15rem; color: #2c3e50;
+    border-bottom: 1px solid #e5e0d5; padding-bottom: 8px; margin: 48px 0 8px;
+}
+
+/* ③ 概念链：桌面横排、移动纵排（section 含 h2，h2 占满整行） */
+.guide_concepts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin: 16px 0; }
+.guide_concepts > h2 { grid-column: 1 / -1; }
+.guide_concept_card { border: 1px solid #e5e0d5; border-radius: 4px; padding: 18px 16px; }
+.guide_concept_card h3 { font-size: 1.02rem; color: #2c3e50; margin: 0 0 10px; }
+.guide_concept__what { font-size: 0.95rem; line-height: 1.8; margin: 0 0 8px; }
+.guide_concept__why  { font-size: 0.9rem;  line-height: 1.8; color: #7f8c8d; margin: 0; }
+.guide_concept__chart { margin-top: 12px; }
+
+/* ④ 全书地图（模板类名：guide_map__part / __part_title / __note / __chapters） */
+.guide_map__part { margin: 20px 0; }
+.guide_map__part_title { font-weight: 600; color: #2c3e50; margin: 0 0 4px; font-size: 1.02rem; }
+.guide_map__note { font-weight: 400; font-size: 0.88rem; color: #7f8c8d; margin-left: 8px; }
+.guide_map__chapters { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; padding-left: 0; }
+.guide_map__chapters a { font-size: 0.92rem; color: #2c3e50; text-decoration: none; border-bottom: 1px dotted #b8b0a0; }
+.guide_map__chapters a:hover { border-bottom-style: solid; }
+
+/* ⑤ 收获清单 */
+.guide_takeaways ul { padding-left: 1.2em; line-height: 2.0; }
+.guide_takeaways li { color: #2c3e50; }
+
+/* 出口 */
+.guide_enter_book {
+    display: block; width: fit-content; margin: 48px auto 0;
+    padding: 10px 28px; border: 1px solid #2c3e50; border-radius: 3px;
+    color: #2c3e50; text-decoration: none; font-size: 0.98rem;
+}
+.guide_enter_book:hover { background: #f5f1e8; }
+
+@media (max-width: 640px) {
+    .guide_thesis__claim { font-size: 1.45rem; }
+    .guide_page { padding: 24px 16px 60px; }
+    .guide_concepts { grid-template-columns: 1fr; }
+}

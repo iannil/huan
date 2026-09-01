@@ -16,6 +16,7 @@ type guideLayoutSmokeTestPage struct {
 	Type         string
 	Kind         string
 	Plain        string
+	RawContent    string
 	RelPermalink string
 	File         *guideLayoutSmokeTestFile
 	Site         *guideLayoutSmokeTestSite
@@ -166,7 +167,7 @@ func TestGuideLayoutSmokeRender(t *testing.T) {
 		Title:        "演示书 · 可视化导读",
 		Type:         "guide",
 		Kind:         "page",
-		Plain:        "前言文字。\n\n" + guideSmokeGuideData + "\n后记文字。",
+		RawContent:    "前言文字。\n\n" + guideSmokeGuideData + "\n后记文字。",
 		RelPermalink: "/books/demo-book/guide/",
 		File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/guide/index.md", Dir: "books/demo-book/guide/", BaseFileName: "index"},
 		Site:         &guideLayoutSmokeTestSite{},
@@ -194,7 +195,7 @@ func TestGuideLayoutSmokeFailsOnBadChartType(t *testing.T) {
 	tmpl := parseGuideLayout(t)
 	bad := strings.Replace(guideSmokeGuideData, "chart_type: funnel", "chart_type: pie", 1)
 	page := &guideLayoutSmokeTestPage{
-		Title: "bad", Type: "guide", Kind: "page", Plain: bad,
+		Title: "bad", Type: "guide", Kind: "page", RawContent: bad,
 		RelPermalink: "/books/demo-book/guide/",
 		File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/guide/index.md", Dir: "books/demo-book/guide/", BaseFileName: "index"},
 		Site:         &guideLayoutSmokeTestSite{},
