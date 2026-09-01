@@ -4,3 +4,7 @@ languageCode: zh-cn
 publishDir: public
 paginate: 10
 hasCJKLanguage: true
+theme: zhurongshuo
+plugins:
+  zhurongshuo:
+    category: static
