@@ -130,8 +130,19 @@
                 {{ range (index $g "map") }}
                     {{ $mapNotes = merge $mapNotes (dict (index . "part") (index . "note")) }}
                 {{ end }}
+                {{/* 扁平结构书（章节无 part-XX 子目录）：partSlugs 为空时回退单部渲染，
+                    全部章节作为一组；map 数据声明的 part 若在 partSlugs 中无对应目录则
+                    failRender，防止注解被静默丢弃。 */}}
+                {{ if not $partSlugs }}
+                    {{ range $k, $v := $mapNotes }}
+                        {{ failRender (printf "guide 页 %s 的 map 声明 part '%s'，但该书为扁平结构（无 part 子目录），请改为单分组 map 数据" $.File.Path $k) }}
+                    {{ end }}
+                {{ end }}
+                {{/* 扁平书且无章节无 map 数据时整段优雅降级（不渲染标题） */}}
+                {{ if or $partSlugs $chapterPages (index $g "map") }}
                 <section class="guide_map">
                     <h2 class="guide_section__title">{{ i18n "guide_map_title" }}</h2>
+                    {{ if $partSlugs }}
                     {{ range $partSlugs }}
                     {{ $dir := printf "%s%s/" $bookDir . }}
                     <div class="guide_map__part">
@@ -150,9 +161,25 @@
                         </ul>
                     </div>
                     {{ end }}
+                    {{ else }}
+                    {{ $flatNote := "" }}
+                    {{ range (index $g "map") }}{{ with index . "note" }}{{ if not $flatNote }}{{ $flatNote = . }}{{ end }}{{ end }}{{ end }}
+                    <div class="guide_map__part">
+                        <h3 class="guide_map__part_title">
+                            {{ with $bookPage.Title }}{{ . }}{{ else }}{{ i18n "guide_map_full_book" }}{{ end }}
+                            {{ with $flatNote }}<span class="guide_map__note">{{ . }}</span>{{ end }}
+                        </h3>
+                        {{ if $chapterPages }}
+                        <ul class="guide_map__chapters">
+                            {{ range sort $chapterPages "File.BaseFileName" }}
+                            <li><a href="{{ .RelPermalink }}">{{ .Title }}</a></li>
+                            {{ end }}
+                        </ul>
+                        {{ end }}
+                    </div>
+                    {{ end }}
                 </section>
-
-                {{/* ⑤ 收获清单 */}}
+                {{ end }}
                 <section class="guide_takeaways">
                     <h2 class="guide_section__title">{{ i18n "guide_takeaways_title" }}</h2>
                     <ul>
