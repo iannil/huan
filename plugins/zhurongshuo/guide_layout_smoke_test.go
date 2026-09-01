@@ -5,9 +5,20 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// testResolveSitePath mirrors huan core's resolveSitePath
+// (internal/template/funcs.go): site-relative guard.
+func testResolveSitePath(p string) (string, error) {
+	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "..") || strings.Contains(p, "/../") {
+		return "", fmt.Errorf("invalid site-relative path %q", p)
+	}
+	return filepath.Clean(p), nil
+}
 
 // guideLayoutSmokeTestPage is the minimal context the guide layout needs.
 // It mirrors the huan template.Context fields the template touches.
@@ -150,7 +161,30 @@ func parseGuideLayout(t *testing.T) *template.Template {
 func guideLayoutTestFuncMap() template.FuncMap {
 	fm := chartTestFuncMap()
 	fm["i18n"] = func(key string) string { return key }
-	fm["fileExists"] = func(p string) bool { return false } // Task 4 manual override; none in smoke fixtures
+	// fileExists/readFile mirror the huan core implementations in
+	// internal/template/funcs.go: site-root (cwd) relative, no absolute
+	// paths, no ".." traversal. internal/ cannot be imported from the
+	// plugin module, so the logic is duplicated here for tests only;
+	// keep in sync with resolveSitePath/fileExists/readFile.
+	fm["fileExists"] = func(p string) bool {
+		clean, err := testResolveSitePath(p)
+		if err != nil {
+			return false
+		}
+		_, err = os.Stat(clean)
+		return err == nil
+	}
+	fm["readFile"] = func(p string) (string, error) {
+		clean, err := testResolveSitePath(p)
+		if err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(clean)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
 	fm["parseGuideYAML"] = parseGuideYAML
 	fm["failRender"] = failRender
 	fm["guideChartTypes"] = guideChartTypesFn
@@ -338,6 +372,31 @@ func TestGuideLayoutV2Chapters(t *testing.T) {
 	// v2 不再渲染 v1 的主图标题结构
 	if strings.Contains(out, `guide_mainchart`) {
 		t.Error("v2 layout must not render v1 mainchart section")
+	}
+}
+
+func TestGuideLayoutManualOverride(t *testing.T) {
+	// manual.html 放在 fixture 的书目录 guide/ 下（站点根相对路径，
+	// 模板里硬编码 content/ 前缀 —— 与 huan 构建管线一致）。
+	dir := t.TempDir()
+	manualDir := filepath.Join(dir, "content", "books", "demo-book", "guide")
+	if err := os.MkdirAll(manualDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manualDir, "manual.html"), []byte(`<div class="custom_manual"><h1>自定义手册</h1></div>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	tmpl := parseGuideLayout(t)
+	// guide 块为空的 manual 覆盖页（frontmatter-only，schema 校验被跳过）
+	page := newGuideSmokePage("")
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "single.html", page); err != nil {
+		t.Fatalf("render manual override: %v", err)
+	}
+	if !strings.Contains(b.String(), "custom_manual") {
+		t.Error("manual.html content should be inlined")
 	}
 }
 
