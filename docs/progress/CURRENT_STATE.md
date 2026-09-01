@@ -1,6 +1,6 @@
 # huan 项目状态（CURRENT STATE）
 
-> **当前版本**：v0.7.1（tag v0.7.0，2026-07-28） · **分支**：master · **最后更新**：2026-08-15
+> **当前版本**：v0.8.0（tag v0.8.0，2026-09-01） · **分支**：master · **最后更新**：2026-09-01
 > **定位**：huan daemon — 持久化运行的服务端内容引擎
 > **入口**：新会话先读 `CLAUDE.md` + `docs/INDEX.md`
 >
@@ -13,8 +13,8 @@
 **huan** 是用 Go 编写的 **local-first single-user content engine with built-in admin**，当前核心能力是 **daemon 持久化服务端模式**。
 
 - `huan daemon` — 持久化进程，提供：静态文件服务 + JIT 按需渲染 + 内容查询 REST API + SSE 实时推送 + Admin 管理后台 + 插件热插拔
-- `huan build` / `huan serve` / `huan deploy` / `huan release` — 传统 SSG 模式仍完整保留（`huan translate` 已随 qwen3 插件废弃移除，见 ADR 0011）
-- **版本节奏**：v0.5.0（2026-06-30 交付 v1.0 hard gate 1-5）→ v0.6.0+（2026-07-20 起 daemon 时代）→ v0.7.0/v0.7.1（2026-07-28~30 插件契约收敛 + diagram-renderer + 一键发布）→ v1.0.0（gate 6 90 天稳定性，2026-09-11 后）
+- `huan build` / `huan serve` / `huan deploy` / `huan release` — 传统 SSG 模式仍完整保留（`huan translate` 已随 qwen3 插件移除，见 ADR 0015）
+- **版本节奏**：v0.5.0（2026-06-30 交付 v1.0 hard gate 1-5）→ v0.6.0+（2026-07-20 起 daemon 时代）→ v0.7.0/v0.7.1（2026-07-28~30 插件契约收敛 + diagram-renderer + 一键发布）→ v0.8.0（2026-09-01 qwen3 移除 + 构建健壮性）→ v1.0.0（gate 6 90 天稳定性，2026-09-11 后）
 
 ---
 
@@ -22,6 +22,7 @@
 
 | 版本 | 时间 | 关键变更 |
 |------|------|---------|
+| **v0.7.2 / v0.8.0** | 2026-08-31~09-01 | **qwen3-translate 完全移除**（ADR 0015，-4214 行；site_translations 迁移 languages.<code>.params）+ 构建健壮性批次（cleanPublishDir 默认开 / 每语言 staticExclude+staticRoot / CopyStatic 前缀排除 / 默认语言先构建）。详见 3.14 与 [报告](../reports/completed/2026-08-31-build-hardening.md) |
 | **v0.7.0 / v0.7.1** | 2026-07-28~30 | **插件体系成熟**：能力契约收敛到 `pkg/`（ADR 0013）+ Hook 契约拆分修复 .so 钩子静默失效（ADR 0014）+ diagram-renderer 插件 + `release.sh` 一键发布 + `--plugins` flag。详见 3.11~3.13 |
 | **v0.6.0+** | 2026-07-20~ | **Daemon 时代**：持久化服务端内容引擎。四大运行时能力全部就绪（静态服务 + JIT 按需渲染 + 内容查询 REST API + SSE 实时推送） |
 | **v0.5.0** | 2026-06-30 | **v1.0 hard gate 1-5 全交付**：定位拆段 / no-op funcs 三档 / I/O 包测试 / Admin 安全边界 / BuildSite 6 文件重构 |
@@ -48,7 +49,7 @@
 ### 3.2 热插拔插件系统（2026-07-21）
 
 - **`internal/plugin/`** 新增：`Loader`（.so 文件加载）、`LifecycleManager`（生命周期管理）、`GRPCStub`（gRPC 预留骨架）
-- **独立 .so 插件仓库**：`plugins/cloudflare/`、`plugins/image-pipeline/`。自包含类型复制模式（qwen3 已废弃，ADR 0011）
+- **独立 .so 插件仓库**：`plugins/cloudflare/`、`plugins/image-pipeline/`。自包含类型复制模式（qwen3 已移除，ADR 0015）
 - **Admin API**：`/admin/api/plugins/*`（list/load/unload/reload）
 - **CLI**：`huan plugin load/unload/reload/list`
 - **EventBus 插件事件**：Loaded/Unloaded/Reloaded/Error
@@ -123,6 +124,14 @@
 
 - **`scripts/release.sh`**：一条命令产出 huan 二进制 + 全部插件 .so + checksums.txt + manifest.json，输出 `release/v{version}/{os}-{arch}/`（避免 Go 子命令的鸡生蛋问题）
 - **`huan build/dev --plugins <dir>`**：覆盖默认插件目录 `<sourceDir>/plugins/`；`$HUAN_HOME/plugins` 仍最高优先；空值 = 默认行为
+
+### 3.14 构建健壮性批次 + qwen3-translate 移除（2026-08-31，v0.7.2 → v0.8.0）
+
+- **qwen3-translate 完全删除**（ADR 0015）：`plugins/qwen3/`、`cmd/huan/translate_*.go`、`internal/translate/`、`pkg/translate/` 全删（-4214 行）；`site_translations` 迁移到 `languages.<code>.params`；`.en.md` sidecar 保留参与构建，翻译改站外维护
+- **cleanPublishDir**（默认开）：构建前清空 publish 目录，消除 stale 产物
+- **每语言 staticExclude + staticRoot**：多语言构建中各语言静态资源独立排除与根目录
+- **CopyStatic 前缀排除** + **默认语言始终先构建**
+- 报告：[2026-08-31-build-hardening.md](../reports/completed/2026-08-31-build-hardening.md) / [2026-08-31-deprecate-qwen3-translate.md](../reports/completed/2026-08-31-deprecate-qwen3-translate.md)
 
 ---
 
@@ -313,11 +322,11 @@ v0.5.0 交付 gate 1-5（2026-06-30）→ 等 90 天 → **v1.0.0（2026-09-11 �
 
 报告：[`docs/reports/e2e/2026-08-15-full-run.md`](../reports/e2e/2026-08-15-full-run.md)——`go test ./...` 32 包 + E2E **全部 117 例逐例实跑**（API 79 + CLI 15 + browser 23 旅程，agent-browser 实走）。
 
-**结果：115/117 PASS，1 PARTIAL（bs-002），0 FAIL。** 与抽样基线（90/90）对照补全覆盖。
+**结果：117/117 PASS，0 FAIL**（途中发现的 2 个 UI bug 已在当日修复并经 agent-browser 重走确认，见报告更新）。与抽样基线（90/90）对照补全覆盖。
 
-全量实跑新发现（前序抽样基线未见，建议另立修复）：
-- **bs-002 PARTIAL**：Settings 改标题保存后 Dashboard 顶栏/概览仍显示旧站名——`status.title` 是 handler 构造时静态副本（api.go:38 siteTitle），settings PUT 的 async rebuild 不刷新该缓存（P2 真实 UI bug）
-- **多语言编辑器顶栏文件路径显示 `.zh-CN.zh-CN.md` 双后缀**：ContentEdit 直渲染 `detail.filePath`，服务端 `realFilePath` 在 relPath 已含语言后缀时重复叠加（P2 显示 bug，保存走 relPath 安全）
+全量实跑新发现（前序抽样基线未见）：
+- **bs-002（已修复，commit 25c801b）**：Settings 改标题保存后 Dashboard 顶栏/概览仍显示旧站名——`status.title` 是 handler 构造时静态副本（api.go:38 siteTitle），settings PUT 的 async rebuild 不刷新该缓存（P2 真实 UI bug）。修复：`getStatus` 改实时 `readSettings`
+- **多语言编辑器顶栏文件路径显示 `.zh-CN.zh-CN.md` 双后缀（已修复，commit 25c801b）**：ContentEdit 直渲染 `detail.filePath`，服务端 `realFilePath` 在 relPath 已含语言后缀时重复叠加（P2 显示 bug，保存走 relPath 安全）。修复：`realFilePath` 幂等 + `TestRealFilePath_Idempotent` 回归
 - **内嵌 SPA bundle 时效**：E2E 前必须重建 `web/admin` dist，否则测到过期 UI（执行契约，非引擎 bug）
 
 ---
