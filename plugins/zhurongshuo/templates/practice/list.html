@@ -54,6 +54,12 @@
                     <div class="book-title">{{ .Title }}</div>
                 {{ end }}
 
+                {{/* 可视化导读入口：guide 页存在时显示（guide 页 URL = 书页 URL + guide/） */}}
+                {{ $guidePage := .Site.GetPage (printf "%sguide/" .File.Dir) }}
+                {{ if ne $guidePage.RelPermalink "" }}
+                    <a class="book_guide_link" href="{{ $guidePage.RelPermalink }}">{{ i18n "guide_entry_link" }}</a>
+                {{ end }}
+
                 {{ $allPages := .RegularPagesRecursive }}
 
                 {{ $partTitles := dict }}
@@ -91,7 +97,8 @@
                 {{ $specialFiles := slice "prologue" "introduction" "epilogue" "appendix" }}
                 {{ $chapterPages := slice }}
                 {{ range $allPages }}
-                    {{ if not (in $specialFiles .File.BaseFileName) }}
+                    {{/* 排除特殊文件与可视化导读手册自身（guide/ 子目录） */}}
+                    {{ if and (not (in $specialFiles .File.BaseFileName)) (ne .File.Dir (printf "%sguide/" $practiceDir)) }}
                         {{ $chapterPages = $chapterPages | append . }}
                     {{ end }}
                 {{ end }}

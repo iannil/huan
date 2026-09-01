@@ -69,3 +69,11 @@
     .guide_page { padding: 24px 16px 60px; }
     .guide_concepts { grid-template-columns: 1fr; }
 }
+
+/* 书籍/实践详情页的导读入口徽章 */
+.book_guide_link {
+    display: block; width: fit-content; margin: -18px auto 22px;
+    padding: 5px 16px; border: 1px solid #b8b0a0; border-radius: 14px;
+    color: #2c3e50; text-decoration: none; font-size: 0.85rem;
+}
+.book_guide_link:hover { border-color: #2c3e50; background: #f5f1e8; }

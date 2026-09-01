@@ -96,8 +96,22 @@
                 {{ $specialFiles := slice "prologue" "introduction" "epilogue" "appendix" }}
                 {{ $chapterPages := slice }}
                 {{ range $allPages }}
-                    {{ if not (in $specialFiles .File.BaseFileName) }}
+                    {{/* 排除特殊文件与 guide 手册自身（guide/index.md 的 Dir = 书目录 + guide/） */}}
+                    {{ if and (not (in $specialFiles .File.BaseFileName)) (ne .File.Dir (printf "%sguide/" $bookDir)) }}
                         {{ $chapterPages = $chapterPages | append . }}
+                    {{ end }}
+                {{ end }}
+                {{/* part 友好标题：与 book/list.html 同源（data part_titles.<book>.<part>），en 语言取 data/en；books 未命中回退 practices */}}
+                {{ $partTitlesData := .Site.Data.books }}
+                {{ if eq $.Site.LanguageCode "en" }}{{ with .Site.Data.en }}{{ with .books }}{{ $partTitlesData = . }}{{ end }}{{ end }}{{ end }}
+                {{ $mapPartTitles := dict }}
+                {{ if isset $partTitlesData.part_titles $book }}
+                    {{ $mapPartTitles = index $partTitlesData.part_titles $book }}
+                {{ else }}
+                    {{ $practicesTitlesData := .Site.Data.practices }}
+                    {{ if eq $.Site.LanguageCode "en" }}{{ with .Site.Data.en }}{{ with .practices }}{{ $practicesTitlesData = . }}{{ end }}{{ end }}{{ end }}
+                    {{ if isset $practicesTitlesData.part_titles $book }}
+                        {{ $mapPartTitles = index $practicesTitlesData.part_titles $book }}
                     {{ end }}
                 {{ end }}
                 {{ $scratch := newScratch }}
@@ -122,7 +136,9 @@
                     {{ $dir := printf "%s%s/" $bookDir . }}
                     <div class="guide_map__part">
                         <h3 class="guide_map__part_title">
-                            {{ . }}
+                            {{ $ptTitle := . }}
+                            {{ if isset $mapPartTitles . }}{{ $ptTitle = index $mapPartTitles . }}{{ end }}
+                            {{ $ptTitle }}
                             {{ with index $mapNotes . }}
                             <span class="guide_map__note">{{ . }}</span>
                             {{ end }}
