@@ -128,8 +128,11 @@
                 {{ $partSlugs := sort ($scratch.Get "partSlugs") }}
                 {{ $mapNotes := dict }}
                 {{ range (index $g "map") }}
-                    {{ with $part := index . "part" }}
-                        {{ $mapNotes = merge $mapNotes (dict $part (index . "note")) }}
+                    {{ if isset . "part" }}
+                        {{ $p := index . "part" }}
+                        {{ $note := "" }}
+                        {{ if isset . "note" }}{{ $note = index . "note" }}{{ end }}
+                        {{ $mapNotes = merge $mapNotes (dict $p $note) }}
                     {{ end }}
                 {{ end }}
                 {{/* 扁平结构书（章节无 part-XX 子目录）：partSlugs 为空时回退单部渲染，

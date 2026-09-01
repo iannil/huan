@@ -70,10 +70,29 @@
     .guide_concepts { grid-template-columns: 1fr; }
 }
 
-/* 书籍/实践详情页的导读入口徽章 */
-.book_guide_link {
-    display: block; width: fit-content; margin: -18px auto 22px;
-    padding: 5px 16px; border: 1px solid #b8b0a0; border-radius: 14px;
-    color: #2c3e50; text-decoration: none; font-size: 0.85rem;
+/* 书籍/实践详情页的导读入口：书籍扉页的导读插页条。
+   副题之下一条发丝线注记行——衬线标签 + 长箭头，整行可点。
+   悬停只有两处微动：标签下划线浮现、箭头右移。 */
+.book_guide_band {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; width: 100%;
+    margin: 0 0 34px; padding: 10px 2px 9px;
+    border-top: 1px solid #e5e0d5; border-bottom: 1px solid #e5e0d5;
+    text-decoration: none;
 }
-.book_guide_link:hover { border-color: #2c3e50; background: #f5f1e8; }
+.guide_band__label {
+    font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia,
+        "Songti SC", "Noto Serif SC", serif;
+    font-size: 0.92rem; letter-spacing: 0.02em; color: #2c3e50;
+}
+.guide_band__arrow {
+    font-size: 1.05rem; color: #7f8c8d; flex: none;
+    transition: transform .22s ease, color .22s ease;
+}
+.book_guide_band:hover .guide_band__label { text-decoration: underline; text-underline-offset: 4px; }
+.book_guide_band:hover .guide_band__arrow { transform: translateX(4px); color: #2c3e50; }
+
+@media (max-width: 640px) {
+    .book_guide_band { margin-bottom: 26px; }
+    .guide_band__label { font-size: 0.88rem; }
+}
