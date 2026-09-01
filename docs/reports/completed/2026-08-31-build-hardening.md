@@ -25,7 +25,7 @@
 
 | 配置 | 默认值 | 说明 |
 |---|---|---|
-| `cleanPublishDir` | `true` | 构建前清空 publish 目录，消除 stale 产物；`OutputDir == SourceDir` 时自动跳过（daemon 安全护栏）。`huan.example.yaml` 中为顶层配置项（`CleanPublishDir *bool`，`nil` 视为 true） |
+| `cleanPublishDir` | `true` | 构建前清空 publish 目录，消除 stale 产物；`OutputDir == SourceDir` 时自动跳过（daemon 安全护栏）。顶层配置项（`CleanPublishDir *bool`，`nil` 视为 true）；暂未写入 huan.example.yaml 示例，仅 staticExclude / staticRoot 有示例 |
 | `languages.<code>.staticExclude` | （空） | 该语言的 plain static 拷贝跳过指定 slash 路径前缀 |
 | `languages.<code>.staticRoot` | （空） | 将 `static/<staticRoot>/` 子树映射为该语言输出根的本地 static |
 
@@ -48,7 +48,7 @@
 
 ## 6. 验证
 
-各 commit 均附单元测试（`writer_test.go` +40、`pipeline_setup_test.go` +36、`multisite_test.go` +58 与 +53，合计 +149 行以上），随提交通过。
+各 commit 均附单元测试（`writer_test.go` +40、`pipeline_setup_test.go` +36、`multisite_test.go` 两次共 +111，合计 +149 行以上），随提交通过。
 
 端到端实测记录（引自 memory/daily/2026-08-31.md 与同日 qwen3 报告的既有记录，本次报告未执行新验证）：
 
