@@ -77,3 +77,23 @@ func TestRenderEPUBStructure(t *testing.T) {
 		t.Fatal("chapter body not found in epub xhtml")
 	}
 }
+
+func TestInlineXHTMLOddDelimitersBalanced(t *testing.T) {
+	out := inlineXHTML("**a** b **c")
+	if strings.Count(out, "<strong>") != strings.Count(out, "</strong>") {
+		t.Fatalf("unbalanced strong tags: %q", out)
+	}
+	if strings.Count(out, "<em>") != strings.Count(out, "</em>") {
+		t.Fatalf("unbalanced em tags: %q", out)
+	}
+}
+
+func TestInlineXHTMLLinkURLProtected(t *testing.T) {
+	out := inlineXHTML("[docs](https://x.com/a_b*c?d=1)")
+	if !strings.Contains(out, `href="https://x.com/a_b*c?d=1"`) {
+		t.Fatalf("href corrupted: %q", out)
+	}
+	if strings.Contains(out, "<em>") {
+		t.Fatalf("em leaked into URL: %q", out)
+	}
+}

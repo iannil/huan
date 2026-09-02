@@ -20,10 +20,12 @@ func escapeHTML(s string) string { return html.EscapeString(s) }
 var linkRe = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`)
 
 // replaceDelimited converts pairs of delim-wrapped spans into open/close
-// tags. Escaped source input; minimal, non-nested handling.
+// tags. Escaped source input; minimal, non-nested handling. When the
+// delimiter count is odd, delimiters are left literal to avoid emitting
+// unbalanced tags.
 func replaceDelimited(s, delim, open, close string) string {
 	count := strings.Count(s, delim)
-	if count < 2 {
+	if count < 2 || count%2 != 0 {
 		return s
 	}
 	var sb strings.Builder
@@ -60,6 +62,9 @@ func titlePageXHTML(book *content.BookEntry, lang content.Lang) string {
 	subtitle := book.SubtitleZH
 	if lang == content.LangEN {
 		title = book.TitleEN
+		// V1: no EN subtitle field exists (BookEntry has SubtitleZH only),
+		// so the zh subtitle is not shown on EN title pages.
+		subtitle = ""
 	}
 	var sb strings.Builder
 	sb.WriteString("<h1>" + escapeHTML(title) + "</h1>")
@@ -141,7 +146,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 			}
 		default:
 			// introduction / epilogue / appendix: single section per entry.
-			for _, ch := range sec.Chapters {
+			for i, ch := range sec.Chapters {
 				src := ch.SourcePath
 				if lang == content.LangEN && ch.ENPath != "" {
 					src = ch.ENPath
@@ -154,6 +159,9 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 				fname := sec.Type
 				if fname == "" {
 					fname = "section"
+				}
+				if len(sec.Chapters) > 1 {
+					fname = fmt.Sprintf("%s-ch%02d", fname, i+1)
 				}
 				if _, err := e.AddSection(body, ch.Title, fname, cssPath); err != nil {
 					return fmt.Errorf("add section %s: %w", fname, err)
@@ -224,17 +232,31 @@ func blocksToXHTML(du *DocUnit) string {
 }
 
 // inlineXHTML escapes HTML then applies minimal inline markdown rules:
-// **strong**, *em* / _em_, `code`, [text](url).
+// **strong**, *em* / _em_, `code`, [text](url). Links are extracted first
+// (placeholder tokens) so `_`/`*`/backticks inside URLs survive untouched;
+// the link TEXT still goes through the other inline rules.
 func inlineXHTML(s string) string {
 	s = escapeHTML(s)
+	// Protect links before other delimiters corrupt URLs.
+	var links []string
+	s = linkRe.ReplaceAllStringFunc(s, func(m string) string {
+		parts := linkRe.FindStringSubmatch(m)
+		text := replaceDelimited(parts[1], "**", "<strong>", "</strong>")
+		text = replaceDelimited(text, "*", "<em>", "</em>")
+		text = replaceDelimited(text, "_", "<em>", "</em>")
+		text = replaceDelimited(text, "`", "<code>", "</code>")
+		rendered := `<a href="` + parts[2] + `">` + text + `</a>`
+		links = append(links, rendered)
+		return fmt.Sprintf("\x00%d\x00", len(links)-1)
+	})
 	s = replaceDelimited(s, "**", "<strong>", "</strong>")
 	s = replaceDelimited(s, "*", "<em>", "</em>")
 	s = replaceDelimited(s, "_", "<em>", "</em>")
 	s = replaceDelimited(s, "`", "<code>", "</code>")
-	return linkRe.ReplaceAllStringFunc(s, func(m string) string {
-		parts := linkRe.FindStringSubmatch(m)
-		return `<a href="` + parts[2] + `">` + parts[1] + `</a>`
-	})
+	for i, l := range links {
+		s = strings.ReplaceAll(s, fmt.Sprintf("\x00%d\x00", i), l)
+	}
+	return s
 }
 
 // epubCSS builds the stylesheet. fontRef is the internal font path returned
