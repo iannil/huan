@@ -15,6 +15,22 @@ import (
 // escapeHTML escapes a source string for safe XHTML embedding.
 func escapeHTML(s string) string { return html.EscapeString(s) }
 
+// uniqueFname returns fname, or fname-2, fname-3, … if fname was already
+// used within this epub. It records the returned name as used.
+func uniqueFname(fname string, used map[string]bool) string {
+	if !used[fname] {
+		used[fname] = true
+		return fname
+	}
+	for n := 2; ; n++ {
+		cand := fmt.Sprintf("%s-%d", fname, n)
+		if !used[cand] {
+			used[cand] = true
+			return cand
+		}
+	}
+}
+
 // linkRe matches a markdown inline link: [text](url). Both parts are
 // already HTML-escaped when applied to escaped input.
 var linkRe = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`)
@@ -121,12 +137,17 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 		return fmt.Errorf("add title section: %w", err)
 	}
 
+	// usedFnames tracks internal section filenames so units that combine many
+	// books (volume / complete) never reuse one — go-epub errors on duplicate
+	// filenames when multiple books each contribute an "introduction".
+	usedFnames := map[string]bool{}
+
 	for _, sec := range book.OrderedSections() {
 		switch sec.Type {
 		case "part":
 			// Part separator page, then each chapter as its own section.
 			body := "<h1>" + escapeHTML(sec.Title) + "</h1>"
-			if _, err := e.AddSection(body, sec.Title, "part-"+sec.ID, cssPath); err != nil {
+			if _, err := e.AddSection(body, sec.Title, uniqueFname("part-"+sec.ID, usedFnames), cssPath); err != nil {
 				return fmt.Errorf("add part section: %w", err)
 			}
 			for i, ch := range sec.Chapters {
@@ -140,7 +161,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 				}
 				cb := "<h1>" + escapeHTML(ch.Title) + "</h1>" + blocksToXHTML(b)
 				fname := fmt.Sprintf("%s-ch%02d", sec.ID, i+1)
-				if _, err := e.AddSection(cb, ch.Title, fname, cssPath); err != nil {
+				if _, err := e.AddSection(cb, ch.Title, uniqueFname(fname, usedFnames), cssPath); err != nil {
 					return fmt.Errorf("add chapter section: %w", err)
 				}
 			}
@@ -163,6 +184,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 				if len(sec.Chapters) > 1 {
 					fname = fmt.Sprintf("%s-ch%02d", fname, i+1)
 				}
+				fname = uniqueFname(fname, usedFnames)
 				if _, err := e.AddSection(body, ch.Title, fname, cssPath); err != nil {
 					return fmt.Errorf("add section %s: %w", fname, err)
 				}

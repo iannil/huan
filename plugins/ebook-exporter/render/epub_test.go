@@ -97,3 +97,31 @@ func TestInlineXHTMLLinkURLProtected(t *testing.T) {
 		t.Fatalf("em leaked into URL: %q", out)
 	}
 }
+
+func TestUniqueFname(t *testing.T) {
+	used := map[string]bool{"x-2": true}
+	cases := []struct{ base, want string }{
+		{"introduction", "introduction"},
+		{"introduction", "introduction-2"},
+		{"introduction", "introduction-3"},
+		{"x", "x"},
+		{"x", "x-3"}, // x-2 pre-existing, must be skipped
+	}
+	for _, c := range cases {
+		if got := uniqueFname(c.base, used); got != c.want {
+			t.Errorf("uniqueFname(%q) = %q, want %q", c.base, got, c.want)
+		}
+	}
+}
+
+func TestRenderEPUBMergedIntroductions(t *testing.T) {
+	// Regression: volume/complete units merge several books, each with its
+	// own introduction — duplicate section filenames used to fail AddSection.
+	book := mkBook(t, content.LangZH)
+	intro := book.Sections[0]
+	book.Sections = append([]content.Section{intro, intro}, book.Sections[1:]...) // two introductions
+	out := filepath.Join(t.TempDir(), "merged.epub")
+	if err := RenderEPUB(book, content.LangZH, out, EPUBOptions{}); err != nil {
+		t.Fatalf("RenderEPUB with duplicate introductions: %v", err)
+	}
+}
