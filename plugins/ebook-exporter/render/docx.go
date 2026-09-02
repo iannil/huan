@@ -20,8 +20,9 @@ const docxFirstLineIndentTwips = 480
 // docxCodeFontHalfPoints is the code font size in half-points (9pt).
 const docxCodeFontHalfPoints = 18
 
-// docxTitleFontHalfPoints is the title-page title font size in half-points (28pt).
-const docxTitleFontHalfPoints = 56
+// docxTitleFontSizePoints is the title-page title font size in points
+// (ParagraphBuilder.FontSize takes points; domain Run.SetSize takes half-points).
+const docxTitleFontSizePoints = 28
 
 // Rendering conventions (documented per brief):
 //   - part titles   -> Heading1
@@ -54,7 +55,7 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	// validates that the document is non-empty, so at least one paragraph
 	// must exist before Build. The title is rendered big via run font size
 	// (the builder has no style setter).
-	builder.AddParagraph().Text(title).FontSize(docxTitleFontHalfPoints).End()
+	builder.AddParagraph().Text(title).FontSize(docxTitleFontSizePoints).End()
 	doc, err := builder.Build()
 	if err != nil {
 		return fmt.Errorf("build docx: %w", err)
@@ -74,7 +75,11 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	}
 
 	// Plain-text table of contents.
-	if err := docxAddText(doc, "目录", domain.StyleIDHeading1, 0, nil); err != nil {
+	tocLabel := "目录"
+	if lang == content.LangEN {
+		tocLabel = "Contents"
+	}
+	if err := docxAddText(doc, tocLabel, domain.StyleIDHeading1, 0, nil); err != nil {
 		return err
 	}
 	for _, sec := range book.OrderedSections() {
