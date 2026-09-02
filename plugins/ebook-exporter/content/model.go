@@ -19,7 +19,9 @@ func (l Lang) String() string { return string(l) }
 type Chapter struct {
 	// SourcePath is the absolute path of the .md (zh) or .en.md (en) file.
 	SourcePath string
-	Title      string // frontmatter title (fallback: filename base)
+	// ENPath is the absolute path of the .en.md sidecar, or "" when absent.
+	ENPath string
+	Title  string // frontmatter title (fallback: filename base)
 }
 
 // Section is a top-level assembly unit of a book.
