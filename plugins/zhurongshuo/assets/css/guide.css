@@ -107,26 +107,67 @@
     .guide_card__label { font-size: 0.84rem; }
 }
 
-/* ── v2 manual ── */
+/* ── v2 manual ──
+   与整站（zozo.css）一致的克制灰度：#1f1f1f 标题 / #424242 正文与链接 /
+   #999999 注记、白底细线、无圆角色块。不用彩色 accent、彩色卡片。
+   垂直节奏沿用 .markdown 的约定：em 制、标题 space-before > space-after
+   （标题属于其后正文），章与章的分隔由章标题自身承担，不叠加 section 外边距。 */
 .guide_page--v2 { max-width: 760px; margin: 0 auto; }
-.guide_hook { padding: 24px 0 8px; border-left: 3px solid var(--guide-accent, #b03a2e); padding-left: 16px; }
-.guide_hook__scene { font-size: 1.05rem; color: #555; }
-.guide_hook__question { font-size: 1.3rem; margin: 8px 0 0; }
-.guide_reading_time { color: #999; font-size: .85rem; }
-.guide_chapter { margin: 40px 0; }
-.guide_chapter__title { font-size: 1.25rem; border-bottom: 1px solid #eee; padding-bottom: 8px; }
-.guide_chapter__intro { color: #666; }
-.guide_chapter__chart { margin: 16px 0; }
-.guide_steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.guide_step { background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 12px 14px; }
-.guide_step__label { margin: 0 0 4px; font-size: 1rem; }
-.guide_step__sublabel { margin: 0 0 8px; color: #999; font-size: .85rem; }
-.guide_step__explain { margin: 0; font-size: .92rem; line-height: 1.7; }
-.guide_pitfall { margin-top: 16px; background: #fff8f0; border: 1px solid #f0e0c8; border-radius: 8px; padding: 12px 16px; }
-.guide_pitfall__title { margin: 0 0 8px; font-size: .95rem; }
-.guide_pitfall__misread { margin: 0 0 4px; color: #a33; }
-.guide_pitfall__fix { margin: 0 0 8px; color: #2a7a2a; }
+.guide_hook { padding: 2.5em 0 0; border-left: 2px solid #1f1f1f; padding-left: 1.2em; margin-bottom: 1em; }
+.guide_hook__scene { font-size: 1.05rem; line-height: 1.8; color: #555555; margin: 0; }
+.guide_hook__question { font-size: 1.3rem; font-weight: 500; color: #1f1f1f; margin: 0.5em 0 0; }
+.guide_reading_time { color: #999999; font-size: .85rem; margin: 0.8em 0 0; }
+.guide_chapter { margin: 0; }
+.guide_chapter__title { font-size: 1.25rem; font-weight: 600; color: #1f1f1f; border-bottom: 1px solid #f2f2f2; padding-bottom: 0.6em; margin: 3em 0 1em; }
+.guide_chapter__intro { color: #666666; margin: 0 0 1.6em; }
+.guide_chapter__chart { margin: 0 0 1.6em; }
+.guide_steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 2.2em; margin: 0; }
+.guide_step { border-top: 1px solid #f2f2f2; padding: 0.9em 0 1.6em; }
+.guide_step__label { margin: 0 0 0.3em; font-size: 1rem; font-weight: 500; color: #1f1f1f; }
+.guide_step__sublabel { margin: 0 0 0.6em; color: #999999; font-size: .85rem; }
+.guide_step__explain { margin: 0; font-size: .92rem; line-height: 1.8; color: #424242; }
+.guide_pitfall { margin-top: 0.8em; border-top: 1px solid #f2f2f2; padding-top: 0.9em; }
+.guide_pitfall__title { margin: 0 0 0.7em; font-size: .95rem; font-weight: 500; color: #1f1f1f; }
+.guide_pitfall__misread { margin: 0 0 0.3em; color: #424242; line-height: 1.8; font-size: .92rem; }
+.guide_pitfall__misread::before { content: "— "; color: #999999; }
+.guide_pitfall__fix { margin: 0 0 0.8em; color: #666666; line-height: 1.8; font-size: .92rem; }
 .guide_pitfall__item:last-child .guide_pitfall__fix { margin-bottom: 0; }
-.guide_next__links { display: flex; flex-wrap: wrap; gap: 12px; }
-.guide_next__link { display: inline-block; padding: 10px 18px; border: 1px solid #ccc; border-radius: 999px; text-decoration: none; }
-@media (max-width: 640px) { .guide_steps { grid-template-columns: 1fr; } .guide_page--v2 { padding: 0 12px; } }
+.guide_next__links { display: flex; flex-wrap: wrap; gap: 0.6em 2em; }
+.guide_next__link { display: inline-block; color: #424242; text-decoration: none; border-bottom: 1px dotted #b8b0a0; font-size: .95rem; }
+.guide_next__link:hover { color: #1f1f1f; border-bottom-style: solid; }
+@media (max-width: 640px) { .guide_steps { grid-template-columns: 1fr; } .guide_page--v2 { padding: 0 12px; } .guide_chapter__title { margin-top: 2.4em; } }
+
+/* v2 页内复用的 v1 段落（thesis/concepts/map/takeaways/出口）灰度覆盖 —— 仅作用于 --v2，v1 页不动 */
+.guide_page--v2 .guide_thesis__claim { color: #1f1f1f; }
+.guide_page--v2 .guide_thesis__puzzle { color: #666666; }
+.guide_page--v2 .guide_section__title { color: #1f1f1f; border-bottom: 1px solid #f2f2f2; }
+.guide_page--v2 .guide_concept_card { border: 1px solid #f2f2f2; border-radius: 0; padding: 16px 0 4px; border-top: none; }
+.guide_page--v2 .guide_concept_card h3 { color: #1f1f1f; font-weight: 500; }
+.guide_page--v2 .guide_concept__why { color: #999999; }
+.guide_page--v2 .guide_map__part_title { color: #1f1f1f; }
+.guide_page--v2 .guide_map__note { color: #999999; }
+.guide_page--v2 .guide_map__chapters a { color: #424242; border-bottom: 1px dotted #b8b0a0; }
+.guide_page--v2 .guide_takeaways li { color: #424242; }
+.guide_page--v2 .guide_enter_book { border: 1px solid #1f1f1f; border-radius: 0; color: #1f1f1f; }
+.guide_page--v2 .guide_enter_book:hover { background: #f7f7f7; }
+
+/* v2 页内 SVG 图表灰度：与整站一致（黑线白底，浅灰分层） */
+.guide_page--v2 .guide-chart__shape { fill: #ffffff; stroke: #1f1f1f; stroke-width: 1; }
+.guide_page--v2 .guide-chart__shape--l0 { fill: #f3f3f3; }
+.guide_page--v2 .guide-chart__shape--l1 { fill: #f7f7f7; }
+.guide_page--v2 .guide-chart__shape--l2 { fill: #fdfdfd; }
+.guide_page--v2 .guide-chart__edge { stroke: #1f1f1f; stroke-width: 1; fill: none; }
+.guide_page--v2 .guide-chart__arrow { fill: #1f1f1f; stroke: none; }
+.guide_page--v2 .guide-chart__label { fill: #1f1f1f; }
+.guide_page--v2 .guide-chart__sublabel { fill: #999999; }
+
+/* v2 间距覆盖：复用段落对齐 .markdown 节奏（em 制） */
+.guide_page--v2 .guide_thesis { margin: 1.6em 0 2.8em; }
+.guide_page--v2 .guide_thesis__claim { margin: 0 0 0.8em; }
+.guide_page--v2 .guide_section__title { margin: 3em 0 0.8em; }
+.guide_page--v2 .guide_concepts { gap: 0 2.2em; margin: 0; }
+.guide_page--v2 .guide_concept_card { padding: 0.9em 0 0.4em; }
+.guide_page--v2 .guide_map { margin: 0; }
+.guide_page--v2 .guide_map__part { margin: 1.2em 0; }
+.guide_page--v2 .guide_takeaways ul { line-height: 1.9; }
+.guide_page--v2 .guide_enter_book { margin-top: 3em; }

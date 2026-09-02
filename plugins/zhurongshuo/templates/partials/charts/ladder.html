@@ -16,7 +16,7 @@
 {{ $x := add 40 (mul $i $stepX) }}
 {{ $y := sub (sub $cfg.Height 80) (mul $i $stepY) }}
 {{ $w := sub $stepX 12 }}
-<path d="M {{ printf "%.1f" $x }} {{ printf "%.1f" $cfg.Height }} L {{ printf "%.1f" $x }} {{ printf "%.1f" $y }} L {{ printf "%.1f" (add $x $w) }} {{ printf "%.1f" $y }}" class="guide-chart__edge" fill="none" />
+<path d="M {{ printf "%.1f" $x }} {{ printf "%.1f" (mul $cfg.Height 1.0) }} L {{ printf "%.1f" $x }} {{ printf "%.1f" $y }} L {{ printf "%.1f" (add $x $w) }} {{ printf "%.1f" $y }}" class="guide-chart__edge" fill="none" />
 {{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
 <rect x="{{ printf "%.1f" $x }}" y="{{ printf "%.1f" $y }}" width="{{ printf "%.1f" $w }}" height="{{ printf "%.1f" $h }}" class="guide-chart__shape" />
 {{ if $node.href }}</a>{{ end }}
