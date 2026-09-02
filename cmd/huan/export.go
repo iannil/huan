@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"os"
@@ -10,14 +11,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/i18n"
+	"github.com/iannil/huan/pkg/plugin"
 	"github.com/spf13/cobra"
 )
 
 func newExportCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "export",
+		Short: "Export content (default: posts CSV archive; 'ebook' for ebook formats)",
+		Long: `Bare ` + "`huan export`" + ` keeps the legacy CSV behavior: walk content/posts/
+for .md files, extract the frontmatter date and the last body paragraph,
+and write a date-sorted (RFC 4180, UTF-8 BOM) CSV to
+developer/祝融说_副本YYYYMMDD.csv. Old CSVs in developer/ matching the same
+prefix are removed so only the latest is kept.
+
+Subcommands: csv (same as bare), ebook (offline document formats via an
+exporter plugin).`,
+		Args: cobra.NoArgs,
+		RunE: runExport,
+	}
+	cmd.AddCommand(newExportCsvCmd())
+	cmd.AddCommand(newExportEbookCmd())
+	return cmd
+}
+
+func newExportCsvCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "csv",
 		Short: "Export content/posts/*.md to a CSV archive in developer/",
 		Long: `Walk content/posts/ for .md files, extract the frontmatter date and
 the last body paragraph, and write the result as a date-sorted
@@ -28,6 +51,116 @@ latest is kept.`,
 		Args: cobra.NoArgs,
 		RunE: runExport,
 	}
+}
+
+func newExportEbookCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ebook",
+		Short: "Export books/practices to ebook formats (epub/pdf/docx) via an exporter plugin",
+		Args:  cobra.NoArgs,
+		RunE:  runExportEbook,
+	}
+	cmd.Flags().String("type", "all", "content type filter: books, practices, all")
+	cmd.Flags().String("format", "all", "output format filter: epub, pdf, docx, all")
+	cmd.Flags().String("level", "all", "granularity filter: individual, volumes (alias: seasons), complete, all")
+	cmd.Flags().String("slug", "", "restrict to a single book/practice slug")
+	cmd.Flags().Int("volume", 0, "restrict to one volume/season number, 1-based (0 = all)")
+	cmd.Flags().Bool("force", false, "regenerate even when the manifest hash matches")
+	cmd.Flags().Int("jobs", 0, "parallelism for per-book generation (0 = NumCPU-1)")
+	cmd.Flags().String("plugin-dir", "", "directory containing .so plugin files (default: <source>/plugins)")
+	return cmd
+}
+
+// normalizeExportLevel maps CLI level aliases to contract values
+// ("seasons" and "volumes" are the same granularity).
+func normalizeExportLevel(level string) string {
+	if level == "seasons" {
+		return "volumes"
+	}
+	return level
+}
+
+func runExportEbook(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load(sourceDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	// Two-stage registry pattern (same as deploy): compiled-in plugins first,
+	// then huan.yaml-declared dynamic plugins, then diagnose the gap.
+	registry, err := newPluginRegistry(cfg, sourceDir, "")
+	if err != nil {
+		return fmt.Errorf("plugin registry: %w", err)
+	}
+	exporters := plugin.Find[plugin.Exporter](registry)
+	if len(exporters) == 0 {
+		pluginDir, _ := cmd.Flags().GetString("plugin-dir")
+		if pluginDir == "" {
+			pluginDir = pluginDirFromSource(sourceDir)
+		}
+		loadConfiguredPlugins(registry, pluginDir, sourceDir, cfg.Plugins)
+		exporters = plugin.Find[plugin.Exporter](registry)
+	}
+	if len(exporters) == 0 {
+		if hint := diagnoseCapabilityGap(registry, "plugin.Exporter"); hint != "" {
+			return fmt.Errorf("no exporter plugin available: %s", hint)
+		}
+		return fmt.Errorf("no exporter plugin available (declare an exporter plugin under huan.yaml plugins)")
+	}
+
+	exporter := exporters[0]
+
+	typ, _ := cmd.Flags().GetString("type")
+	format, _ := cmd.Flags().GetString("format")
+	level := normalizeExportLevel(mustStringFlag(cmd, "level"))
+	slug, _ := cmd.Flags().GetString("slug")
+	volume, _ := cmd.Flags().GetInt("volume")
+	force, _ := cmd.Flags().GetBool("force")
+	jobs, _ := cmd.Flags().GetInt("jobs")
+
+	req := plugin.ExportRequest{
+		SourceDir: sourceDir,
+		Type:      typ,
+		Format:    format,
+		Level:     level,
+		Slug:      slug,
+		Volume:    volume,
+		Force:     force,
+		Jobs:      jobs,
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := exporter.Export(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("export ebook: %d ok, %d failed, %d skipped, %d warnings\n",
+		len(res.Succeeded), len(res.Failed), len(res.Skipped), len(res.Warnings))
+	for _, f := range res.Failed {
+		fmt.Printf("  failed: %s: %s\n", f.Item.Path, f.Err)
+	}
+	for _, w := range res.Warnings {
+		fmt.Printf("  warning: %s\n", w)
+	}
+
+	if len(res.Failed) > 0 {
+		return fmt.Errorf("%d item(s) failed", len(res.Failed))
+	}
+	return nil
+}
+
+// mustStringFlag fetches a string flag that is known to exist; it exists to
+// keep flag reads terse without discarding errors silently.
+func mustStringFlag(cmd *cobra.Command, name string) string {
+	v, err := cmd.Flags().GetString(name)
+	if err != nil {
+		return ""
+	}
+	return v
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
