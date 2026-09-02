@@ -219,7 +219,7 @@ func blocksToXHTML(du *DocUnit) string {
 					tag = "th"
 				}
 				for _, cell := range row {
-					sb.WriteString("<"+tag+">" + inlineXHTML(cell) + "</"+tag+">")
+					sb.WriteString("<" + tag + ">" + inlineXHTML(cell) + "</" + tag + ">")
 				}
 				sb.WriteString("</tr>\n")
 			}

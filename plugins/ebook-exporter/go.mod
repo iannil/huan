@@ -8,6 +8,7 @@ require gopkg.in/yaml.v3 v3.0.1
 
 require (
 	github.com/go-shiori/go-epub v1.2.1
+	github.com/gpdf-dev/gpdf v1.0.11
 	github.com/yuin/goldmark v1.8.2
 )
 
