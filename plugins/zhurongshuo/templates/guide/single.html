@@ -18,12 +18,18 @@
 
             {{/* manual.html 覆盖：书目录下 guide/manual.html 存在时内嵌自包含
                 手册（safeHTML），并跳过 guide schema 校验（guide 块允许为空）。
+                语言感知：en 语言页优先探测 manual.en.html（AUTHORING §5 约定），
+                缺失时回退 manual.html；zh-cn 直接用 manual.html。
                 注意：模板级 fileExists/readFile 按站点根（cwd）相对路径解析，
                 而 $bookPage.File.Dir 是 content 内相对路径；content/ 目录在
                 huan 构建管线中是硬编码约定（internal/build/pipeline.go 用
                 filepath.Join(sourceDir, "content")，config 的 contentDir 仅是
                 预留字段），故此处硬编码 "content/" 前缀。 */}}
-            {{ $manualPath := printf "content/%sguide/manual.html" $bookPage.File.Dir }}
+            {{ $manualBase := printf "content/%sguide/manual" $bookPage.File.Dir }}
+            {{ $manualPath := printf "%s.html" $manualBase }}
+            {{ if and (eq .Site.LanguageCode "en") (fileExists (printf "%s.en.html" $manualBase)) }}
+                {{ $manualPath = printf "%s.en.html" $manualBase }}
+            {{ end }}
             {{ if fileExists $manualPath }}
                 <article class="guide_page guide_page--manual">
                     {{ readFile $manualPath | safeHTML }}

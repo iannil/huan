@@ -411,3 +411,69 @@ func TestGuideLayoutV1StillWorks(t *testing.T) {
 		t.Error("v1 layout regression: mainchart missing")
 	}
 }
+
+// TestGuideLayoutManualEnOverride: en 语言页优先 manual.en.html，缺失回退 manual.html。
+func TestGuideLayoutManualEnOverride(t *testing.T) {
+	dir := t.TempDir()
+	manualDir := filepath.Join(dir, "content", "books", "demo-book", "guide")
+	if err := os.MkdirAll(manualDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manualDir, "manual.html"), []byte(`<div class="manual_zh">中文手册</div>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manualDir, "manual.en.html"), []byte(`<div class="manual_en">English manual</div>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	tmpl := parseGuideLayout(t)
+
+	// en 页：应内嵌 manual.en.html
+	enPage := newGuideSmokePage("")
+	enPage.Site.LanguageCode = "en"
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "single.html", enPage); err != nil {
+		t.Fatalf("render en manual override: %v", err)
+	}
+	if !strings.Contains(b.String(), "manual_en") {
+		t.Error("en page should inline manual.en.html")
+	}
+	if strings.Contains(b.String(), "manual_zh") {
+		t.Error("en page must not inline the zh manual.html")
+	}
+
+	// zh 页：应内嵌 manual.html
+	zhPage := newGuideSmokePage("")
+	var b2 bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b2, "single.html", zhPage); err != nil {
+		t.Fatalf("render zh manual override: %v", err)
+	}
+	if !strings.Contains(b2.String(), "manual_zh") {
+		t.Error("zh page should inline manual.html")
+	}
+}
+
+// TestGuideLayoutManualEnFallback: en 页但只有 manual.html 时回退中文版。
+func TestGuideLayoutManualEnFallback(t *testing.T) {
+	dir := t.TempDir()
+	manualDir := filepath.Join(dir, "content", "books", "demo-book", "guide")
+	if err := os.MkdirAll(manualDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manualDir, "manual.html"), []byte(`<div class="manual_zh">中文手册</div>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	tmpl := parseGuideLayout(t)
+	enPage := newGuideSmokePage("")
+	enPage.Site.LanguageCode = "en"
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "single.html", enPage); err != nil {
+		t.Fatalf("render en fallback: %v", err)
+	}
+	if !strings.Contains(b.String(), "manual_zh") {
+		t.Error("en page should fall back to manual.html when manual.en.html missing")
+	}
+}
