@@ -43,7 +43,7 @@
                 {{ end }}
 
                 {{/* 可视化导读入口：guide 页存在时显示（guide 页 URL = 书页 URL + guide/）
-                     排版隐喻是书籍扉页的导读插页条：副题之下、细线注记行，整行可点。 */}}
+                     位于目录首位：暖米色块条目，与普通章节条目拉开层级。 */}}
                 {{ $guidePage := .Site.GetPage (printf "%sguide/" .File.Dir) }}
                 {{ if $practiceInfo.title }}
                     <div class="book-title">
@@ -57,9 +57,11 @@
                     <div class="book-title">{{ .Title }}</div>
                 {{ end }}
                 {{ if ne $guidePage.RelPermalink "" }}
-                    <a class="book_guide_band" href="{{ $guidePage.RelPermalink }}">
-                        <span class="guide_band__label">{{ i18n "guide_entry_link" }}</span>
-                        <i class="ri-arrow-right-line guide_band__arrow"></i>
+                    <a class="book_guide_card" href="{{ $guidePage.RelPermalink }}">
+                        <span class="guide_card__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/></svg></span>
+                        <span class="guide_card__label">{{ i18n "guide_entry_link" }}</span>
+                        <span class="guide_card__sub">{{ i18n "guide_entry_sub" }}</span>
+                        <span class="guide_card__arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15"/><path d="M13 6l6 6-6 6"/></svg></span>
                     </a>
                 {{ end }}
 
