@@ -110,6 +110,10 @@ go build -o huan ./cmd/huan
 
 # 测试
 go test ./...
+
+# 电子书导出（ebook-exporter 插件，需先安装 .so）
+./huan export ebook --slug reality-construction --format all   # 单本全格式
+./huan export ebook --type all --format all --level all        # 全量
 ```
 
 ## 架构决策
