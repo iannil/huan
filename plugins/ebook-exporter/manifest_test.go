@@ -36,3 +36,15 @@ func TestComputeHashStable(t *testing.T) {
 		t.Fatal("content change must change hash")
 	}
 }
+
+func TestComputeHashMissingFileDiffers(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.md")
+	os.WriteFile(p, []byte("hello"), 0o644)
+	missing := filepath.Join(dir, "gone.md")
+	// A missing file in the list must change the hash vs. the list without
+	// it — otherwise a deleted chapter would be silently skipped.
+	if ComputeHash([]string{p}) == ComputeHash([]string{missing, p}) {
+		t.Fatal("missing file must change hash")
+	}
+}

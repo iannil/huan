@@ -167,6 +167,15 @@ func unitLangs(b *content.BookEntry, res *plugin.ExportResult) []content.Lang {
 	return langs
 }
 
+// manifestKey builds the manifest key for one unit+language:
+// "<kind>/<dirName>/<base>.<lang>". Deriving from the same components as
+// the output path makes cross-kind collisions structurally impossible
+// (books and practices both produce volume-1 artifacts, but under
+// distinct keys).
+func manifestKey(kind, dirName, base string, lang content.Lang) string {
+	return fmt.Sprintf("%s/%s/%s.%s", kind, dirName, base, lang)
+}
+
 // outPath builds <outRoot>/<format>/<kind>/<dirName>/<base>[-<lang>].<ext>.
 func outPath(outRoot, kind, dirName, base string, lang content.Lang, format string) string {
 	name := base
@@ -376,7 +385,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		langs := unitLangs(u.agg, &res)
 		allSkipped := true
 		for _, lang := range langs {
-			key := u.baseName + "." + string(lang)
+			key := manifestKey(u.kind, u.dirName, u.baseName, lang)
 			if req.Force || manifest.Entries[key] != ComputeHash(u.mdPaths) {
 				allSkipped = false
 				break
@@ -453,7 +462,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		res.Failed = append(res.Failed, jr.fails...)
 		if len(jr.fails) == 0 {
 			for _, lang := range pending[i].langs {
-				manifest.Entries[pending[i].u.baseName+"."+string(lang)] = jr.hash
+				manifest.Entries[manifestKey(pending[i].u.kind, pending[i].u.dirName, pending[i].u.baseName, lang)] = jr.hash
 			}
 		}
 	}

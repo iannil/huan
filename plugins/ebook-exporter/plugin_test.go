@@ -32,3 +32,22 @@ func TestExportBadSourceDir(t *testing.T) {
 		t.Fatal("want error for missing source dir")
 	}
 }
+
+func TestManifestKeyKindScoped(t *testing.T) {
+	// books and practices units sharing the same baseName (e.g. volume-1)
+	// must map to distinct manifest keys — otherwise alternate exports of
+	// the two kinds thrash (or false-skip via hash coincidence).
+	booksKey := manifestKey("books", "volumes", "volume-1", "zh")
+	practicesKey := manifestKey("practices", "volumes", "volume-1", "zh")
+	if booksKey == practicesKey {
+		t.Fatalf("cross-kind key collision: %s", booksKey)
+	}
+	// Level scoping within one kind too.
+	if manifestKey("books", "volumes", "volume-1", "zh") == manifestKey("books", "individual", "volume-1", "zh") {
+		t.Fatal("cross-level key collision")
+	}
+	// Lang scoping.
+	if manifestKey("books", "individual", "rc", "zh") == manifestKey("books", "individual", "rc", "en") {
+		t.Fatal("cross-lang key collision")
+	}
+}

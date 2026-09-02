@@ -11,8 +11,10 @@ import (
 
 // Manifest tracks the content hash of each exported unit so repeated
 // exports can skip units whose sources have not changed (incremental build).
-// The key is "<slug>.<lang>" for individual books, "volume-<N>.<lang>" for
-// volume collections and "complete-<kind>.<lang>" for the complete bundle.
+// The key is "<kind>/<level>/<base>.<lang>" (e.g. "books/individual/rc.zh",
+// "books/volumes/volume-1.zh", "practices/complete/complete.zh") — derived
+// from the same components as the output path so cross-kind collisions are
+// structurally impossible.
 type Manifest struct {
 	Entries map[string]string
 }
@@ -50,19 +52,22 @@ func SaveManifest(outDir string, m *Manifest) error {
 
 // ComputeHash aggregates the content of paths into one stable hash:
 // per-file sha256 digests are concatenated and the concatenation is hashed
-// once more. A missing file contributes the empty string (so its digest is
-// the sha256 of nothing and differs from any present-file digest), which the
-// caller sees as a change. Path order is significant.
+// once more. A missing file contributes the fixed marker "<missing>"
+// instead of being skipped, so [missing, a] hashes differently from [a]
+// and a disappeared file is always seen as a change. Path order is
+// significant.
 func ComputeHash(paths []string) string {
 	h := sha256.New()
 	for _, p := range paths {
 		f, err := os.Open(p)
 		if err != nil {
-			continue // missing file -> empty contribution
+			h.Write([]byte("<missing>"))
+			continue
 		}
 		d := sha256.New()
 		if _, err := io.Copy(d, f); err != nil {
 			f.Close()
+			h.Write([]byte("<missing>"))
 			continue
 		}
 		f.Close()
