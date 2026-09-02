@@ -37,7 +37,7 @@ func PreferTTF(paths []string) {
 		if ti != tj {
 			return ti
 		}
-		// Keep stable otherwise; also prefer .ttc over .otf.
+		// Keep stable otherwise; also prefer any non-.otf (e.g. .ttc) over .otf.
 		ci := strings.EqualFold(filepath.Ext(paths[i]), ".otf")
 		cj := strings.EqualFold(filepath.Ext(paths[j]), ".otf")
 		return !ci && cj
@@ -45,7 +45,7 @@ func PreferTTF(paths []string) {
 }
 
 // fontCandidates collects font files under dirs whose filename (lowercased)
-// matches any of the given substrings, keeping extension .ttf/.ttc/.otf.
+// contains ALL of the given substrings, keeping extension .ttf/.ttc/.otf.
 func fontCandidates(dirs []string, substrings ...string) []string {
 	var out []string
 	for _, dir := range dirs {
@@ -116,7 +116,10 @@ func FindCJKFont(fontsDir string) (string, error) {
 	if p := try("pingfang"); p != "" {
 		return p, nil
 	}
-	if p := try("sourcehansans", "sourcehansc"); p != "" {
+	if p := try("sourcehansans"); p != "" {
+		return p, nil
+	}
+	if p := try("sourcehansc"); p != "" {
 		return p, nil
 	}
 
