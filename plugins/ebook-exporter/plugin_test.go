@@ -37,17 +37,22 @@ func TestManifestKeyKindScoped(t *testing.T) {
 	// books and practices units sharing the same baseName (e.g. volume-1)
 	// must map to distinct manifest keys — otherwise alternate exports of
 	// the two kinds thrash (or false-skip via hash coincidence).
-	booksKey := manifestKey("books", "volumes", "volume-1", "zh")
-	practicesKey := manifestKey("practices", "volumes", "volume-1", "zh")
+	booksKey := manifestKey("books", "volumes", "volume-1", "zh", "epub")
+	practicesKey := manifestKey("practices", "volumes", "volume-1", "zh", "epub")
 	if booksKey == practicesKey {
 		t.Fatalf("cross-kind key collision: %s", booksKey)
 	}
 	// Level scoping within one kind too.
-	if manifestKey("books", "volumes", "volume-1", "zh") == manifestKey("books", "individual", "volume-1", "zh") {
+	if manifestKey("books", "volumes", "volume-1", "zh", "epub") == manifestKey("books", "individual", "volume-1", "zh", "epub") {
 		t.Fatal("cross-level key collision")
 	}
 	// Lang scoping.
-	if manifestKey("books", "individual", "rc", "zh") == manifestKey("books", "individual", "rc", "en") {
+	if manifestKey("books", "individual", "rc", "zh", "epub") == manifestKey("books", "individual", "rc", "en", "epub") {
 		t.Fatal("cross-lang key collision")
+	}
+	// Format scoping — a format must never collide with another format of
+	// the same unit (the cross-format false-skip regression).
+	if manifestKey("books", "individual", "rc", "zh", "epub") == manifestKey("books", "individual", "rc", "zh", "pdf") {
+		t.Fatal("cross-format key collision")
 	}
 }

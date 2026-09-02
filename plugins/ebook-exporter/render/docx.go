@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/iannil/huan-plugin-ebook-exporter/content"
 	docx "github.com/mmonterroca/docxgo/v2"
 	"github.com/mmonterroca/docxgo/v2/domain"
-	"github.com/iannil/huan-plugin-ebook-exporter/content"
 )
 
 // DOCXOptions controls DOCX rendering behavior. V1 has no knobs;

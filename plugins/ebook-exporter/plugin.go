@@ -167,13 +167,14 @@ func unitLangs(b *content.BookEntry, res *plugin.ExportResult) []content.Lang {
 	return langs
 }
 
-// manifestKey builds the manifest key for one unit+language:
-// "<kind>/<dirName>/<base>.<lang>". Deriving from the same components as
-// the output path makes cross-kind collisions structurally impossible
-// (books and practices both produce volume-1 artifacts, but under
-// distinct keys).
-func manifestKey(kind, dirName, base string, lang content.Lang) string {
-	return fmt.Sprintf("%s/%s/%s.%s", kind, dirName, base, lang)
+// manifestKey builds the manifest key for one unit+language+format:
+// "<kind>/<dirName>/<base>.<lang>.<format>". Deriving from the same
+// components as the output path makes cross-kind collisions structurally
+// impossible (books and practices both produce volume-1 artifacts, but under
+// distinct keys), and the format dimension prevents a hash recorded for one
+// format from causing another format to be falsely skipped.
+func manifestKey(kind, dirName, base string, lang content.Lang, format string) string {
+	return fmt.Sprintf("%s/%s/%s.%s.%s", kind, dirName, base, lang, format)
 }
 
 // outPath builds <outRoot>/<format>/<kind>/<dirName>/<base>[-<lang>].<ext>.
@@ -374,26 +375,35 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 
 	res := plugin.ExportResult{}
 	manifest := LoadManifest(outRoot)
+	hash := func(u *unit) string { return ComputeHash(u.mdPaths) }
+	reqFormats := formatsFor(req.Format)
 
 	// Phase 1: incremental skip — cheap, sequential, no rendering.
+	// Skip decisions are per (unit, lang, format): a unit-format records its
+	// manifest hash only for formats actually requested this run, so a
+	// previous --format epub run never causes a --format pdf run to skip.
 	type job struct {
-		u     *unit
-		langs []content.Lang
+		u       *unit
+		langs   []content.Lang
+		formats []string
 	}
 	var pending []job
 	for _, u := range units {
 		langs := unitLangs(u.agg, &res)
-		allSkipped := true
-		for _, lang := range langs {
-			key := manifestKey(u.kind, u.dirName, u.baseName, lang)
-			if req.Force || manifest.Entries[key] != ComputeHash(u.mdPaths) {
-				allSkipped = false
-				break
-			}
-		}
-		if allSkipped {
+		var formats []string
+		for _, f := range reqFormats {
+			need := false
 			for _, lang := range langs {
-				for _, f := range formatsFor(req.Format) {
+				key := manifestKey(u.kind, u.dirName, u.baseName, lang, f)
+				if req.Force || manifest.Entries[key] != hash(u) {
+					need = true
+					break
+				}
+			}
+			if need {
+				formats = append(formats, f)
+			} else {
+				for _, lang := range langs {
 					res.Skipped = append(res.Skipped, plugin.ExportItem{
 						Path:   outPath(outRoot, u.kind, u.dirName, u.baseName, lang, f),
 						Lang:   string(lang),
@@ -402,9 +412,10 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 					})
 				}
 			}
-			continue
 		}
-		pending = append(pending, job{u: u, langs: langs})
+		if len(formats) > 0 {
+			pending = append(pending, job{u: u, langs: langs, formats: formats})
+		}
 	}
 
 	// Phase 2: parallel rendering. A buffered semaphore channel bounds
@@ -413,8 +424,12 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 	type jobResult struct {
 		items []plugin.ExportItem
 		fails []plugin.ExportFailure
-		// hashes per unit: one hash shared by all langs of the unit.
+		// hash is the unit's content hash, recorded per format that
+		// rendered successfully in every language of this job.
 		hash string
+		// formatOK[f] is true when format f rendered successfully for all
+		// langs of this job.
+		formatOK map[string]bool
 	}
 	results := make([]*jobResult, len(pending))
 	sem := make(chan struct{}, req.Jobs)
@@ -429,40 +444,47 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 			case <-ctx.Done():
 				return
 			}
-			jr := &jobResult{hash: ComputeHash(j.u.mdPaths)}
-			for _, lang := range j.langs {
-				for _, f := range formatsFor(req.Format) {
+			jr := &jobResult{hash: hash(j.u), formatOK: make(map[string]bool)}
+			for _, f := range j.formats {
+				formatOK := true
+				for _, lang := range j.langs {
 					out := outPath(outRoot, j.u.kind, j.u.dirName, j.u.baseName, lang, f)
 					if err := renderUnit(j.u.agg, lang, f, out, fontPath); err != nil {
 						jr.fails = append(jr.fails, plugin.ExportFailure{
 							Item: plugin.ExportItem{Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug},
 							Err:  err.Error(),
 						})
+						formatOK = false
 						continue
 					}
 					jr.items = append(jr.items, plugin.ExportItem{
 						Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug,
 					})
 				}
+				jr.formatOK[f] = formatOK
 			}
 			results[idx] = jr
 		}(i, j)
 	}
 	wg.Wait()
 
-	// Phase 3: collect in unit order; record manifest hashes for units with
-	// at least one success in every language (partial failure -> re-export
-	// next run).
+	// Phase 3: collect in unit order; record manifest hashes per format that
+	// rendered successfully in every language (partial failure only
+	// invalidates the failing format, which is re-exported next run).
 	for i, jr := range results {
 		if jr == nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: cancelled before render", pending[i].u.baseName))
 			continue
 		}
+		u := pending[i].u
 		res.Succeeded = append(res.Succeeded, jr.items...)
 		res.Failed = append(res.Failed, jr.fails...)
-		if len(jr.fails) == 0 {
+		for _, f := range pending[i].formats {
+			if !jr.formatOK[f] {
+				continue
+			}
 			for _, lang := range pending[i].langs {
-				manifest.Entries[manifestKey(pending[i].u.kind, pending[i].u.dirName, pending[i].u.baseName, lang)] = jr.hash
+				manifest.Entries[manifestKey(u.kind, u.dirName, u.baseName, lang, f)] = jr.hash
 			}
 		}
 	}

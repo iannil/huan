@@ -11,10 +11,11 @@ import (
 
 // Manifest tracks the content hash of each exported unit so repeated
 // exports can skip units whose sources have not changed (incremental build).
-// The key is "<kind>/<level>/<base>.<lang>" (e.g. "books/individual/rc.zh",
-// "books/volumes/volume-1.zh", "practices/complete/complete.zh") — derived
-// from the same components as the output path so cross-kind collisions are
-// structurally impossible.
+// The key is "<kind>/<level>/<base>.<lang>.<format>" (e.g.
+// "books/individual/rc.zh.epub", "books/volumes/volume-1.zh.pdf",
+// "practices/complete/complete.zh.docx") — derived from the same components
+// as the output path so cross-kind collisions are structurally impossible,
+// and scoped per format so one format's success never masks another's.
 type Manifest struct {
 	Entries map[string]string
 }
