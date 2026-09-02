@@ -86,7 +86,21 @@ func guideLayoutSmokeTestData() map[string]interface{} {
 	}
 }
 
-const guideSmokeGuideData = "```guide\nbook: demo-book\nsection: books\nthesis:\n  claim: \"世界是被建构的\"\n  puzzle: \"如果是被建构的，建构者是谁？\"\nmain_chart:\n  chart_type: funnel\n  title: \"建构漏斗\"\n  nodes:\n    - { label: \"感知\" }\n    - { label: \"建构\" }\nconcepts:\n  - name: \"建构\"\n    what: \"心智组装经验\"\n    why: \"没有组装就没有世界\"\nmap:\n  - part: \"part-01\"\n    note: \"第一部分\"\ntakeaways:\n  - \"世界是被建构的\"\n```\n"
+// TestGuideLayoutRejectsV1Schema: v1 数据块（有 main_chart 无 chapters）
+// 必须报错 —— v1 分支已删除，无 chapters 不再静默渲染。
+func TestGuideLayoutRejectsV1Schema(t *testing.T) {
+	tmpl := parseGuideLayout(t)
+	// v1 数据块（有 main_chart 无 chapters）——现在必须 failRender
+	page := newGuideSmokePage("```guide\nbook: demo-book\nsection: books\nthesis:\n  claim: \"c\"\n  puzzle: \"p\"\nmain_chart:\n  chart_type: funnel\n  title: \"m\"\n  nodes:\n    - { label: \"a\" }\ntakeaways: [\"t\"]\n```")
+	var b bytes.Buffer
+	err := tmpl.ExecuteTemplate(&b, "single.html", page)
+	if err == nil {
+		t.Fatal("v1 schema (no chapters) must failRender now")
+	}
+	if !strings.Contains(err.Error(), "chapters") {
+		t.Fatalf("error should mention chapters, got: %v", err)
+	}
+}
 
 // parseGuideLayout parses guide/single.html together with the chart partials
 // and a minimal head/nav/footer/js/search stub set, mirroring how huan
@@ -304,47 +318,6 @@ func newGuideSmokePage(raw string) *guideLayoutSmokeTestPage {
 	}
 }
 
-func TestGuideLayoutSmokeRender(t *testing.T) {
-	tmpl := parseGuideLayout(t)
-	page := newGuideSmokePage(guideSmokeGuideData)
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "single.html", page); err != nil {
-		t.Fatalf("render guide layout: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{
-		"<svg",    // main chart SVG
-		"世界是被建构的", // thesis claim
-		"如果是被建构的，建构者是谁？",           // thesis puzzle
-		"世界是被建构的</li>",             // takeaway
-		`href="/books/demo-book/"`, // book link
-		"guide_thesis", "guide_concept_card", "guide_map", "guide_takeaways", "guide_enter_book",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %q", want)
-		}
-	}
-}
-
-func TestGuideLayoutSmokeFailsOnBadChartType(t *testing.T) {
-	tmpl := parseGuideLayout(t)
-	bad := strings.Replace(guideSmokeGuideData, "chart_type: funnel", "chart_type: pie", 1)
-	page := &guideLayoutSmokeTestPage{
-		Title: "bad", Type: "guide", Kind: "page", RawContent: bad,
-		RelPermalink: "/books/demo-book/guide/",
-		File:         &guideLayoutSmokeTestFile{Path: "books/demo-book/guide/index.md", Dir: "books/demo-book/guide/", BaseFileName: "index"},
-		Site:         &guideLayoutSmokeTestSite{Data: guideLayoutSmokeTestData()},
-	}
-	var buf bytes.Buffer
-	err := tmpl.ExecuteTemplate(&buf, "single.html", page)
-	if err == nil {
-		t.Fatal("expected render error for unsupported chart_type pie")
-	}
-	if !strings.Contains(err.Error(), "chart_type") {
-		t.Errorf("error should mention chart_type: %v", err)
-	}
-}
-
 const guideSmokeGuideV2Data = "```guide\nbook: demo-book\nsection: books\nmeta:\n  reading_minutes: 8\nthesis:\n  claim: \"世界是被建构的\"\n  puzzle: \"如果是被建构的，建构者是谁？本书回答这个根本困惑。\"\nhook:\n  scene: \"清晨你睁眼，世界已经在那里等着。但它是怎么到的？\"\n  question: \"世界是谁搭好的？\"\nchapters:\n  - title: \"表层：可见的世界\"\n    intro: \"从可感知的日常表层出发，先看见我们习以为常的东西。\"\n    chart_type: layers\n    steps:\n      - label: \"感知\"\n        sublabel: \"感官接收\"\n        explain: \"感官持续接收外界信号，这是建构的原料。没有原料就没有后续。\"\n      - label: \"命名\"\n        sublabel: \"语言归类\"\n        explain: \"语言把信号归类命名，世界开始有形状。名字即边界。\"\n    pitfall:\n      - misread: \"看见的就是全部\"\n        fix: \"表层只是入口，深层机制尚未展开。\"\n  - title: \"中层：看不见的机制\"\n    intro: \"穿过表层，看承载世界运转的中层机制。\"\n    chart_type: flow\n    steps:\n      - label: \"归类\"\n        sublabel: \"模式抽取\"\n        explain: \"机制把散乱的例子收拢为模式。模式即捷径。\"\n      - label: \"运转\"\n        sublabel: \"规则执行\"\n        explain: \"规则一旦运转，就不再需要逐例审视。机制即省力。\"\n  - title: \"深层：建构的根基\"\n    intro: \"最后抵达根基处，看清建构本身如何可能。\"\n    chart_type: ladder\n    steps:\n      - label: \"奠基\"\n        sublabel: \"前提交换\"\n        explain: \"一切建构都始于不可再追问的前提。前提即选择。\"\n      - label: \"回望\"\n        sublabel: \"整体重构\"\n        explain: \"带着根基回望全程，世界显出它被搭好的痕迹。回望即理解。\"\nconcepts:\n  - name: \"建构\"\n    what: \"心智组装经验\"\n    why: \"没有组装就没有世界\"\nmap:\n  - part: \"part-01\"\n    note: \"第一部分\"\ntakeaways:\n  - \"世界是被建构的\"\nnext:\n  - label: \"读第一部\"\n    href: \"/books/demo-book/part-01/chapter-01/\"\n```\n"
 
 func TestGuideLayoutV2Chapters(t *testing.T) {
@@ -397,18 +370,6 @@ func TestGuideLayoutManualOverride(t *testing.T) {
 	}
 	if !strings.Contains(b.String(), "custom_manual") {
 		t.Error("manual.html content should be inlined")
-	}
-}
-
-func TestGuideLayoutV1StillWorks(t *testing.T) {
-	tmpl := parseGuideLayout(t)
-	page := newGuideSmokePage(guideSmokeGuideData)
-	var b bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&b, "single.html", page); err != nil {
-		t.Fatalf("render v1: %v", err)
-	}
-	if !strings.Contains(b.String(), "guide_mainchart") {
-		t.Error("v1 layout regression: mainchart missing")
 	}
 }
 

@@ -16,8 +16,9 @@
                 {{ failRender (printf "guide 页 %s 找不到书籍页 %s" .File.Path $bookURL) }}
             {{ end }}
 
-            {{/* manual.html 覆盖：书目录下 guide/manual.html 存在时内嵌自包含
-                手册（safeHTML），并跳过 guide schema 校验（guide 块允许为空）。
+            {{/* 分发：manual.html 覆盖 → v2 多章节手册。manual 覆盖：书目录下
+                guide/manual.html 存在时内嵌自包含手册（safeHTML），并跳过
+                guide schema 校验（guide 块允许为空）。
                 语言感知：en 语言页优先探测 manual.en.html（AUTHORING §5 约定），
                 缺失时回退 manual.html；zh-cn 直接用 manual.html。
                 注意：模板级 fileExists/readFile 按站点根（cwd）相对路径解析，
@@ -48,83 +49,11 @@
                 {{ failRender (printf "guide 页 %s 的 book '%s' 与路径目录名 '%s' 不一致" .File.Path $book $pathBook) }}
             {{ end }}
 
-            {{ if index $g "chapters" }}
-                {{ partial "guide_v2_body.html" (dict "g" $g "page" . "bookPage" $bookPage) }}
-            {{ else }}
-            {{/* ── v1 校验区（仅单屏 v1 数据） ── */}}
-            {{ $main := index $g "main_chart" }}
-            {{ if not (in (guideChartTypes) (index $main "chart_type")) }}
-                {{ failRender (printf "guide 页 %s 的 chart_type '%v' 不受支持" .File.Path (index $main "chart_type")) }}
+            {{ if not (index $g "chapters") }}
+                {{ failRender (printf "guide 页 %s 使用 v1 schema（无 chapters）——v1 已于 2026-09 移除，请升级为 v2 多章节手册（见 AUTHORING.md §2）" .File.Path) }}
             {{ end }}
-
-            {{ $takeaways := index $g "takeaways" }}
-            {{ if not $takeaways }}
-                {{ failRender (printf "guide 页 %s 的 takeaways 为空" .File.Path) }}
-            {{ end }}
-
-            {{ $concepts := index $g "concepts" }}
-            {{ if or (not $concepts) (gt (len $concepts) 6) }}
-                {{ failRender (printf "guide 页 %s 的 concepts 数量须为 1-6，实际 %d" .File.Path (len $concepts)) }}
-            {{ end }}
-
-            {{ $thesis := index $g "thesis" }}
-            {{ if not (index $thesis "claim") }}
-                {{ failRender (printf "guide 页 %s 缺少 thesis.claim" .File.Path) }}
-            {{ end }}
-
-            <article class="guide_page">
-                <nav class="guide_breadcrumb">
-                    <a href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
-                </nav>
-
-                {{/* ① 核心论点 */}}
-                <section class="guide_thesis">
-                    <h1 class="guide_thesis__claim">{{ index $thesis "claim" }}</h1>
-                    {{ with index $thesis "puzzle" }}
-                    <p class="guide_thesis__puzzle">{{ . }}</p>
-                    {{ end }}
-                </section>
-
-                {{/* ② 主图 */}}
-                {{ $mainChart := $main }}
-                <section class="guide_mainchart">
-                    {{ with index $mainChart "title" }}
-                    <h2 class="guide_section__title">{{ . }}</h2>
-                    {{ end }}
-                    {{ partial (printf "charts/%s.html" (index $mainChart "chart_type")) (dict "chart" $mainChart "cfg" (dict "Width" 760 "Height" 420 "LabelSize" 16 "SubLabelSize" 13)) }}
-                </section>
-
-                {{/* ③ 概念链 */}}
-                <section class="guide_concepts">
-                    <h2 class="guide_section__title">{{ i18n "guide_concepts_title" }}</h2>
-                    {{ range $concepts }}
-                    <div class="guide_concept_card">
-                        <h3>{{ .name }}</h3>
-                        <p class="guide_concept__what">{{ .what }}</p>
-                        <p class="guide_concept__why">{{ .why }}</p>
-                        {{ with .chart }}
-                        <div class="guide_concept__chart">
-                            {{ partial (printf "charts/%s.html" .chart_type) (dict "chart" . "cfg" (dict "Width" 320 "Height" 180 "LabelSize" 13 "SubLabelSize" 11)) }}
-                        </div>
-                        {{ end }}
-                    </div>
-                    {{ end }}
-                </section>
-
-                {{/* ④ 全书地图（v1/v2 共用 partial） */}}
-                {{ partial "guide/map_body.html" (dict "g" $g "page" . "bookPage" $bookPage) }}
-
-                <section class="guide_takeaways">
-                    <h2 class="guide_section__title">{{ i18n "guide_takeaways_title" }}</h2>
-                    <ul>
-                        {{ range $takeaways }}<li>{{ . }}</li>{{ end }}
-                    </ul>
-                </section>
-
-                <a class="guide_enter_book" href="{{ $bookPage.RelPermalink }}">{{ i18n "guide_enter_book" }}</a>
-            </article>
-            {{ end }}{{/* end chapters/v1 */}}
-            {{ end }}{{/* end manual/chapters/v1 分发 */}}
+            {{ partial "guide_v2_body.html" (dict "g" $g "page" . "bookPage" $bookPage) }}
+            {{ end }}{{/* end manual/v2 分发 */}}
         </div>
         <a id="back_to_top" href="#" class="back_to_top"><i class="ri-arrow-up-s-line"></i></a>
     </div>
