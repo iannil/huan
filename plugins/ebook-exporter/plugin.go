@@ -253,8 +253,17 @@ func separatorSection(id, title string) content.Section {
 // volume rendering visually consistent and avoids adding a TitleLevel knob
 // to the three backends in V1.
 func aggregateBook(vol *content.VolumeEntry, books []content.BookEntry, title string) *content.BookEntry {
-	agg := &content.BookEntry{TitleZH: title}
+	// TitleEN falls back to the (Chinese) aggregate title: EN aggregates have
+	// no English metadata of their own, matching the plugin-wide policy that
+	// missing EN metadata uses the ZH side (README V1 限制清单).
+	agg := &content.BookEntry{TitleZH: title, TitleEN: title}
 	for _, b := range books {
+		// Carry the newest contributing book's version/date so the cover's
+		// 版本 line is not empty.
+		if b.LastUpdated > agg.LastUpdated {
+			agg.LastUpdated = b.LastUpdated
+			agg.Version = b.Version
+		}
 		agg.Sections = append(agg.Sections, separatorSection("book-"+b.Slug, b.TitleZH))
 		agg.Sections = append(agg.Sections, b.OrderedSections()...)
 		agg.HasEN = agg.HasEN || b.HasEN

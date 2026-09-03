@@ -98,7 +98,7 @@ func Discover(sourceDir, kind string) (*Collection, error) {
 }
 
 // discoverBook walks one book directory, collecting special files
-// (introduction/epilogue/appendix) and part-XX directories with sorted
+// (introduction/prologue/epilogue/appendix) and part-XX directories with sorted
 // chapters — mirroring huan's cmd/huan/toc.go writeBookToc traversal.
 func discoverBook(dir, slug string, partTitles map[string]string) (*BookEntry, error) {
 	items, err := os.ReadDir(dir)
@@ -150,7 +150,7 @@ func discoverBook(dir, slug string, partTitles map[string]string) (*BookEntry, e
 		base := strings.TrimSuffix(name, ".md")
 		var typ string
 		switch base {
-		case "introduction", "epilogue", "appendix":
+		case "introduction", "prologue", "epilogue", "appendix":
 			typ = base
 		default:
 			continue

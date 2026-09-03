@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gpdf-dev/gpdf/document"
+	"github.com/gpdf-dev/gpdf/pdf"
 	"github.com/gpdf-dev/gpdf/template"
 	"github.com/iannil/huan-plugin-ebook-exporter/content"
 	"github.com/iannil/huan-plugin-ebook-exporter/style"
@@ -65,8 +66,52 @@ type PDFOptions struct {
 }
 
 // RenderPDF renders the book (in the given language) to a PDF file at outPath
-// using the gpdf engine: cover page, TOC page, then one page per chapter.
+// using the gpdf engine: cover page, TOC page (with page numbers), then one
+// page per chapter, with a running header, footer page numbers and an
+// injected /Outlines bookmark tree.
+//
+// Pagination plan: chapter page numbers are measured first (each chapter is
+// rendered standalone — chapters start on a fresh page via AddPage, so their
+// page counts are independent of preceding content), then the final document
+// is rendered once with exact TOC numbers, and the outline is injected as a
+// post-step (gpdf's template layer has no outline API).
 func RenderPDF(book *content.BookEntry, lang content.Lang, outPath string, opts PDFOptions) error {
+	plan, err := measurePDFPages(book, lang, opts)
+	if err != nil {
+		return fmt.Errorf("measure pages: %w", err)
+	}
+
+	doc, err := newPDFDocument(book, lang, opts)
+	if err != nil {
+		return err
+	}
+
+	renderCover(doc, book, lang)
+	renderTOC(doc, book, lang, plan)
+	if err := renderChapters(doc, book, lang); err != nil {
+		return err
+	}
+
+	data, err := doc.Generate()
+	if err != nil {
+		return fmt.Errorf("render pdf: %w", err)
+	}
+	data, err = injectOutline(data, plan.outline)
+	if err != nil {
+		return fmt.Errorf("inject outline: %w", err)
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return fmt.Errorf("write pdf: %w", err)
+	}
+	return nil
+}
+
+// newPDFDocument builds a template document with the shared page setup plus
+// the running header (book title) and footer (page number). Header/Footer
+// are Document methods that must be registered before AddPage — they apply
+// to every page, and their measured heights shrink the body area, so every
+// measurement render must use this same builder.
+func newPDFDocument(book *content.BookEntry, lang content.Lang, opts PDFOptions) (*template.Document, error) {
 	options := []template.Option{
 		template.WithPageSize(document.A4),
 		template.WithMargins(document.UniformEdges(document.Mm(20))),
@@ -74,29 +119,36 @@ func RenderPDF(book *content.BookEntry, lang content.Lang, outPath string, opts 
 	if opts.FontPath != "" {
 		data, err := style.ReadFontData(opts.FontPath)
 		if err != nil {
-			return fmt.Errorf("read font: %w", err)
+			return nil, fmt.Errorf("read font: %w", err)
 		}
 		options = append(options, template.WithFont(cjkFontFamily, data))
 		// Make every text use the CJK font by default so Chinese renders.
 		options = append(options, template.WithDefaultFont(cjkFontFamily, 11))
 	}
 	doc := template.New(options...)
-
-	renderCover(doc, book, lang)
-	renderTOC(doc, book, lang)
-	if err := renderChapters(doc, book, lang); err != nil {
-		return err
+	headerTitle := book.TitleZH
+	if lang == content.LangEN {
+		headerTitle = book.TitleEN
 	}
-
-	f, err := os.Create(outPath)
-	if err != nil {
-		return fmt.Errorf("create pdf: %w", err)
+	if headerTitle != "" {
+		doc.Header(func(p *template.PageBuilder) {
+			p.AutoRow(func(r *template.RowBuilder) {
+				r.Col(12, func(c *template.ColBuilder) {
+					c.Text(headerTitle, template.FontSize(9), template.AlignCenter())
+				})
+			})
+		})
 	}
-	defer f.Close()
-	if err := doc.Render(f); err != nil {
-		return fmt.Errorf("render pdf: %w", err)
-	}
-	return nil
+	doc.Footer(func(p *template.PageBuilder) {
+		p.AutoRow(func(r *template.RowBuilder) {
+			r.Col(12, func(c *template.ColBuilder) {
+				// Pure digits only: the footer band must not mix other text
+				// with the page number (publication footers scan for it).
+				c.PageNumber(template.FontSize(9), template.AlignCenter())
+			})
+		})
+	})
+	return doc, nil
 }
 
 // renderCover emits the cover page: title, subtitle and version metadata.
@@ -133,19 +185,134 @@ func renderCover(doc *template.Document, book *content.BookEntry, lang content.L
 	})
 }
 
-// renderTOC emits a table-of-contents page: plain chapter titles, one per
-// line. gpdf has no TOC API, so no page numbers or links. Each line is its
-// own AutoRow (see renderChapters for why blocks must not share a row).
-func renderTOC(doc *template.Document, book *content.BookEntry, lang content.Lang) {
+// pdfPagePlan is the measured pagination of a book: how many pages the TOC
+// occupies, the 1-based start page of every flattened chapter, and the
+// outline entries derived from the same walk.
+type pdfPagePlan struct {
+	tocPages     int
+	chapterPage  map[int]int // flattened chapter index -> 1-based start page
+	chapterCount map[int]int // flattened chapter index -> measured page count
+	outline      []OutlineEntry
+}
+
+// flattenChapters returns all chapters in assembly order (specials' only
+// chapter, then each part's children, in OrderedSections order).
+func flattenChapters(book *content.BookEntry) []content.Chapter {
+	var out []content.Chapter
+	for _, sec := range book.OrderedSections() {
+		out = append(out, sec.Chapters...)
+	}
+	return out
+}
+
+// measurePDFPages renders each chapter into a throwaway document with the
+// exact same page setup (header/footer included) as the final render and
+// counts its pages. Because every chapter starts on a fresh AddPage, page
+// counts are independent of preceding content, so the standalone measurement
+// equals the in-document pagination. The TOC's own page count is measured
+// the same way; entry numbers live in their own grid column, so their width
+// never changes line wrapping and the measurement is stable in one pass.
+func measurePDFPages(book *content.BookEntry, lang content.Lang, opts PDFOptions) (*pdfPagePlan, error) {
+	plan := &pdfPagePlan{
+		chapterPage:  map[int]int{},
+		chapterCount: map[int]int{},
+	}
+	chapters := flattenChapters(book)
+	for i, ch := range chapters {
+		doc, err := newPDFDocument(book, lang, opts)
+		if err != nil {
+			return nil, err
+		}
+		if err := renderChapterInto(doc, ch, lang); err != nil {
+			return nil, err
+		}
+		data, err := doc.Generate()
+		if err != nil {
+			return nil, fmt.Errorf("measure chapter %q: %w", ch.Title, err)
+		}
+		r, err := pdf.NewReader(data)
+		if err != nil {
+			return nil, fmt.Errorf("measure chapter %q: %w", ch.Title, err)
+		}
+		n, err := r.PageCount()
+		if err != nil {
+			return nil, fmt.Errorf("count pages of chapter %q: %w", ch.Title, err)
+		}
+		if n < 1 {
+			n = 1
+		}
+		plan.chapterCount[i] = n
+	}
+
+	// TOC page count (numbers are placeholders; layout is number-independent).
+	tocDoc, err := newPDFDocument(book, lang, opts)
+	if err != nil {
+		return nil, err
+	}
+	renderTOC(tocDoc, book, lang, plan) // chapterPage empty -> placeholder numbers
+	tocData, err := tocDoc.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("measure toc: %w", err)
+	}
+	tr, err := pdf.NewReader(tocData)
+	if err != nil {
+		return nil, fmt.Errorf("measure toc: %w", err)
+	}
+	plan.tocPages, err = tr.PageCount()
+	if err != nil {
+		return nil, fmt.Errorf("count toc pages: %w", err)
+	}
+	if plan.tocPages < 1 {
+		plan.tocPages = 1
+	}
+
+	// Walk sections assigning start pages: cover is page 1, the TOC occupies
+	// pages 2..1+tocPages, then parts (one separator page each) and chapters
+	// (measured counts).
+	page := 2 + plan.tocPages
+	ci := 0
+	for _, sec := range book.OrderedSections() {
+		if sec.Type == "part" {
+			plan.outline = append(plan.outline, OutlineEntry{Title: inlinePlain(sec.Title), Page: page, Level: 1})
+			page++
+		}
+		for _, ch := range sec.Chapters {
+			level := 1
+			if sec.Type == "part" {
+				level = 2
+			}
+			plan.chapterPage[ci] = page
+			plan.outline = append(plan.outline, OutlineEntry{Title: inlinePlain(ch.Title), Page: page, Level: level})
+			page += plan.chapterCount[ci]
+			ci++
+		}
+	}
+	return plan, nil
+}
+
+// renderTOC emits the table-of-contents pages: entry titles with page
+// numbers (from the measured plan; blank placeholders during measurement).
+// The number lives in its own grid column so its width cannot change line
+// wrapping — that keeps the measured TOC page count identical to the final
+// render. Each line is its own AutoRow (see renderChapters for why blocks
+// must not share a row).
+func renderTOC(doc *template.Document, book *content.BookEntry, lang content.Lang, plan *pdfPagePlan) {
 	page := doc.AddPage()
-	row := func(fn func(c *template.ColBuilder)) {
+	row := func(cols ...func(c *template.ColBuilder)) {
 		page.AutoRow(func(r *template.RowBuilder) {
-			r.Col(12, fn)
+			for i, fn := range cols {
+				width := 10
+				if i > 0 {
+					width = 2
+				}
+				r.Col(width, fn)
+			}
 		})
 	}
 	row(func(c *template.ColBuilder) {
 		c.Text("目录", template.FontSize(20), template.Bold())
 	})
+	ci := 0
 	for _, sec := range book.OrderedSections() {
 		if sec.Type == "part" {
 			partTitle := sec.Title
@@ -155,9 +322,21 @@ func renderTOC(doc *template.Document, book *content.BookEntry, lang content.Lan
 		}
 		for _, ch := range sec.Chapters {
 			title := ch.Title
-			row(func(c *template.ColBuilder) {
-				c.Text("    "+inlinePlain(title), template.FontSize(11))
-			})
+			num := ""
+			if p, ok := plan.chapterPage[ci]; ok {
+				num = fmt.Sprintf("%d", p)
+			}
+			row(
+				func(c *template.ColBuilder) {
+					c.Text("    "+inlinePlain(title), template.FontSize(11))
+				},
+				func(c *template.ColBuilder) {
+					if num != "" {
+						c.Text(num, template.FontSize(11), template.AlignRight())
+					}
+				},
+			)
+			ci++
 		}
 	}
 }
@@ -187,30 +366,39 @@ func renderChapters(doc *template.Document, book *content.BookEntry, lang conten
 			})
 		}
 		for _, ch := range sec.Chapters {
-			src := ch.SourcePath
-			if lang == content.LangEN && ch.ENPath != "" {
-				src = ch.ENPath
-			}
-			du, err := ParseChapter(src)
-			if err != nil {
-				return fmt.Errorf("parse chapter %s: %w", src, err)
-			}
-			title, unit := ch, du
-			page := doc.AddPage()
-			page.AutoRow(func(r *template.RowBuilder) {
-				r.Col(12, func(c *template.ColBuilder) {
-					c.Text(inlinePlain(title.Title), template.FontSize(20), template.Bold())
-				})
-			})
-			for i := range unit.Blocks {
-				b := unit.Blocks[i]
-				page.AutoRow(func(r *template.RowBuilder) {
-					r.Col(12, func(c *template.ColBuilder) {
-						emitBlock(c, b)
-					})
-				})
+			if err := renderChapterInto(doc, ch, lang); err != nil {
+				return err
 			}
 		}
+	}
+	return nil
+}
+
+// renderChapterInto emits one chapter on a fresh page: title row then one
+// AutoRow per normalized block. Shared by the final render and the
+// measurement pass so both paginate identically (see measurePDFPages).
+func renderChapterInto(doc *template.Document, ch content.Chapter, lang content.Lang) error {
+	src := ch.SourcePath
+	if lang == content.LangEN && ch.ENPath != "" {
+		src = ch.ENPath
+	}
+	unit, err := ParseChapter(src)
+	if err != nil {
+		return fmt.Errorf("parse chapter %s: %w", src, err)
+	}
+	page := doc.AddPage()
+	page.AutoRow(func(r *template.RowBuilder) {
+		r.Col(12, func(c *template.ColBuilder) {
+			c.Text(inlinePlain(ch.Title), template.FontSize(20), template.Bold())
+		})
+	})
+	for i := range unit.Blocks {
+		b := unit.Blocks[i]
+		page.AutoRow(func(r *template.RowBuilder) {
+			r.Col(12, func(c *template.ColBuilder) {
+				emitBlock(c, b)
+			})
+		})
 	}
 	return nil
 }

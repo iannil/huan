@@ -59,10 +59,13 @@ type BookEntry struct {
 // between introduction and epilogue.
 func (b *BookEntry) OrderedSections() []Section {
 	out := make([]Section, 0, len(b.Sections))
-	// specials first: introduction
-	for _, s := range b.Sections {
-		if s.Type == "introduction" {
-			out = append(out, s)
+	// specials first: introduction, then prologue (novel openings such as
+	// practices/persona-and-performance ship their main content this way)
+	for _, typ := range []string{"introduction", "prologue"} {
+		for _, s := range b.Sections {
+			if s.Type == typ {
+				out = append(out, s)
+			}
 		}
 	}
 	// parts sorted by ID; standalone chapters in discovery order interleaved
