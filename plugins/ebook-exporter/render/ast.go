@@ -62,7 +62,29 @@ func ParseChapter(path string) (*DocUnit, error) {
 	doc := md.Parser().Parse(text.NewReader([]byte(body)))
 	du := &DocUnit{}
 	collect(doc, []byte(body), du)
+	typographBlocks(du)
 	return du, nil
+}
+
+// typographBlocks applies CJK punctuation normalization (export-pipeline
+// memory only) to every block's inline text. Fenced code blocks stay
+// verbatim; TypographCJK itself skips strings without CJK.
+func typographBlocks(du *DocUnit) {
+	for i := range du.Blocks {
+		b := &du.Blocks[i]
+		if b.Kind == BlockCode {
+			continue
+		}
+		b.Text = TypographCJK(b.Text)
+		for j, item := range b.Items {
+			b.Items[j] = TypographCJK(item)
+		}
+		for j, row := range b.Rows {
+			for k, cell := range row {
+				b.Rows[j][k] = TypographCJK(cell)
+			}
+		}
+	}
 }
 
 // ShiftHeadings shifts all heading levels by the given amount, capped at 6.

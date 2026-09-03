@@ -43,6 +43,34 @@ func TestRenderPDFHeaderAndPages(t *testing.T) {
 	}
 }
 
+func TestWrapLongLatin(t *testing.T) {
+	long := ""
+	for i := 0; i < 120; i++ {
+		long += "a"
+	}
+	got := wrapLongLatin(long, 60)
+	if len(got) <= 60 {
+		t.Fatalf("expected wrapped, got len %d", len(got))
+	}
+	// chunks must all be within the limit and joined by spaces
+	for _, chunk := range strings.Split(got, " ") {
+		if len(chunk) > 60 {
+			t.Fatalf("chunk exceeds limit: %d", len(chunk))
+		}
+	}
+	if wrapLongLatin("正常中文段落", 60) != "正常中文段落" {
+		t.Fatal("short text must pass through")
+	}
+	mixed := "前文" + strings.Repeat("x", 80) + "后文"
+	got2 := wrapLongLatin(mixed, 60)
+	if strings.Contains(got2, strings.Repeat("x", 80)) {
+		t.Fatalf("long run not split: %q", got2)
+	}
+	if !strings.HasPrefix(got2, "前文") || !strings.HasSuffix(got2, "后文") {
+		t.Fatalf("context corrupted: %q", got2)
+	}
+}
+
 func TestInlinePlain(t *testing.T) {
 	cases := [][2]string{
 		{"**bold** and *em* and `code`", "bold and em and code"},

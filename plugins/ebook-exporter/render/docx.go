@@ -42,9 +42,9 @@ const docxTitleFontSizePoints = 28
 // The builder only creates the document skeleton and metadata; all content
 // is added through the domain layer so paragraph styles are uniform.
 func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts DOCXOptions) error {
-	title := book.TitleZH
+	title := TypographCJK(book.TitleZH)
 	if lang == content.LangEN {
-		title = book.TitleEN
+		title = TypographCJK(book.TitleEN)
 	}
 	builder := docx.NewDocumentBuilder(
 		docx.WithTitle(title),

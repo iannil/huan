@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/gpdf-dev/gpdf/document"
@@ -14,6 +15,47 @@ import (
 // cjkFontFamily is the family name under which the CJK font is registered
 // with gpdf; it is also installed as the default font family.
 const cjkFontFamily = "notocjk"
+
+// longLatinRun matches unbreakable Latin/alphanumeric runs that PDF text
+// engines cannot wrap — long URLs, hashes, identifiers.
+var longLatinRun = regexp.MustCompile(`[A-Za-z0-9^_]{20,}`)
+
+// wrapLongLatin splits runs of unbreakable Latin characters longer than
+// maxRunes (if > 0, else 60) into chunks of at most maxRunes characters,
+// joined by spaces. gpdf has no soft-break API, so chunking at character
+// boundaries with spaces gives the line breaker somewhere to wrap; 60 chars
+// at ~11pt is well under the A4 text width. Text without long runs passes
+// through unchanged.
+func wrapLongLatin(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		maxRunes = 60
+	}
+	if !longLatinRun.MatchString(s) {
+		return s
+	}
+	return longLatinRun.ReplaceAllStringFunc(s, func(m string) string {
+		if len([]rune(m)) <= maxRunes {
+			return m
+		}
+		var chunks []string
+		rs := []rune(m)
+		for len(rs) > maxRunes {
+			chunks = append(chunks, string(rs[:maxRunes]))
+			rs = rs[maxRunes:]
+		}
+		if len(rs) > 0 {
+			chunks = append(chunks, string(rs))
+		}
+		return strings.Join(chunks, " ")
+	})
+}
+
+// pdfText is the shared inline-text pipeline for PDF emission: strip
+// inline markdown, then pre-wrap unbreakable long Latin runs so they cannot
+// overflow the page's right edge.
+func pdfText(s string) string {
+	return wrapLongLatin(inlinePlain(s), 60)
+}
 
 // PDFOptions controls PDF rendering. FontPath points at a CJK-capable font
 // (required for Chinese books; may be empty for English ones, in which case
@@ -58,6 +100,11 @@ func RenderPDF(book *content.BookEntry, lang content.Lang, outPath string, opts 
 }
 
 // renderCover emits the cover page: title, subtitle and version metadata.
+//
+// Spacer rows and centered-text rows are separate AutoRows: batching a
+// Spacer and an AlignCenter Text into one row makes gpdf place the text
+// off the page top-right corner (invisible covers / overflowing part
+// pages).
 func renderCover(doc *template.Document, book *content.BookEntry, lang content.Lang) {
 	title := book.TitleZH
 	subtitle := book.SubtitleZH
@@ -66,62 +113,74 @@ func renderCover(doc *template.Document, book *content.BookEntry, lang content.L
 		subtitle = ""
 	}
 	page := doc.AddPage()
-	page.AutoRow(func(r *template.RowBuilder) {
-		r.Col(12, func(c *template.ColBuilder) { c.Spacer(document.Pt(120)) })
-		r.Col(12, func(c *template.ColBuilder) {
-			c.Text(title, template.FontSize(28), template.Bold(), template.AlignCenter())
+	row := func(fn func(c *template.ColBuilder)) {
+		page.AutoRow(func(r *template.RowBuilder) {
+			r.Col(12, fn)
 		})
-		if subtitle != "" {
-			r.Col(12, func(c *template.ColBuilder) {
-				c.Text(inlinePlain(subtitle), template.FontSize(14), template.AlignCenter())
-			})
-		}
-		r.Col(12, func(c *template.ColBuilder) { c.Spacer(document.Pt(40)) })
-		r.Col(12, func(c *template.ColBuilder) {
-			c.Text("版本 "+book.Version+" · 更新于 "+book.LastUpdated, template.FontSize(10), template.AlignCenter())
+	}
+	row(func(c *template.ColBuilder) { c.Spacer(document.Pt(120)) })
+	row(func(c *template.ColBuilder) {
+		c.Text(TypographCJK(title), template.FontSize(28), template.Bold(), template.AlignCenter())
+	})
+	if subtitle != "" {
+		row(func(c *template.ColBuilder) {
+			c.Text(inlinePlain(subtitle), template.FontSize(14), template.AlignCenter())
 		})
+	}
+	row(func(c *template.ColBuilder) { c.Spacer(document.Pt(40)) })
+	row(func(c *template.ColBuilder) {
+		c.Text("版本 "+book.Version+" · 更新于 "+book.LastUpdated, template.FontSize(10), template.AlignCenter())
 	})
 }
 
 // renderTOC emits a table-of-contents page: plain chapter titles, one per
-// line. gpdf has no TOC API, so no page numbers or links.
+// line. gpdf has no TOC API, so no page numbers or links. Each line is its
+// own AutoRow (see renderChapters for why blocks must not share a row).
 func renderTOC(doc *template.Document, book *content.BookEntry, lang content.Lang) {
 	page := doc.AddPage()
-	page.AutoRow(func(r *template.RowBuilder) {
-		r.Col(12, func(c *template.ColBuilder) {
-			c.Text("目录", template.FontSize(20), template.Bold())
+	row := func(fn func(c *template.ColBuilder)) {
+		page.AutoRow(func(r *template.RowBuilder) {
+			r.Col(12, fn)
 		})
-		for _, sec := range book.OrderedSections() {
-			switch sec.Type {
-			case "part":
-				r.Col(12, func(c *template.ColBuilder) {
-					c.Text(inlinePlain(sec.Title), template.FontSize(13), template.Bold())
-				})
-			}
-			for _, ch := range sec.Chapters {
-				title := ch.Title
-				r.Col(12, func(c *template.ColBuilder) {
-					c.Text("    "+inlinePlain(title), template.FontSize(11))
-				})
-			}
-		}
+	}
+	row(func(c *template.ColBuilder) {
+		c.Text("目录", template.FontSize(20), template.Bold())
 	})
+	for _, sec := range book.OrderedSections() {
+		if sec.Type == "part" {
+			partTitle := sec.Title
+			row(func(c *template.ColBuilder) {
+				c.Text(inlinePlain(partTitle), template.FontSize(13), template.Bold())
+			})
+		}
+		for _, ch := range sec.Chapters {
+			title := ch.Title
+			row(func(c *template.ColBuilder) {
+				c.Text("    "+inlinePlain(title), template.FontSize(11))
+			})
+		}
+	}
 }
 
 // renderChapters emits each chapter on its own page with normalized blocks.
+//
+// Every block is its own AutoRow: gpdf rows are atomic (BreakInside=
+// BreakAvoid), so a paragraph that does not fit in the remaining page
+// space moves whole to the next page. Batching a whole chapter into one
+// AutoRow instead triggers a gpdf flow-split bug that renders the split
+// remainder's first line wider than the page (overflowing the right edge)
+// and duplicates it across the page break.
 func renderChapters(doc *template.Document, book *content.BookEntry, lang content.Lang) error {
-	emitBlocks := func(c *template.ColBuilder, blocks []Block) {
-		for _, b := range blocks {
-			emitBlock(c, b)
-		}
-	}
 	for _, sec := range book.OrderedSections() {
 		if sec.Type == "part" {
-			// Part separator page.
+			// Part separator page. Spacer and centered title in separate
+			// rows (see renderCover for the gpdf batching bug).
 			page := doc.AddPage()
 			part := sec
 			page.AutoRow(func(r *template.RowBuilder) {
 				r.Col(12, func(c *template.ColBuilder) { c.Spacer(document.Pt(160)) })
+			})
+			page.AutoRow(func(r *template.RowBuilder) {
 				r.Col(12, func(c *template.ColBuilder) {
 					c.Text(inlinePlain(part.Title), template.FontSize(24), template.Bold(), template.AlignCenter())
 				})
@@ -141,9 +200,16 @@ func renderChapters(doc *template.Document, book *content.BookEntry, lang conten
 			page.AutoRow(func(r *template.RowBuilder) {
 				r.Col(12, func(c *template.ColBuilder) {
 					c.Text(inlinePlain(title.Title), template.FontSize(20), template.Bold())
-					emitBlocks(c, unit.Blocks)
 				})
 			})
+			for i := range unit.Blocks {
+				b := unit.Blocks[i]
+				page.AutoRow(func(r *template.RowBuilder) {
+					r.Col(12, func(c *template.ColBuilder) {
+						emitBlock(c, b)
+					})
+				})
+			}
 		}
 	}
 	return nil
@@ -163,22 +229,22 @@ func emitBlock(c *template.ColBuilder, b Block) {
 		case 3:
 			size = 13
 		}
-		c.Text(inlinePlain(b.Text), template.FontSize(size), template.Bold())
+		c.Text(pdfText(b.Text), template.FontSize(size), template.Bold())
 	case BlockParagraph:
-		c.Text(inlinePlain(b.Text), template.FontSize(11))
+		c.Text(pdfText(b.Text), template.FontSize(11))
 	case BlockQuote:
-		c.Text("▎"+inlinePlain(b.Text), template.FontSize(11))
+		c.Text("▎"+pdfText(b.Text), template.FontSize(11))
 	case BlockList:
 		for _, item := range b.Items {
-			c.Text("• "+inlinePlain(item), template.FontSize(11))
+			c.Text("• "+pdfText(item), template.FontSize(11))
 		}
 	case BlockCode:
-		c.Text(inlinePlain(b.Text), template.FontSize(9))
+		c.Text(pdfText(b.Text), template.FontSize(9))
 	case BlockTable:
 		for _, row := range b.Rows {
 			cells := make([]string, len(row))
 			for i, cell := range row {
-				cells[i] = inlinePlain(cell)
+				cells[i] = pdfText(cell)
 			}
 			c.Text(strings.Join(cells, " | "), template.FontSize(10))
 		}

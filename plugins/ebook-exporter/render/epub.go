@@ -64,6 +64,106 @@ func replaceDelimited(s, delim, open, close string) string {
 	return sb.String()
 }
 
+// protectDelimited replaces pairs of delim-wrapped spans with placeholder
+// tokens; placeholder receives the span's content and returns the token to
+// substitute (typically recording the rendered form as a side effect). Like
+// replaceDelimited, odd delimiter counts leave delimiters literal.
+func protectDelimited(s, delim string, placeholder func(content string) string) string {
+	count := strings.Count(s, delim)
+	if count < 2 || count%2 != 0 {
+		return s
+	}
+	var sb strings.Builder
+	for {
+		idx := strings.Index(s, delim)
+		if idx < 0 {
+			sb.WriteString(s)
+			break
+		}
+		rest := s[idx+len(delim):]
+		end := strings.Index(rest, delim)
+		sb.WriteString(s[:idx])
+		sb.WriteString(placeholder(rest[:end]))
+		s = rest[end+len(delim):]
+	}
+	return sb.String()
+}
+
+// replaceUnderscoreEm converts _emphasis_ pairs to <em> tags honoring the
+// CommonMark flanking rule for underscores: an OPENER must have a word
+// character after it and a non-word character before it; a CLOSER must
+// have a word character before it and a non-word character after it.
+// Intra-word underscores (NEEDS_FIX, snake_case) are therefore left
+// literal — alternation-based pairing without this rule opens an <em>
+// inside one **strong** span and closes it inside another, producing
+// mismatched (not well-formed) XHTML. Additionally an opener is only
+// emitted when a matching closer exists LATER in the string, so an
+// opener-shaped underscore with no partner (math subscripts like
+// \text{Error}_i, blank-fill underscores) never emits an unbalanced tag.
+// Word characters: ASCII alphanumerics, '_' and CJK ideographs (goldmark
+// treats CJK as word characters for '_' flanking); fullwidth punctuation
+// is not a word character. Input is already HTML-escaped.
+func replaceUnderscoreEm(s string) string {
+	rs := []rune(s)
+	isWord := func(r rune) bool {
+		switch {
+		case r == '_', r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			return true
+		case r >= 0x4E00 && r <= 0x9FFF, r >= 0x3400 && r <= 0x4DBF, r >= 0xF900 && r <= 0xFAFF:
+			return true // CJK ideographs
+		}
+		return false
+	}
+	type kindT int
+	const (
+		literal kindT = iota
+		opener
+		closer
+	)
+	kinds := make([]kindT, len(rs))
+	for i, r := range rs {
+		if r != '_' {
+			continue
+		}
+		wordBefore := i > 0 && isWord(rs[i-1])
+		wordAfter := i+1 < len(rs) && isWord(rs[i+1])
+		switch {
+		case !wordBefore && wordAfter:
+			kinds[i] = opener
+		case wordBefore && !wordAfter:
+			kinds[i] = closer
+		}
+	}
+	// Pair each opener with the first unconsumed closer after it; unmatched
+	// delimiters stay literal so tags are always balanced.
+	emitted := make([]bool, len(rs)) // true → emit tag at i
+	var sb strings.Builder
+	for i, r := range rs {
+		if r != '_' || kinds[i] != opener {
+			continue
+		}
+		for j := i + 1; j < len(rs); j++ {
+			if rs[j] == '_' && kinds[j] == closer && !emitted[j] {
+				emitted[i] = true
+				emitted[j] = true
+				break
+			}
+		}
+	}
+	for i, r := range rs {
+		if r == '_' && emitted[i] {
+			if kinds[i] == opener {
+				sb.WriteString("<em>")
+			} else {
+				sb.WriteString("</em>")
+			}
+			continue
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
+}
+
 // EPUBOptions controls EPUB rendering behavior.
 type EPUBOptions struct {
 	// EmbedFont embeds a CJK font into the EPUB (larger file, portable).
@@ -74,10 +174,10 @@ type EPUBOptions struct {
 
 // titlePageXHTML renders the book title page (spine start).
 func titlePageXHTML(book *content.BookEntry, lang content.Lang) string {
-	title := book.TitleZH
-	subtitle := book.SubtitleZH
+	title := TypographCJK(book.TitleZH)
+	subtitle := TypographCJK(book.SubtitleZH)
 	if lang == content.LangEN {
-		title = book.TitleEN
+		title = TypographCJK(book.TitleEN)
 		// V1: no EN subtitle field exists (BookEntry has SubtitleZH only),
 		// so the zh subtitle is not shown on EN title pages.
 		subtitle = ""
@@ -106,7 +206,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if lang == content.LangEN {
 		title = book.TitleEN
 	}
-	e, err := epub.NewEpub(title)
+	e, err := epub.NewEpub(TypographCJK(title))
 	if err != nil {
 		return fmt.Errorf("create epub: %w", err)
 	}
@@ -146,8 +246,9 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 		switch sec.Type {
 		case "part":
 			// Part separator page, then each chapter as its own section.
-			body := "<h1>" + escapeHTML(sec.Title) + "</h1>"
-			if _, err := e.AddSection(body, sec.Title, uniqueFname("part-"+sec.ID, usedFnames), cssPath); err != nil {
+			secTitle := TypographCJK(sec.Title)
+			body := "<h1>" + escapeHTML(secTitle) + "</h1>"
+			if _, err := e.AddSection(body, secTitle, uniqueFname("part-"+sec.ID, usedFnames), cssPath); err != nil {
 				return fmt.Errorf("add part section: %w", err)
 			}
 			for i, ch := range sec.Chapters {
@@ -159,9 +260,10 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 				if perr != nil {
 					return fmt.Errorf("parse chapter %s: %w", src, perr)
 				}
-				cb := "<h1>" + escapeHTML(ch.Title) + "</h1>" + blocksToXHTML(b)
+				chTitle := TypographCJK(ch.Title)
+				cb := "<h1>" + escapeHTML(chTitle) + "</h1>" + blocksToXHTML(b)
 				fname := fmt.Sprintf("%s-ch%02d", sec.ID, i+1)
-				if _, err := e.AddSection(cb, ch.Title, uniqueFname(fname, usedFnames), cssPath); err != nil {
+				if _, err := e.AddSection(cb, chTitle, uniqueFname(fname, usedFnames), cssPath); err != nil {
 					return fmt.Errorf("add chapter section: %w", err)
 				}
 			}
@@ -176,7 +278,8 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 				if perr != nil {
 					return fmt.Errorf("parse chapter %s: %w", src, perr)
 				}
-				body := "<h1>" + escapeHTML(ch.Title) + "</h1>" + blocksToXHTML(b)
+				chTitle := TypographCJK(ch.Title)
+				body := "<h1>" + escapeHTML(chTitle) + "</h1>" + blocksToXHTML(b)
 				fname := sec.Type
 				if fname == "" {
 					fname = "section"
@@ -185,7 +288,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 					fname = fmt.Sprintf("%s-ch%02d", fname, i+1)
 				}
 				fname = uniqueFname(fname, usedFnames)
-				if _, err := e.AddSection(body, ch.Title, fname, cssPath); err != nil {
+				if _, err := e.AddSection(body, chTitle, fname, cssPath); err != nil {
 					return fmt.Errorf("add section %s: %w", fname, err)
 				}
 			}
@@ -253,29 +356,40 @@ func blocksToXHTML(du *DocUnit) string {
 	return sb.String()
 }
 
-// inlineXHTML escapes HTML then applies minimal inline markdown rules:
-// **strong**, *em* / _em_, `code`, [text](url). Links are extracted first
-// (placeholder tokens) so `_`/`*`/backticks inside URLs survive untouched;
-// the link TEXT still goes through the other inline rules.
+// **strong**, *em* / _em_, `code`, [text](url).
+//
+// Code spans are protected FIRST (placeholder tokens): their content stays
+// HTML-escaped (raw HTML like <em> in a code span renders as &lt;em&gt;)
+// and emphasis delimiters inside them stay literal — an <em> must never
+// open inside a <code> and close outside it, which produced mismatched
+// tags. Links are extracted next so `_`/`*` inside URLs survive untouched;
+// the link TEXT still goes through the emphasis rules.
 func inlineXHTML(s string) string {
+	s = TypographCJK(s)
 	s = escapeHTML(s)
+	var saved []string
+	hold := func(rendered string) string {
+		saved = append(saved, rendered)
+		return fmt.Sprintf("\x00%d\x00", len(saved)-1)
+	}
+	// Protect code spans before any emphasis rule can corrupt them.
+	s = protectDelimited(s, "`", func(content string) string {
+		return hold("<code>" + content + "</code>")
+	})
+
 	// Protect links before other delimiters corrupt URLs.
-	var links []string
 	s = linkRe.ReplaceAllStringFunc(s, func(m string) string {
 		parts := linkRe.FindStringSubmatch(m)
 		text := replaceDelimited(parts[1], "**", "<strong>", "</strong>")
 		text = replaceDelimited(text, "*", "<em>", "</em>")
-		text = replaceDelimited(text, "_", "<em>", "</em>")
-		text = replaceDelimited(text, "`", "<code>", "</code>")
+		text = replaceUnderscoreEm(text)
 		rendered := `<a href="` + parts[2] + `">` + text + `</a>`
-		links = append(links, rendered)
-		return fmt.Sprintf("\x00%d\x00", len(links)-1)
+		return hold(rendered)
 	})
 	s = replaceDelimited(s, "**", "<strong>", "</strong>")
 	s = replaceDelimited(s, "*", "<em>", "</em>")
-	s = replaceDelimited(s, "_", "<em>", "</em>")
-	s = replaceDelimited(s, "`", "<code>", "</code>")
-	for i, l := range links {
+	s = replaceUnderscoreEm(s)
+	for i, l := range saved {
 		s = strings.ReplaceAll(s, fmt.Sprintf("\x00%d\x00", i), l)
 	}
 	return s

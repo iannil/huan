@@ -2,6 +2,7 @@ package render
 
 import (
 	"archive/zip"
+	"encoding/xml"
 	"io"
 	"os"
 	"path/filepath"
@@ -95,6 +96,76 @@ func TestInlineXHTMLLinkURLProtected(t *testing.T) {
 	}
 	if strings.Contains(out, "<em>") {
 		t.Fatalf("em leaked into URL: %q", out)
+	}
+}
+
+func TestInlineXHTMLCodeSpanEscaped(t *testing.T) {
+	// Regression (270 P0 epub.xhtml findings): raw HTML inside a markdown
+	// code span must come out escaped, never as live tags.
+	got := inlineXHTML("use `<em>x</em>` here")
+	if !strings.Contains(got, "<code>&lt;em&gt;x&lt;/em&gt;</code>") {
+		t.Fatalf("code span not escaped: %q", got)
+	}
+}
+
+func TestInlineXHTMLCodeSpanNoEmphasisInside(t *testing.T) {
+	// Emphasis delimiters inside a code span must stay literal, and may not
+	// open an <em> inside <code> that closes outside it (mismatched tags).
+	got := inlineXHTML("`a_b` c_d")
+	if !strings.Contains(got, "<code>a_b</code>") {
+		t.Fatalf("underscore leaked into code span: %q", got)
+	}
+}
+
+func TestInlineXHTMLWellFormed(t *testing.T) {
+	frag := blocksToXHTML(&DocUnit{Blocks: []Block{
+		{Kind: BlockParagraph, Text: "use `<em>x</em>` and `a_b` c_d ok"},
+		{Kind: BlockParagraph, Text: `quote "你好" and [link](https://x.com/a_b?q=1)`},
+	}})
+	dec := xml.NewDecoder(strings.NewReader("<div>" + frag + "</div>"))
+	for {
+		_, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("not well-formed: %v\nfragment: %s", err, frag)
+		}
+	}
+}
+
+func TestInlineXHTMLIntraWordUnderscore(t *testing.T) {
+	// Regression (P0 epub.xhtml findings): intra-word underscores like
+	// NEEDS_FIX are NOT emphasis in CommonMark and must never pair into an
+	// <em> that opens inside one **strong** span and closes in another.
+	got := inlineXHTML("**NEEDS_FIX** 最多执行两次，**NEEDS_FIX** 之后升级。")
+	if strings.Contains(got, "<em>") {
+		t.Fatalf("intra-word underscore became emphasis: %q", got)
+	}
+	if !strings.Contains(got, "NEEDS_FIX") {
+		t.Fatalf("underscores must stay literal: %q", got)
+	}
+	// Word-boundary _emphasis_ still works; CJK-adjacent underscores stay
+	// literal (goldmark treats CJK as word characters for `_` flanking).
+	got2 := inlineXHTML("word_word and _real_ em 与中文混排")
+	if !strings.Contains(got2, "<em>real</em>") {
+		t.Fatalf("word-boundary underscore emphasis lost: %q", got2)
+	}
+	if got3 := inlineXHTML("这是_强调_的文本"); strings.Contains(got3, "<em>") {
+		t.Fatalf("CJK-adjacent underscore must stay literal: %q", got3)
+	}
+	// Opener-shaped underscores without a later closer (math subscripts,
+	// blank-fill runs) must never emit an unbalanced tag.
+	for _, bad := range []string{
+		"$$ \\text{Error}_i = \\hat{y_i} - y_i $$",
+		"加一条 _Avoid_。",
+		"在 _________（特定人群）填空",
+		"事件 started / _succeeded / _failed 三元组",
+	} {
+		got := inlineXHTML(bad)
+		if strings.Count(got, "<em>") != strings.Count(got, "</em>") {
+			t.Fatalf("unbalanced em for %q: %q", bad, got)
+		}
 	}
 }
 
