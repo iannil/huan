@@ -31,14 +31,21 @@ func TestTypographCJK(t *testing.T) {
 		{`"live joyfully." — Camus`, `“live joyfully.” — Camus`},       // 含 em dash 的拉丁句仍走拉丁路径
 		{`"CRM 的 VIP 用户列表"`, `“CRM 的 VIP 用户列表”`},                       // 串首/串尾引号（表格单元格）
 	}
-	for _, c := range cases {
+	// Latin path must protect verbatim regions exactly like the CJK path.
+	latin := []struct{ in, want string }{
+		{"call `console.log(\"here\")` now", "call `console.log(\"here\")` now"},         // 代码 span 内引号不动
+		{"`trace_id: \"abc-123\"` value", "`trace_id: \"abc-123\"` value"},               // 代码 span（无 CJK）
+		{"see [x](https://e.com/a?b=\"c\") end", "see [x](https://e.com/a?b=\"c\") end"}, // 链接 URL 不动
+		{`outside "only" these change`, `outside “only” these change`},                   // 代码 span 外的成对引号仍转换
+	}
+	for _, c := range append(cases, latin...) {
 		if got := TypographCJK(c.in); got != c.want {
 			t.Errorf("TypographCJK(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 	// Idempotency: applying twice must equal applying once (titles are
 	// normalized again at backend entry points).
-	for _, c := range cases {
+	for _, c := range append(cases, latin...) {
 		if again := TypographCJK(TypographCJK(c.in)); again != TypographCJK(c.in) {
 			t.Errorf("not idempotent for %q: %q", c.in, again)
 		}

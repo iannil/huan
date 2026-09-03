@@ -239,7 +239,11 @@ func emitBlock(c *template.ColBuilder, b Block) {
 			c.Text("• "+pdfText(item), template.FontSize(11))
 		}
 	case BlockCode:
-		c.Text(pdfText(b.Text), template.FontSize(9))
+		// Verbatim, like the EPUB/DOCX backends: no TypographCJK, no
+		// wrapLongLatin — code glyphs must not be mutated. gpdf's LineBreak
+		// force-breaks overlong runs at character boundaries, so long lines
+		// still wrap without changing any glyph.
+		c.Text(strings.TrimRight(b.Text, "\n"), template.FontSize(9))
 	case BlockTable:
 		for _, row := range b.Rows {
 			cells := make([]string, len(row))

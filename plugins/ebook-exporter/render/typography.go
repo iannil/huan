@@ -110,24 +110,67 @@ func TypographCJK(s string) string {
 // typographLatinQuotes handles strings with no CJK: paired straight double
 // quotes become curly (correct English book typography; the audit flags a
 // straight quote that directly follows a CJK heading in EN chapters).
-// Unpaired quotes and apostrophes are left untouched.
+// Unpaired quotes and apostrophes are left untouched. Code spans (backtick
+// pairs) and link URLs (`]( … )`) are skipped verbatim, mirroring the CJK
+// path — `console.log("x")` must keep its straight quotes.
 func typographLatinQuotes(s string) string {
-	if n := strings.Count(s, `"`); n == 0 || n%2 != 0 {
+	rs := []rune(s)
+	// Count convertible quotes OUTSIDE protected regions first; odd/zero
+	// counts leave the whole string untouched.
+	conv := 0
+	for i := 0; i < len(rs); i++ {
+		switch rs[i] {
+		case '`':
+			if j := nextRune(rs, i+1, '`'); j >= 0 {
+				i = j
+			}
+		case ']':
+			if i+1 < len(rs) && rs[i+1] == '(' {
+				end := nextRune(rs, i+2, ')')
+				if end < 0 {
+					end = len(rs) - 1
+				}
+				i = end
+			}
+		case '"':
+			conv++
+		}
+	}
+	if conv == 0 || conv%2 != 0 {
 		return s
 	}
 	var sb strings.Builder
 	open := true
-	for _, r := range s {
-		if r == '"' {
+	for i := 0; i < len(rs); i++ {
+		switch rs[i] {
+		case '`':
+			if j := nextRune(rs, i+1, '`'); j >= 0 {
+				sb.WriteString(string(rs[i : j+1]))
+				i = j
+			} else {
+				sb.WriteRune(rs[i])
+			}
+		case ']':
+			if i+1 < len(rs) && rs[i+1] == '(' {
+				end := nextRune(rs, i+2, ')')
+				if end < 0 {
+					end = len(rs) - 1
+				}
+				sb.WriteString(string(rs[i : end+1]))
+				i = end
+			} else {
+				sb.WriteRune(rs[i])
+			}
+		case '"':
 			if open {
 				sb.WriteRune('“')
 			} else {
 				sb.WriteRune('”')
 			}
 			open = !open
-			continue
+		default:
+			sb.WriteRune(rs[i])
 		}
-		sb.WriteRune(r)
 	}
 	return sb.String()
 }
