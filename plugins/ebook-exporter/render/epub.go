@@ -1,12 +1,17 @@
 package render
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"html"
+	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-shiori/go-epub"
 	"github.com/iannil/huan-plugin-ebook-exporter/content"
@@ -232,8 +237,11 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 		return fmt.Errorf("add css: %w", cerr)
 	}
 
-	// Title page as the first section (spine start).
-	if _, err := e.AddSection(titlePageXHTML(book, lang), "", "title", cssPath); err != nil {
+	// Title page as the first section (spine start). The section title is
+	// the book title: an empty title yields an empty <title> element and an
+	// empty nav anchor, both epubcheck RSC-005 errors.
+	titleBody := `<section epub:type="titlepage">` + "\n" + titlePageXHTML(book, lang) + "\n</section>\n"
+	if _, err := e.AddSection(titleBody, TypographCJK(title), "title", cssPath); err != nil {
 		return fmt.Errorf("add title section: %w", err)
 	}
 
@@ -247,7 +255,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 		case "part":
 			// Part separator page, then each chapter as its own section.
 			secTitle := TypographCJK(sec.Title)
-			body := "<h1>" + escapeHTML(secTitle) + "</h1>"
+			body := `<section epub:type="part">` + "\n<h1>" + escapeHTML(secTitle) + "</h1>\n</section>\n"
 			if _, err := e.AddSection(body, secTitle, uniqueFname("part-"+sec.ID, usedFnames), cssPath); err != nil {
 				return fmt.Errorf("add part section: %w", err)
 			}
@@ -261,7 +269,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 					return fmt.Errorf("parse chapter %s: %w", src, perr)
 				}
 				chTitle := TypographCJK(ch.Title)
-				cb := "<h1>" + escapeHTML(chTitle) + "</h1>" + blocksToXHTML(b)
+				cb := `<section epub:type="chapter">` + "\n<h1>" + escapeHTML(chTitle) + "</h1>\n" + blocksToXHTML(b) + "</section>\n"
 				fname := fmt.Sprintf("%s-ch%02d", sec.ID, i+1)
 				if _, err := e.AddSection(cb, chTitle, uniqueFname(fname, usedFnames), cssPath); err != nil {
 					return fmt.Errorf("add chapter section: %w", err)
@@ -269,6 +277,8 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 			}
 		default:
 			// introduction / epilogue / appendix: single section per entry.
+			// sec.Type maps onto EPUB 3 structural-semantics values.
+			semType := epubSemType(sec.Type)
 			for i, ch := range sec.Chapters {
 				src := ch.SourcePath
 				if lang == content.LangEN && ch.ENPath != "" {
@@ -279,7 +289,11 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 					return fmt.Errorf("parse chapter %s: %w", src, perr)
 				}
 				chTitle := TypographCJK(ch.Title)
-				body := "<h1>" + escapeHTML(chTitle) + "</h1>" + blocksToXHTML(b)
+				inner := "<h1>" + escapeHTML(chTitle) + "</h1>\n" + blocksToXHTML(b)
+				body := inner
+				if semType != "" {
+					body = `<section epub:type="` + semType + `">` + "\n" + inner + "</section>\n"
+				}
 				fname := sec.Type
 				if fname == "" {
 					fname = "section"
@@ -298,7 +312,93 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if err := e.Write(outPath); err != nil {
 		return fmt.Errorf("write epub: %w", err)
 	}
+	if err := normalizeEPUB(outPath); err != nil {
+		return fmt.Errorf("normalize epub: %w", err)
+	}
 	return nil
+}
+
+// epubSemTypes maps section types onto EPUB 3 Structural Semantics
+// Vocabulary values (http://www.idpf.org/epub/vocab/structure/).
+var epubSemTypes = map[string]string{
+	"introduction":     "introduction",
+	"epilogue":         "epilogue",
+	"appendix":         "appendix",
+	"foreword":         "foreword",
+	"afterword":        "afterword",
+	"conclusion":       "conclusion",
+	"acknowledgements": "acknowledgments",
+}
+
+func epubSemType(secType string) string { return epubSemTypes[secType] }
+
+// normalizeEPUB rewrites the finished archive so no document declares
+// dir="auto". Content language is fixed per ebook (zh-CN or en), so
+// direction auto-detection is unnecessary and flagged by publication
+// tooling; go-epub hardcodes it on every <body>/<title>, so the written
+// zip is post-processed here. Entry order and the STORED first mimetype
+// entry — both required by the OCF spec and epubcheck — are preserved.
+func normalizeEPUB(path string) error {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	type entry struct {
+		header zip.FileHeader
+		data   []byte
+	}
+	entries := make([]entry, 0, len(zr.File))
+	for _, f := range zr.File {
+		rc, oerr := f.Open()
+		if oerr != nil {
+			return oerr
+		}
+		data, rerr := io.ReadAll(rc)
+		rc.Close()
+		if rerr != nil {
+			return rerr
+		}
+		hdr := f.FileHeader
+		if strings.HasSuffix(f.Name, ".xhtml") || strings.HasSuffix(f.Name, ".html") {
+			data = []byte(strings.ReplaceAll(string(data), ` dir="auto"`, ""))
+		}
+		entries = append(entries, entry{header: hdr, data: data})
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, ent := range entries {
+		hdr := ent.header
+		// Data descriptors are recomputed on write; only the method and
+		// name matter. mimetype must stay STORED, everything else keeps
+		// its original method.
+		if hdr.Name == "mimetype" {
+			// OCF (epubcheck PKG-005): the mimetype entry must carry no
+			// ZIP extra field. Clearing Extra and Modified prevents
+			// archive/zip from writing an extended-timestamp extra.
+			hdr.Extra = nil
+			hdr.Modified = time.Time{}
+		}
+		w, werr := zw.CreateHeader(&hdr)
+		if werr != nil {
+			return werr
+		}
+		if _, werr = w.Write(ent.data); werr != nil {
+			return werr
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	zr.Close() // release the source before replacing it
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // blocksToXHTML converts a DocUnit's blocks into an XHTML fragment.
@@ -398,11 +498,12 @@ func inlineXHTML(s string) string {
 // epubCSS builds the stylesheet. fontRef is the internal font path returned
 // by AddFont (empty when no font is embedded).
 func epubCSS(lang content.Lang, fontRef string) string {
-	css := `body { font-family: "Noto Sans CJK SC", serif; line-height: 1.7; margin: 1em; }
+	css := `body { font-family: "Noto Sans CJK SC", serif; line-height: 1.7; margin: 1em; line-break: strict; overflow-wrap: break-word; }
 h1 { font-size: 1.6em; margin: 1.5em 0 0.8em; page-break-before: always; }
 h2 { font-size: 1.3em; margin: 1.2em 0 0.6em; }
 h3 { font-size: 1.1em; margin: 1em 0 0.5em; }
 p { text-indent: 2em; margin: 0.5em 0; }
+p, li { orphans: 2; widows: 2; }
 p.subtitle, p.meta { text-indent: 0; text-align: center; color: #666; }
 blockquote { margin: 0.8em 1.5em; color: #555; border-left: 3px solid #ccc; padding-left: 0.8em; }
 pre { background: #f5f5f5; padding: 0.8em; overflow-x: auto; font-size: 0.9em; }

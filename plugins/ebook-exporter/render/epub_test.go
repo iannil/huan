@@ -79,6 +79,85 @@ func TestRenderEPUBStructure(t *testing.T) {
 	}
 }
 
+func TestRenderEPUBPublicationProperties(t *testing.T) {
+	// P1-d: CSS must carry CJK line-breaking (避头尾) and orphan/widow
+	// control; go-epub's dir="auto" must be stripped (fixed content
+	// language), and sections carry epub:type semantics.
+	book := mkBook(t, content.LangZH)
+	out := filepath.Join(t.TempDir(), "demo.epub")
+	if err := RenderEPUB(book, content.LangZH, out, EPUBOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := zip.OpenReader(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	// CSS publication properties.
+	var css strings.Builder
+	for _, f := range r.File {
+		if strings.HasSuffix(f.Name, ".css") {
+			rc, _ := f.Open()
+			data, _ := io.ReadAll(rc)
+			rc.Close()
+			css.Write(data)
+		}
+	}
+	for _, prop := range []string{"line-break", "orphans", "widows"} {
+		if !strings.Contains(css.String(), prop) {
+			t.Errorf("css missing %q", prop)
+		}
+	}
+
+	// dir="auto" removed everywhere; epub:type semantics present.
+	sawChapterSemantics := false
+	for _, f := range r.File {
+		if !strings.HasSuffix(f.Name, ".xhtml") {
+			continue
+		}
+		rc, _ := f.Open()
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		doc := string(data)
+		if strings.Contains(doc, `dir="auto"`) {
+			t.Errorf("%s still has dir=\"auto\"", f.Name)
+		}
+		if strings.Contains(doc, `epub:type="chapter"`) {
+			sawChapterSemantics = true
+		}
+		if strings.Contains(doc, `epub:type`) && !strings.Contains(doc, `xmlns:epub`) {
+			t.Errorf("%s uses epub:type without xmlns:epub declaration", f.Name)
+		}
+	}
+	if !sawChapterSemantics {
+		t.Error("no epub:type=\"chapter\" section found")
+	}
+
+	// Mimetype must remain the first, STORED (uncompressed) entry after
+	// the archive rewrite — readers and epubcheck require this — and must
+	// carry no ZIP extra field (OCF / epubcheck PKG-005).
+	if len(r.File) == 0 || r.File[0].Name != "mimetype" || r.File[0].Method != zip.Store {
+		t.Fatalf("mimetype must be first stored entry, got %+v", r.File[0].FileHeader)
+	}
+	if len(r.File[0].Extra) != 0 {
+		t.Errorf("mimetype has %d bytes of extra field (PKG-005)", len(r.File[0].Extra))
+	}
+
+	// No document may have an empty <title> (epubcheck RSC-005).
+	for _, f := range r.File {
+		if !strings.HasSuffix(f.Name, ".xhtml") {
+			continue
+		}
+		rc, _ := f.Open()
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		if strings.Contains(string(data), "<title></title>") || strings.Contains(string(data), "<title/>") {
+			t.Errorf("%s has empty <title>", f.Name)
+		}
+	}
+}
+
 func TestInlineXHTMLOddDelimitersBalanced(t *testing.T) {
 	out := inlineXHTML("**a** b **c")
 	if strings.Count(out, "<strong>") != strings.Count(out, "</strong>") {
