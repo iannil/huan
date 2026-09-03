@@ -43,6 +43,24 @@ func TestRenderPDFHeaderAndPages(t *testing.T) {
 	}
 }
 
+func TestPDFHeaderTitleFallback(t *testing.T) {
+	book := mkBook(t, content.LangEN)
+	// ZH edition: the ZH title is used as-is.
+	if got := pdfHeaderTitle(book, content.LangZH); got != "示范书" {
+		t.Fatalf("ZH header = %q, want 示范书", got)
+	}
+	// EN with an EN title: the EN title wins.
+	if got := pdfHeaderTitle(book, content.LangEN); got != "Demo Book" {
+		t.Fatalf("EN header = %q, want Demo Book", got)
+	}
+	// EN with no EN title: the header must fall back to ZH instead of
+	// silently disappearing (README ZH-fallback policy).
+	book.TitleEN = ""
+	if got := pdfHeaderTitle(book, content.LangEN); got != "示范书" {
+		t.Fatalf("EN-missing header = %q, want ZH fallback 示范书", got)
+	}
+}
+
 func TestWrapLongLatin(t *testing.T) {
 	long := ""
 	for i := 0; i < 120; i++ {

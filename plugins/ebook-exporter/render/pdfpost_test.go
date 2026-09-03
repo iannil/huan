@@ -150,6 +150,53 @@ func TestInjectOutline(t *testing.T) {
 	}
 }
 
+func TestInjectOutlineSkipsEmptyTitle(t *testing.T) {
+	data := mkTinyPDF(t, 2)
+	// An empty-title entry must be skipped (with a log), not hard-fail the
+	// whole export; the remaining entries still form a valid tree.
+	out, err := injectOutline(data, []OutlineEntry{
+		{Title: "", Page: 1, Level: 1},
+		{Title: "第一章", Page: 1, Level: 1},
+		{Title: "", Page: 2, Level: 2},
+		{Title: "第二章", Page: 2, Level: 1},
+	})
+	if err != nil {
+		t.Fatalf("empty-title entry must not fail the export: %v", err)
+	}
+	r, err := pdf.NewReader(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := r.ResolveDict(r.RootRef())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outl, err := r.ResolveDict(root[Name("Outlines")])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outl[Name("Count")].(pdf.Integer); got != 2 {
+		t.Fatalf("root /Count = %d, want 2 (empty titles skipped)", got)
+	}
+	var titles []string
+	cur := outl[Name("First")]
+	for cur != nil {
+		d, err := r.ResolveDict(cur)
+		if err != nil {
+			t.Fatal(err)
+		}
+		titles = append(titles, decodePDFUTF16Hex(d[Name("Title")].(pdf.HexString)))
+		n, ok := d[Name("Next")]
+		if !ok {
+			break
+		}
+		cur = n
+	}
+	if len(titles) != 2 || titles[0] != "第一章" || titles[1] != "第二章" {
+		t.Fatalf("titles = %v, want [第一章 第二章]", titles)
+	}
+}
+
 func TestInjectOutlineEmpty(t *testing.T) {
 	data := mkTinyPDF(t, 1)
 	out, err := injectOutline(data, nil)

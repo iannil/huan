@@ -126,10 +126,7 @@ func newPDFDocument(book *content.BookEntry, lang content.Lang, opts PDFOptions)
 		options = append(options, template.WithDefaultFont(cjkFontFamily, 11))
 	}
 	doc := template.New(options...)
-	headerTitle := book.TitleZH
-	if lang == content.LangEN {
-		headerTitle = book.TitleEN
-	}
+	headerTitle := pdfHeaderTitle(book, lang)
 	if headerTitle != "" {
 		doc.Header(func(p *template.PageBuilder) {
 			p.AutoRow(func(r *template.RowBuilder) {
@@ -149,6 +146,16 @@ func newPDFDocument(book *content.BookEntry, lang content.Lang, opts PDFOptions)
 		})
 	})
 	return doc, nil
+}
+
+// pdfHeaderTitle picks the running-header title: the edition language's
+// title, falling back to the ZH title when the EN title is missing (a book
+// without an EN title must not silently lose its running header).
+func pdfHeaderTitle(book *content.BookEntry, lang content.Lang) string {
+	if lang == content.LangEN && book.TitleEN != "" {
+		return book.TitleEN
+	}
+	return book.TitleZH
 }
 
 // renderCover emits the cover page: title, subtitle and version metadata.

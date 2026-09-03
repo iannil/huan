@@ -24,6 +24,12 @@ const docxCodeFontHalfPoints = 18
 // (ParagraphBuilder.FontSize takes points; domain Run.SetSize takes half-points).
 const docxTitleFontSizePoints = 28
 
+// docxCJKFont is the run-level font for every text run: docxgo's
+// WithDefaultFont option is never consumed by the serializer, so the only
+// effective way to declare fonts (ascii/hAnsi plus the eastAsia slot CJK
+// glyphs resolve through) is per-run rFonts in document.xml.
+const docxCJKFont = "Noto Sans CJK SC"
+
 // Rendering conventions (documented per brief):
 //   - part titles   -> Heading1
 //   - chapter titles-> Heading1 (front/back matter) or Heading2 (chapters inside a part)
@@ -35,8 +41,9 @@ const docxTitleFontSizePoints = 28
 //   - code          -> Normal paragraphs, 9pt, no first-line indent
 //   - table         -> V1 degradation: one paragraph per row, cells
 //     tab-separated (docxgo TableBuilder deliberately not used in V1)
-//   - TOC           -> plain Heading1 + chapter list (Word TOC fields need a
-//     refresh pass inside Word; a plain list is deterministic)
+//   - TOC           -> a Word TOC field (refreshable, drives the navigation
+//     pane) followed by a plain deterministic chapter list that stays
+//     readable without a field refresh
 
 // RenderDOCX assembles the book into a DOCX file at outPath.
 // The builder only creates the document skeleton and metadata; all content
@@ -54,11 +61,47 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	// Title-page title paragraph goes through the builder: Build()
 	// validates that the document is non-empty, so at least one paragraph
 	// must exist before Build. The title is rendered big via run font size
-	// (the builder has no style setter).
+	// (the builder has no style setter); the eastAsia font is patched onto
+	// the builder-created run afterwards since the builder has no font
+	// setter either.
 	builder.AddParagraph().Text(title).FontSize(docxTitleFontSizePoints).End()
 	doc, err := builder.Build()
 	if err != nil {
 		return fmt.Errorf("build docx: %w", err)
+	}
+	if paras := doc.Paragraphs(); len(paras) > 0 {
+		for _, r := range paras[0].Runs() {
+			if err := r.SetFont(domain.Font{Name: docxCJKFont, EastAsia: docxCJKFont}); err != nil {
+				return fmt.Errorf("title font: %w", err)
+			}
+		}
+	}
+
+	// Centered page-number footer on the default section.
+	sec, err := doc.DefaultSection()
+	if err != nil {
+		return fmt.Errorf("default section: %w", err)
+	}
+	footer, err := sec.Footer(domain.FooterDefault)
+	if err != nil {
+		return fmt.Errorf("footer: %w", err)
+	}
+	footPara, err := footer.AddParagraph()
+	if err != nil {
+		return fmt.Errorf("footer paragraph: %w", err)
+	}
+	if err := footPara.SetAlignment(domain.AlignmentCenter); err != nil {
+		return fmt.Errorf("footer alignment: %w", err)
+	}
+	footRun, err := footPara.AddRun()
+	if err != nil {
+		return fmt.Errorf("footer run: %w", err)
+	}
+	if err := footRun.SetFont(domain.Font{Name: docxCJKFont, EastAsia: docxCJKFont}); err != nil {
+		return fmt.Errorf("footer font: %w", err)
+	}
+	if err := footRun.AddField(docx.NewPageNumberField()); err != nil {
+		return fmt.Errorf("footer page field: %w", err)
 	}
 
 	meta := make([]string, 0, 2)
@@ -81,6 +124,23 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	}
 	if err := docxAddText(doc, tocLabel, domain.StyleIDHeading1, 0, nil); err != nil {
 		return err
+	}
+	// Refreshable Word TOC field (headings 1-3, hyperlinks). Word shows the
+	// plain chapter list below until the field is refreshed, so the file is
+	// readable both before and after F9.
+	tocPara, err := doc.AddParagraph()
+	if err != nil {
+		return fmt.Errorf("add toc paragraph: %w", err)
+	}
+	tocRun, err := tocPara.AddRun()
+	if err != nil {
+		return fmt.Errorf("add toc run: %w", err)
+	}
+	if err := tocRun.SetFont(domain.Font{Name: docxCJKFont, EastAsia: docxCJKFont}); err != nil {
+		return fmt.Errorf("toc font: %w", err)
+	}
+	if err := tocRun.AddField(docx.NewTOCField(map[string]string{"o": "1-3", "h": "", "z": ""})); err != nil {
+		return fmt.Errorf("add toc field: %w", err)
 	}
 	for _, sec := range book.OrderedSections() {
 		if err := docxAddText(doc, inlinePlain(sec.Title), domain.StyleIDNormal, 0, nil); err != nil {
@@ -238,10 +298,16 @@ func docxAddText(doc domain.Document, text, style string, firstLineTwips int, fo
 }
 
 // docxSetRunText appends a single run with the given text to the paragraph.
+// Every run carries explicit rFonts (ascii/hAnsi/eastAsia) so CJK glyphs
+// resolve through the eastAsia font slot instead of relying on Word's
+// font fallback.
 func docxSetRunText(para domain.Paragraph, text string) error {
 	run, err := para.AddRun()
 	if err != nil {
 		return fmt.Errorf("add run: %w", err)
+	}
+	if err := run.SetFont(domain.Font{Name: docxCJKFont, EastAsia: docxCJKFont}); err != nil {
+		return fmt.Errorf("set font: %w", err)
 	}
 	if err := run.SetText(text); err != nil {
 		return fmt.Errorf("set text: %w", err)

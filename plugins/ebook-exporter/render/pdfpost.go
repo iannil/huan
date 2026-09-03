@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"log"
 	"unicode/utf16"
 
 	"github.com/gpdf-dev/gpdf/pdf"
@@ -39,10 +40,22 @@ func injectOutline(data []byte, toc []OutlineEntry) ([]byte, error) {
 	if len(toc) == 0 {
 		return data, nil
 	}
+	// Empty titles are tolerated (skipped with a log) rather than failing
+	// the whole export: a single bad front-matter entry must not sink the
+	// publication PDF. Everything else stays a hard error.
+	filtered := make([]OutlineEntry, 0, len(toc))
 	for i, e := range toc {
 		if e.Title == "" {
-			return nil, fmt.Errorf("outline entry %d has empty title", i)
+			log.Printf("ebook-exporter: skipping outline entry %d with empty title (page %d)", i, e.Page)
+			continue
 		}
+		filtered = append(filtered, e)
+	}
+	toc = filtered
+	if len(toc) == 0 {
+		return data, nil
+	}
+	for _, e := range toc {
 		if e.Page < 1 {
 			return nil, fmt.Errorf("outline entry %q has invalid page %d", e.Title, e.Page)
 		}
