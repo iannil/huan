@@ -4,4 +4,5 @@
 # Everything else in the repo is unnecessary for the image build.
 *
 !huan
-!docker-plugins
+!docker-plugins/
+!docker-plugins/**
