@@ -56,8 +56,9 @@ RUN chmod +x /usr/local/bin/huan
 
 # Pin the plugin lookup root. GH Actions container jobs override HOME to
 # /github/home, so huan's fallback (~/.huan) would miss /root/.huan/plugins.
-# HUAN_HOME forces the loader to the directory the COPY below populates.
-ENV HUAN_HOME=/root
+# HUAN_HOME must be the huan home dir ITSELF (the loader joins $HUAN_HOME
+# with "plugins"), so set it to /root/.huan, not /root.
+ENV HUAN_HOME=/root/.huan
 
 # Copy pre-built Go plugins (.so) into huan's global plugin directory so
 # downstream CI builds can activate themes (e.g. zhurongshuo) without a
