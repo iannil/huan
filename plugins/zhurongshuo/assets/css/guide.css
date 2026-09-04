@@ -64,7 +64,7 @@
 .guide_enter_book:hover { background: #f5f1e8; }
 
 @media (max-width: 640px) {
-    .guide_thesis__claim { font-size: 1.45rem; }
+    .guide_thesis__claim { font-size: 1.4rem; }
     .guide_page { padding: 24px 16px 60px; }
     .guide_concepts { grid-template-columns: 1fr; }
 }
@@ -113,29 +113,29 @@
    垂直节奏沿用 .markdown 的约定：em 制、标题 space-before > space-after
    （标题属于其后正文），章与章的分隔由章标题自身承担，不叠加 section 外边距。 */
 .guide_page--v2 { max-width: 760px; margin: 0 auto; }
-.guide_hook { padding: 2.5em 0 0; border-left: 2px solid #1f1f1f; padding-left: 1.2em; margin-bottom: 1em; }
-.guide_hook__scene { font-size: 1.05rem; line-height: 1.8; color: #555555; margin: 0; }
-.guide_hook__question { font-size: 1.3rem; font-weight: 500; color: #1f1f1f; margin: 0.5em 0 0; }
+.guide_hook { padding: 0; border-left: 2px solid #1f1f1f; padding-left: 1.2em; margin-bottom: 1.2em; }
+.guide_hook__scene { font-size: 1.02rem; line-height: 1.8; color: #555555; margin: 0; }
+.guide_hook__question { font-size: 1.2rem; font-weight: 500; color: #1f1f1f; margin: 0.5em 0 0; }
 .guide_reading_time { color: #999999; font-size: .85rem; margin: 0.8em 0 0; }
 .guide_chapter { margin: 0; }
-.guide_chapter__title { font-size: 1.25rem; font-weight: 600; color: #1f1f1f; border-bottom: 1px solid #f2f2f2; padding-bottom: 0.6em; margin: 3em 0 1em; }
-.guide_chapter__intro { color: #666666; margin: 0 0 1.6em; }
-.guide_chapter__chart { margin: 0 0 1.6em; }
+.guide_chapter__title { font-size: 1.25rem; font-weight: 600; color: #1f1f1f; border-bottom: 1px solid #f2f2f2; padding-bottom: 0.6em; margin: 2.8em 0 0.8em; }
+.guide_chapter__intro { color: #666666; margin: 0 0 1.2em; }
+.guide_chapter__chart { margin: 0 0 1.2em; }
 .guide_steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 2.2em; margin: 0; }
-.guide_step { border-top: 1px solid #f2f2f2; padding: 0.9em 0 1.6em; }
-.guide_step__label { margin: 0 0 0.3em; font-size: 1rem; font-weight: 500; color: #1f1f1f; }
-.guide_step__sublabel { margin: 0 0 0.6em; color: #999999; font-size: .85rem; }
-.guide_step__explain { margin: 0; font-size: .92rem; line-height: 1.8; color: #424242; }
-.guide_pitfall { margin-top: 0.8em; border-top: 1px solid #f2f2f2; padding-top: 0.9em; }
-.guide_pitfall__title { margin: 0 0 0.7em; font-size: .95rem; font-weight: 500; color: #1f1f1f; }
-.guide_pitfall__misread { margin: 0 0 0.3em; color: #424242; line-height: 1.8; font-size: .92rem; }
+.guide_step { border-top: 1px solid #f2f2f2; padding: 0.8em 0 1.2em; }
+.guide_step__label { margin: 0 0 0.3em; font-size: .98rem; font-weight: 500; color: #1f1f1f; }
+.guide_step__sublabel { margin: 0 0 0.6em; color: #999999; font-size: .82rem; }
+.guide_step__explain { margin: 0; font-size: .9rem; line-height: 1.8; color: #424242; }
+.guide_pitfall { margin-top: 1.2em; border-top: 1px solid #f2f2f2; padding-top: 0.8em; }
+.guide_pitfall__title { margin: 0 0 0.7em; font-size: .92rem; font-weight: 500; color: #1f1f1f; }
+.guide_pitfall__misread { margin: 0 0 0.3em; color: #424242; line-height: 1.8; font-size: .9rem; }
 .guide_pitfall__misread::before { content: "— "; color: #999999; }
-.guide_pitfall__fix { margin: 0 0 0.8em; color: #666666; line-height: 1.8; font-size: .92rem; }
+.guide_pitfall__fix { margin: 0 0 0.8em; color: #666666; line-height: 1.8; font-size: .9rem; }
 .guide_pitfall__item:last-child .guide_pitfall__fix { margin-bottom: 0; }
 .guide_next__links { display: flex; flex-wrap: wrap; gap: 0.6em 2em; }
-.guide_next__link { display: inline-block; color: #424242; text-decoration: none; border-bottom: 1px dotted #b8b0a0; font-size: .95rem; }
+.guide_next__link { display: inline-block; color: #424242; text-decoration: none; border-bottom: 1px dotted #b8b0a0; font-size: .92rem; }
 .guide_next__link:hover { color: #1f1f1f; border-bottom-style: solid; }
-@media (max-width: 640px) { .guide_steps { grid-template-columns: 1fr; } .guide_page--v2 { padding: 0 12px; } .guide_chapter__title { margin-top: 2.4em; } }
+@media (max-width: 640px) { .guide_steps { grid-template-columns: 1fr; } .guide_page--v2 { padding: 0 20px 48px; } .guide_chapter__title { margin-top: 2em; } }
 
 /* v2 页内复用的 v1 段落（thesis/concepts/map/takeaways/出口）灰度覆盖 —— 仅作用于 --v2，v1 页不动 */
 .guide_page--v2 .guide_thesis__claim { color: #1f1f1f; }
@@ -162,12 +162,12 @@
 .guide_page--v2 .guide-chart__sublabel { fill: #999999; }
 
 /* v2 间距覆盖：复用段落对齐 .markdown 节奏（em 制） */
-.guide_page--v2 .guide_thesis { margin: 1.6em 0 2.8em; }
+.guide_page--v2 .guide_thesis { margin: 1.2em 0 2.4em; }
 .guide_page--v2 .guide_thesis__claim { margin: 0 0 0.8em; }
-.guide_page--v2 .guide_section__title { margin: 3em 0 0.8em; }
+.guide_page--v2 .guide_section__title { margin: 2.8em 0 0.8em; }
 .guide_page--v2 .guide_concepts { gap: 0 2.2em; margin: 0; }
 .guide_page--v2 .guide_concept_card { padding: 0.9em 0 0.4em; }
 .guide_page--v2 .guide_map { margin: 0; }
 .guide_page--v2 .guide_map__part { margin: 1.2em 0; }
 .guide_page--v2 .guide_takeaways ul { line-height: 1.9; }
-.guide_page--v2 .guide_enter_book { margin-top: 3em; }
+.guide_page--v2 .guide_enter_book { margin-top: 2.4em; font-size: .92rem; }
