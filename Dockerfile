@@ -46,14 +46,22 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     update-ca-certificates
 
-# Copy huan binary. The release workflow extracts
-# release/<version>/huan_<version>_linux_amd64.tar.gz and copies the
-# resulting binary to the build context root before invoking docker build,
-# so this COPY works.
+# Copy huan binary. The release workflow builds a Linux/amd64 CGO-enabled
+# host binary (so it can load Go plugins at runtime) and places it at the
+# build context root before invoking docker build, so this COPY works.
 # For local builds (development), place a freshly-built huan at the repo
-# root (e.g., `go build -o huan ./cmd/huan && docker build .`).
+# root (e.g., `CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o huan ./cmd/huan && docker build .`).
 COPY huan /usr/local/bin/huan
 RUN chmod +x /usr/local/bin/huan
+
+# Copy pre-built Go plugins (.so) into huan's global plugin directory so
+# downstream CI builds can activate themes (e.g. zhurongshuo) without a
+# local plugin checkout. The loader searches $HUAN_HOME/plugins first, then
+# the project plugins/ dir, so installing here makes them available to any
+# project running inside this image. Built by scripts/build-plugins.sh in
+# the release workflow against the same source/toolchain as the host binary
+# (required: plugin.Open demands matching Go version + dependency versions).
+COPY docker-plugins/ /root/.huan/plugins/
 
 # Verify the binary runs. This catches architecture mismatches at build time
 # rather than runtime (e.g., if linux/arm64 binary accidentally COPY'd here).

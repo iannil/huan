@@ -1,0 +1,7 @@
+# Keep the Docker build context small. The release workflow places the
+# linux/amd64 CGO-enabled host binary at ./huan and pre-built plugins under
+# ./docker-plugins/ right before `docker build` (see .github/workflows/release.yml).
+# Everything else in the repo is unnecessary for the image build.
+*
+!huan
+!docker-plugins
