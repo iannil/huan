@@ -161,12 +161,15 @@
 .guide_page--v2 .guide-chart__label { fill: #1f1f1f; }
 .guide_page--v2 .guide-chart__sublabel { fill: #999999; }
 
+/* v2 breadcrumb：与 .markdown 行文节奏对齐，em 制间距 */
+.guide_page--v2 .guide_breadcrumb { font-size: 1rem; margin-bottom: 1.2em; }
+
 /* v2 间距覆盖：复用段落对齐 .markdown 节奏（em 制） */
 .guide_page--v2 .guide_thesis { margin: 1.2em 0 2.4em; }
 .guide_page--v2 .guide_thesis__claim { margin: 0 0 0.8em; }
 .guide_page--v2 .guide_section__title { margin: 2.8em 0 0.8em; }
 .guide_page--v2 .guide_concepts { gap: 0 2.2em; margin: 0; }
-.guide_page--v2 .guide_concept_card { padding: 0.9em 0 0.4em; }
+.guide_page--v2 .guide_concept_card { padding: 0.9em 1em 0.4em; }
 .guide_page--v2 .guide_map { margin: 0; }
 .guide_page--v2 .guide_map__part { margin: 1.2em 0; }
 .guide_page--v2 .guide_takeaways ul { line-height: 1.9; }
