@@ -130,3 +130,46 @@ func FindCJKFont(fontsDir string) (string, error) {
 func ReadFontData(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
+
+// FindMonoFont locates a monospaced font for PDF code blocks (PDF-1). If
+// fontsDir is non-empty, only that directory is searched; otherwise the
+// standard font directories are scanned. Match priority: JetBrains Mono,
+// Fira Code/Mono, Source Code Pro, SF Mono, Menlo, Courier New, Courier.
+// Returns "" (no error) when nothing matches — the caller degrades to the
+// body font, and the degradation is a registered known limitation.
+func FindMonoFont(fontsDir string) string {
+	dirs := defaultFontDirs()
+	if fontsDir != "" {
+		dirs = []string{fontsDir}
+	}
+	try := func(substrings ...string) string {
+		cands := fontCandidates(dirs, substrings...)
+		if len(cands) == 0 {
+			return ""
+		}
+		sort.SliceStable(cands, func(i, j int) bool {
+			ri := strings.Contains(strings.ToLower(filepath.Base(cands[i])), "-regular")
+			rj := strings.Contains(strings.ToLower(filepath.Base(cands[j])), "-regular")
+			if ri != rj {
+				return ri
+			}
+			return false
+		})
+		PreferTTF(cands)
+		return cands[0]
+	}
+	for _, substrings := range [][]string{
+		{"jetbrainsmono"},
+		{"firacodenerdfontmono"}, // Nerd Font patch ships symbols too
+		{"fira"},
+		{"sourcecodepro"},
+		{"sfnsmono"},
+		{"menlo"},
+		{"courier"},
+	} {
+		if p := try(substrings...); p != "" {
+			return p
+		}
+	}
+	return ""
+}

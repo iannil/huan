@@ -275,3 +275,56 @@ func TestRenderEPUBMergedIntroductions(t *testing.T) {
 		t.Fatalf("RenderEPUB with duplicate introductions: %v", err)
 	}
 }
+
+func TestRenderEPUBCover(t *testing.T) {
+	// EPUB-3: the OPF manifest must declare properties="cover-image" on the
+	// cover item, the SVG must be present in the archive, and the cover
+	// section must come before the title page in the spine.
+	book := mkBook(t, content.LangZH)
+	out := filepath.Join(t.TempDir(), "demo.epub")
+	if err := RenderEPUB(book, content.LangZH, out, EPUBOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := zip.OpenReader(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	var sawCoverSVG, sawCoverXhtml bool
+	for _, f := range r.File {
+		if f.Name == "EPUB/images/cover.svg" {
+			sawCoverSVG = true
+			rc, _ := f.Open()
+			data, _ := io.ReadAll(rc)
+			rc.Close()
+			svg := string(data)
+			if !strings.Contains(svg, "<svg") || !strings.Contains(svg, "示范书") {
+				t.Errorf("cover svg malformed or missing title: %.200s", svg)
+			}
+		}
+		if f.Name == "EPUB/xhtml/cover.xhtml" {
+			sawCoverXhtml = true
+		}
+	}
+	if !sawCoverSVG || !sawCoverXhtml {
+		t.Fatalf("cover files missing: svg=%v xhtml=%v", sawCoverSVG, sawCoverXhtml)
+	}
+	var opf string
+	for _, f := range r.File {
+		if strings.HasSuffix(f.Name, ".opf") {
+			rc, _ := f.Open()
+			data, _ := io.ReadAll(rc)
+			rc.Close()
+			opf = string(data)
+		}
+	}
+	if !strings.Contains(opf, `properties="cover-image"`) {
+		t.Errorf("OPF missing cover-image properties: %.500s", opf)
+	}
+	// Spine order: the cover section must precede the title page.
+	ci := strings.Index(opf, `idref="cover.xhtml"`)
+	ti := strings.Index(opf, `idref="title.xhtml"`)
+	if ci < 0 || ti < 0 || ci > ti {
+		t.Errorf("spine order wrong: cover@%d title@%d", ci, ti)
+	}
+}

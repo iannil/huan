@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-shiori/go-epub"
+	goepub "github.com/go-shiori/go-epub"
 	"github.com/iannil/huan-plugin-ebook-exporter/content"
 )
 
@@ -174,7 +174,8 @@ type EPUBOptions struct {
 	// EmbedFont embeds a CJK font into the EPUB (larger file, portable).
 	EmbedFont bool
 	// FontPath is the path of the font file to embed.
-	FontPath string
+	FontPath   string
+	CoverFonts CoverFonts
 }
 
 // titlePageXHTML renders the book title page (spine start).
@@ -205,13 +206,52 @@ func titlePageXHTML(book *content.BookEntry, lang content.Lang) string {
 	return sb.String()
 }
 
+// addCover generates the cover image, adds it to the epub, and registers it
+// as the cover (OPF manifest properties="cover-image" + spine-first cover
+// section, audit typo.epub.cover). The SVG is written to a temp file because
+// AddImage reads from a source path; go-epub only fetches that source at
+// Write time, so the returned cleanup function must not run before the
+// caller's Write — defer it in RenderEPUB, which writes last.
+func addCover(e *goepub.Epub, book *content.BookEntry, lang content.Lang, fonts CoverFonts) (cleanup func(), err error) {
+	svg, err := publicationCoverSVG(book, lang, fonts)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp("", "zhurongshuo-cover-*.svg")
+	if err != nil {
+		return nil, fmt.Errorf("create cover temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanup = func() { os.Remove(tmpName) }
+	if _, err := tmp.WriteString(svg); err != nil {
+		tmp.Close()
+		cleanup()
+		return nil, fmt.Errorf("write cover: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("write cover: %w", err)
+	}
+	coverPath, err := e.AddImage(tmpName, "cover.svg")
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("add cover image: %w", err)
+	}
+	// Empty CSS path: go-epub installs its default full-viewport cover CSS.
+	if err := e.SetCover(coverPath, ""); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("set cover: %w", err)
+	}
+	return cleanup, nil
+}
+
 // RenderEPUB assembles the book into an EPUB file at outPath.
 func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts EPUBOptions) error {
 	title := book.TitleZH
 	if lang == content.LangEN {
 		title = book.TitleEN
 	}
-	e, err := epub.NewEpub(TypographCJK(title))
+	e, err := goepub.NewEpub(TypographCJK(title))
 	if err != nil {
 		return fmt.Errorf("create epub: %w", err)
 	}
@@ -220,6 +260,24 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 		e.SetLang("en")
 	} else {
 		e.SetLang("zh-CN")
+	}
+	// dc:description on the OPF package (EPUB-5): the edition's subtitle, or
+	// the book title as a fallback.
+	desc := TypographCJK(book.SubtitleZH)
+	if lang == content.LangEN {
+		// The EN edition has no true English subtitle (V1: BookEntry has
+		// SubtitleZH only), so no description — an empty description element
+		// adds nothing and the audit only checks for presence.
+		desc = ""
+	}
+	if desc == "" {
+		desc = TypographCJK(book.TitleZH)
+		if lang == content.LangEN {
+			desc = TypographCJK(book.TitleEN)
+		}
+	}
+	if desc != "" {
+		e.SetDescription(desc)
 	}
 
 	// Embed font first so its internal path can be referenced in CSS.
@@ -237,7 +295,17 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 		return fmt.Errorf("add css: %w", cerr)
 	}
 
-	// Title page as the first section (spine start). The section title is
+	// Cover page (EPUB-3): a generated SVG cover registered as the OPF
+	// cover-image. SetCover inserts the cover section spine-first, ahead of
+	// the title page below. go-epub only reads the source file during Write,
+	// so the temp SVG's cleanup is deferred until after that write.
+	coverCleanup, err := addCover(e, book, lang, opts.CoverFonts)
+	if err != nil {
+		return fmt.Errorf("add cover: %w", err)
+	}
+	defer coverCleanup()
+
+	// Title page as the first content section. The section title is
 	// the book title: an empty title yields an empty <title> element and an
 	// empty nav anchor, both epubcheck RSC-005 errors.
 	titleBody := `<section epub:type="titlepage">` + "\n" + titlePageXHTML(book, lang) + "\n</section>\n"
@@ -401,20 +469,37 @@ func normalizeEPUB(path string) error {
 	return os.Rename(tmp, path)
 }
 
+// inChapterHeadingLevel maps a source heading level to the XHTML heading
+// level inside a chapter body, repairing level skips against prev (the level
+// of the preceding heading; 1 because the chapter title RenderEPUB emits is
+// always <h1>). Chapter titles own <h1>, so in-chapter headings start at
+// <h2>; a level deeper than prev+1 is clamped so the sequence never skips
+// (audit epub.heading.skip). Returning at least prev keeps sibling jumps
+// (h4 → h2) untouched — only downward skips are repaired.
+func inChapterHeadingLevel(level, prev int) int {
+	lvl := level
+	if lvl < 2 {
+		lvl = 2
+	}
+	if lvl > 6 {
+		lvl = 6
+	}
+	if lvl > prev+1 {
+		lvl = prev + 1
+	}
+	return lvl
+}
+
 // blocksToXHTML converts a DocUnit's blocks into an XHTML fragment.
 // Lists are rendered as <ul> (DocUnit does not carry ordered-ness in V1).
 func blocksToXHTML(du *DocUnit) string {
 	var sb strings.Builder
+	prevHeading := 1 // chapter title above this fragment is <h1>
 	for _, b := range du.Blocks {
 		switch b.Kind {
 		case BlockHeading:
-			lvl := b.Level
-			if lvl < 1 {
-				lvl = 1
-			}
-			if lvl > 6 {
-				lvl = 6
-			}
+			lvl := inChapterHeadingLevel(b.Level, prevHeading)
+			prevHeading = lvl
 			fmt.Fprintf(&sb, "<h%d>%s</h%d>\n", lvl, inlineXHTML(b.Text), lvl)
 		case BlockParagraph:
 			sb.WriteString("<p>" + inlineXHTML(b.Text) + "</p>\n")
@@ -465,7 +550,7 @@ func blocksToXHTML(du *DocUnit) string {
 // tags. Links are extracted next so `_`/`*` inside URLs survive untouched;
 // the link TEXT still goes through the emphasis rules.
 func inlineXHTML(s string) string {
-	s = TypographCJK(s)
+	s = normalizeInline(s)
 	s = escapeHTML(s)
 	var saved []string
 	hold := func(rendered string) string {
@@ -498,10 +583,11 @@ func inlineXHTML(s string) string {
 // epubCSS builds the stylesheet. fontRef is the internal font path returned
 // by AddFont (empty when no font is embedded).
 func epubCSS(lang content.Lang, fontRef string) string {
-	css := `body { font-family: "Noto Sans CJK SC", serif; line-height: 1.7; margin: 1em; line-break: strict; overflow-wrap: break-word; }
+	css := `body { font-family: "Noto Sans CJK SC", serif; line-height: 1.7; margin: 1em; line-break: strict; overflow-wrap: break-word; text-align: justify; }
 h1 { font-size: 1.6em; margin: 1.5em 0 0.8em; page-break-before: always; }
 h2 { font-size: 1.3em; margin: 1.2em 0 0.6em; }
 h3 { font-size: 1.1em; margin: 1em 0 0.5em; }
+h2, h3, h4, h5, h6 { page-break-after: avoid; }
 p { text-indent: 2em; margin: 0.5em 0; }
 p, li { orphans: 2; widows: 2; }
 p.subtitle, p.meta { text-indent: 0; text-align: center; color: #666; }
@@ -511,7 +597,10 @@ table { border-collapse: collapse; margin: 1em 0; }
 td, th { border: 1px solid #999; padding: 0.4em 0.8em; }
 `
 	if lang == content.LangEN {
-		css += "body { font-family: serif; }\np { text-indent: 0; }\n"
+		// English edition: no CJK first-line indent (English convention), and
+		// enable auto hyphenation so justify does not stretch big gaps.
+		// (CJK needs no hyphens — every character is a break opportunity.)
+		css += "body { font-family: serif; hyphens: auto; }\np { text-indent: 0; }\n"
 	}
 	if fontRef != "" {
 		css += fmt.Sprintf("@font-face { font-family: \"EmbeddedCJK\"; src: url(%s); }\nbody { font-family: \"EmbeddedCJK\", serif; }\n", fontRef)

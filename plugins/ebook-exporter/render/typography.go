@@ -1,6 +1,8 @@
 package render
 
-import "strings"
+import (
+	"strings"
+)
 
 // TypographCJK normalizes halfwidth punctuation to proper CJK typography in
 // export pipelines (memory only; source files are never written back):
@@ -264,4 +266,98 @@ func isCJK(r rune) bool {
 		return true
 	}
 	return false
+}
+
+// TypographPunct normalizes ASCII punctuation that has dedicated Unicode
+// forms in book typography, regardless of script:
+//
+//   - "..." / "…" runs -> … (U+2026, single ellipsis). Two or three ASCII
+//     periods, or an ASCII ellipsis followed by a period, collapse to one …
+//     (no space on either side; Chinese ellipsis is a single 2-em …).
+//   - space-hyphen-space -> em dash — (U+2014). " — " between words is the
+//     standard English em dash; keeping a space on both sides is the modern
+//     book convention.
+//
+// Protected regions are copied verbatim, mirroring TypographCJK: code spans
+// (backtick pairs), link URLs (](…)), and the \x00N\x00 placeholder tokens
+// used by the EPUB inline pipeline. Strings without any target pattern pass
+// through unchanged (cheap fast path).
+//
+// TypographPunct is idempotent: repeated application does not double-convert
+// (… is not touched again; the em dash already has its spaces).
+func TypographPunct(s string) string {
+	// Fast path: none of the convertible patterns are present.
+	if !strings.Contains(s, "...") && !strings.Contains(s, "…") &&
+		!strings.Contains(s, " - ") && !strings.Contains(s, "\t-\t") {
+		return s
+	}
+	rs := []rune(s)
+	out := make([]rune, 0, len(rs))
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch r {
+		case '`':
+			// Code span: only a PAIR of backticks starts a span; a lone
+			// backtick is literal. Content copied verbatim.
+			if j := nextRune(rs, i+1, '`'); j >= 0 {
+				out = append(out, rs[i:j+1]...)
+				i = j
+			} else {
+				out = append(out, r)
+			}
+		case ']':
+			// Link URL: ]( … ) is copied verbatim (URL colons/parens safe).
+			if i+1 < len(rs) && rs[i+1] == '(' {
+				end := nextRune(rs, i+2, ')')
+				if end < 0 {
+					end = len(rs) - 1
+				}
+				out = append(out, rs[i:end+1]...)
+				i = end
+			} else {
+				out = append(out, r)
+			}
+		case '\x00':
+			// EPUB inline placeholder token: \x00N\x00 must survive verbatim.
+			if i+2 < len(rs) && rs[i+2] == '\x00' {
+				out = append(out, rs[i:i+3]...)
+				i += 2
+			} else {
+				out = append(out, r)
+			}
+		case '.':
+			// "..." (2 or 3 dots) -> …. Also "…." (ellipsis + dot) -> ….
+			n := 1
+			for i+n < len(rs) && rs[i+n] == '.' {
+				n++
+			}
+			if n >= 2 {
+				out = append(out, '…')
+				i += n - 1
+			} else {
+				out = append(out, r)
+			}
+		case '…':
+			// Already a single ellipsis: absorb one trailing period (….)
+			// and copy verbatim.
+			if i+1 < len(rs) && rs[i+1] == '.' {
+				i++
+			}
+			out = append(out, r)
+		case '-':
+			// space-hyphen-space -> em dash — (only when preceded by space
+			// or tab and followed by space or tab, so hyphens inside words
+			// and URLs stay literal).
+			pre := i > 0 && (rs[i-1] == ' ' || rs[i-1] == '\t' || rs[i-1] == '\n')
+			post := i+1 < len(rs) && (rs[i+1] == ' ' || rs[i+1] == '\t' || rs[i+1] == '\n')
+			if pre && post {
+				out = append(out, '—')
+			} else {
+				out = append(out, r)
+			}
+		default:
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }

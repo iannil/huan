@@ -304,10 +304,10 @@ func TestMeasurePDFPages(t *testing.T) {
 		t.Fatalf("tocPages = %d, want >= 1", plan.tocPages)
 	}
 	// Flattened chapter order for mkBook: 引言 (before the part), 第一章
-	// (after the part separator page), 结语. Content starts after cover (1)
-	// and tocPages TOC pages, i.e. at page 2+tocPages.
-	if got := plan.chapterPage[0]; got != 2+plan.tocPages {
-		t.Fatalf("introduction page = %d, want %d", got, 2+plan.tocPages)
+	// (after the part separator page), 结语. Content starts after cover (1),
+	// titlepage (2), copyright (3), and tocPages TOC pages, i.e. at page 4+tocPages (PDF-2).
+	if got := plan.chapterPage[0]; got != 4+plan.tocPages {
+		t.Fatalf("introduction page = %d, want %d", got, 4+plan.tocPages)
 	}
 	// 第一章 = 引言 pages + one part separator page later.
 	want := plan.chapterPage[0] + plan.chapterCount[0] + 1

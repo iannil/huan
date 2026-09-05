@@ -20,7 +20,10 @@ type Config struct {
 	// OutputDir is the export root (relative to the project source dir).
 	OutputDir string
 	// FontsDir is an optional extra directory searched for CJK fonts.
-	FontsDir string
+	FontsDir       string
+	PDFFont        string
+	CoverFont      string
+	CoverLatinFont string
 	// Cover controls whether a cover page is generated (reserved; V1
 	// backends always emit a title page).
 	Cover bool
@@ -54,6 +57,16 @@ func ParseConfig(raw map[string]any) (*Config, error) {
 		}
 		cfg.FontsDir = s
 	}
+	for key, dst := range map[string]*string{"pdf_font": &cfg.PDFFont, "cover_font": &cfg.CoverFont, "cover_latin_font": &cfg.CoverLatinFont} {
+		if v, ok := raw[key]; ok {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s: expected string, got %T", key, v)
+			}
+			*dst = s
+		}
+	}
+
 	if v, ok := raw["cover"]; ok {
 		b, ok := v.(bool)
 		if !ok {
@@ -69,6 +82,9 @@ func (c *Config) ConfigSchema() plugin.Schema {
 	return plugin.Schema{Fields: []plugin.FieldSchema{
 		{Key: "output_dir", Type: "string", Required: false, Default: "developer/export", Description: "ebook 输出根目录（相对项目根）"},
 		{Key: "fonts_dir", Type: "string", Required: false, Description: "额外的 CJK 字体搜索目录"},
+		{Key: "pdf_font", Type: "string", Description: "PDF 正文 TrueType 字体路径"},
+		{Key: "cover_font", Type: "string", Description: "封面中文字体路径"},
+		{Key: "cover_latin_font", Type: "string", Description: "封面英文衬线字体路径"},
 		{Key: "cover", Type: "bool", Required: false, Default: true, Description: "是否生成封面页"},
 	}}
 }
@@ -187,22 +203,33 @@ func outPath(outRoot, kind, dirName, base string, lang content.Lang, format stri
 }
 
 // renderUnit renders one unit in one language into one format.
-func renderUnit(book *content.BookEntry, lang content.Lang, format, outPath, fontPath string) error {
+func renderUnit(book *content.BookEntry, lang content.Lang, format, outPath, fontPath, monoFontPath string, publicationFonts ...string) error {
+	pdfFont := fontPath
+	covers := render.CoverFonts{}
+	if len(publicationFonts) > 0 && publicationFonts[0] != "" {
+		pdfFont = publicationFonts[0]
+	}
+	if len(publicationFonts) > 1 {
+		covers.CJK = publicationFonts[1]
+	}
+	if len(publicationFonts) > 2 {
+		covers.Latin = publicationFonts[2]
+	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return err
 	}
 	switch format {
 	case "epub":
-		opts := render.EPUBOptions{EmbedFont: fontPath != "", FontPath: fontPath}
+		opts := render.EPUBOptions{EmbedFont: fontPath != "", FontPath: fontPath, CoverFonts: covers}
 		return render.RenderEPUB(book, lang, outPath, opts)
 	case "pdf":
 		// PDF requires a CJK font; missing font is a per-item failure.
-		if fontPath == "" {
+		if pdfFont == "" {
 			return fmt.Errorf("pdf: no CJK font found (set fonts_dir config)")
 		}
-		return render.RenderPDF(book, lang, outPath, render.PDFOptions{FontPath: fontPath})
+		return render.RenderPDF(book, lang, outPath, render.PDFOptions{FontPath: pdfFont, MonoFontPath: monoFontPath, CoverFonts: covers})
 	case "docx":
-		return render.RenderDOCX(book, lang, outPath, render.DOCXOptions{})
+		return render.RenderDOCX(book, lang, outPath, render.DOCXOptions{CoverFonts: covers})
 	}
 	return fmt.Errorf("unknown format: %s", format)
 }
@@ -323,21 +350,32 @@ func expandUnits(kind string, col *content.Collection, req plugin.ExportRequest)
 				if len(volBooks) == 0 {
 					continue
 				}
+				agg := aggregateBook(&vol, volBooks, fmt.Sprintf("%s合集", vol.Name))
+				agg.TitleEN = fmt.Sprintf("Collected Books: Volume %d", vol.Number)
+				if kind == "practices" {
+					agg.TitleEN = fmt.Sprintf("Collected Practices: Season %d", vol.Number)
+				}
 				units = append(units, &unit{
 					kind:     kind,
 					dirName:  "volumes",
 					baseName: fmt.Sprintf("volume-%d", vol.Number),
-					agg:      aggregateBook(&vol, volBooks, fmt.Sprintf("%s合集", vol.Name)),
+					agg:      agg,
 					mdPaths:  booksMDPaths(volBooks),
 				})
 			}
 		}
 		if wantLevel(req.Level, "complete") && len(books) > 0 {
+			titleZH, titleEN := "书籍全集", "Collected Books"
+			if kind == "practices" {
+				titleZH, titleEN = "实践全集", "Collected Practices"
+			}
+			agg := aggregateBook(nil, books, titleZH)
+			agg.TitleEN = titleEN
 			units = append(units, &unit{
 				kind:     kind,
 				dirName:  "complete",
 				baseName: kind + "-complete",
-				agg:      aggregateBook(nil, books, kind+"-complete"),
+				agg:      agg,
 				mdPaths:  booksMDPaths(books),
 			})
 		}
@@ -355,13 +393,22 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		outRoot = filepath.Join(req.SourceDir, p.cfg.OutputDir)
 	}
 
+	resolveFont := func(path string) string {
+		if path == "" || filepath.IsAbs(path) {
+			return path
+		}
+		return filepath.Join(req.SourceDir, path)
+	}
+
 	// Font lookup once per batch; EPUB embedding and PDF rendering share it.
 	// A missing font only affects items that need it (per-item failure),
 	// except for PDF-only requests of zh content where every unit fails.
-	fontPath, ferr := style.FindCJKFont(p.cfg.FontsDir)
+	fontPath, ferr := style.FindCJKFont(resolveFont(p.cfg.FontsDir))
 	if ferr != nil {
 		fontPath = ""
 	}
+	// Mono font for PDF code blocks (PDF-1); empty degrades to the body font.
+	monoFontPath := style.FindMonoFont(resolveFont(p.cfg.FontsDir))
 
 	// Resolve kinds and discover collections. A missing content root for a
 	// requested kind is a hard error (cannot start).
@@ -384,7 +431,11 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 
 	res := plugin.ExportResult{}
 	manifest := LoadManifest(outRoot)
-	hash := func(u *unit) string { return ComputeHash(u.mdPaths) }
+	// A changed publication design, font or metadata must invalidate exports
+	// even when chapter Markdown is unchanged. Output paths are not hashed.
+	assets := []string{fontPath, monoFontPath, resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.CoverLatinFont), filepath.Join(req.SourceDir, "data/books.yaml"), filepath.Join(req.SourceDir, "data/practices.yaml")}
+	assetHash := ComputeHash(assets)
+	hash := func(u *unit) string { return "publication-v3-20260905:" + assetHash + ":" + ComputeHash(u.mdPaths) }
 	reqFormats := formatsFor(req.Format)
 
 	// Phase 1: incremental skip — cheap, sequential, no rendering.
@@ -458,7 +509,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 				formatOK := true
 				for _, lang := range j.langs {
 					out := outPath(outRoot, j.u.kind, j.u.dirName, j.u.baseName, lang, f)
-					if err := renderUnit(j.u.agg, lang, f, out, fontPath); err != nil {
+					if err := renderUnit(j.u.agg, lang, f, out, fontPath, monoFontPath, resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.CoverLatinFont)); err != nil {
 						jr.fails = append(jr.fails, plugin.ExportFailure{
 							Item: plugin.ExportItem{Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug},
 							Err:  err.Error(),
