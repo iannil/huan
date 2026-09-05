@@ -117,7 +117,6 @@ jobs:
       #
       # Tags pushed:
       #   ghcr.io/iannil/huan:v0.3.0   (pinned to this release)
-      #   ghcr.io/iannil/huan:0.3.0    (no 'v' prefix variant)
       #   ghcr.io/iannil/huan:latest   (rolling)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -140,7 +139,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/iannil/huan:v${{ env.version }}
-            ghcr.io/iannil/huan:${{ env.version }}
             ghcr.io/iannil/huan:latest
           labels: |
             org.opencontainers.image.title=huan
