@@ -1,8 +1,14 @@
-# Keep the Docker build context small. The release workflow places the
-# linux/amd64 CGO-enabled host binary at ./huan and pre-built plugins under
-# ./docker-plugins/ right before `docker build` (see .github/workflows/release.yml).
-# Everything else in the repo is unnecessary for the image build.
+# Keep the Docker build context small. The multi-stage Dockerfile builds the
+# host binary and every plugins/* .so from source inside the builder stage,
+# so the context only needs the repo itself — no prebuilt artifacts. The
+# release workflow no longer stages ./huan or ./docker-plugins into the
+# context (removed in the multi-stage rework).
 *
-!huan
-!docker-plugins/
-!docker-plugins/**
+!go.mod
+!go.sum
+!cmd
+!internal
+!pkg
+!plugins
+!scripts
+!web

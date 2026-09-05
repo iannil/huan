@@ -67,6 +67,23 @@ jobs:
           # huan release writes to release/<version>/ (no 'v' prefix).
           # go run ensures we use the version pinned at the tag, not a stale local binary.
           go run ./cmd/huan release
+          # The 8 plugins/* .so binaries are built HERE, in the SAME release
+          # workflow, so the Docker image builds them from cached Go deps —
+          # otherwise building 8 modules fresh in a docker layer is slow.
+          # IMPORTANT: NO -buildmode=plugin flags. Go plugins must match the
+          # host binary's runtime package checksums exactly; any flag (even
+          # -trimpath/-ldflags) breaks plugin.Open with "different version of
+          # package internal/goarch". Keeping with zero flags throughout is
+          # what makes the Docker build and CI line up.
+          mkdir -p docker-plugins
+          export CGO_ENABLED=1
+          for dir in plugins/*/; do
+            if [ -f "$dir/go.mod" ]; then
+              name="$(basename "$dir")"
+              (cd "$dir" && go build -buildmode=plugin -o "./docker-plugins/$name.so" .)
+            fi
+          done
+          ls -lh docker-plugins
           # VERSION file content tells us the path; strip trailing newline.
           version="$(tr -d '\n' < internal/version/VERSION)"
           if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -112,28 +129,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare Docker build context
-        run: |
-          # Go plugins require a CGO-enabled host binary built with the same
-          # source and toolchain as the plugin. The release artifacts remain
-          # static CGO_ENABLED=0 binaries for portable cross-compilation, but
-          # the Docker image gets a Linux/amd64 host specifically for loading
-          # static site plugins at runtime.
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-            go build -trimpath -ldflags='-s -w' -o ./huan ./cmd/huan
-          chmod +x ./huan
-          scripts/build-plugins.sh "$GITHUB_WORKSPACE/docker-plugins"
-          test -s "$GITHUB_WORKSPACE/docker-plugins/zhurongshuo.so"
-          ls -lh ./huan "$GITHUB_WORKSPACE/docker-plugins/zhurongshuo.so"
-          # Verify the binary actually runs (catches arch mismatch at build time)
-          file ./huan
-          ./huan version
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
+          # Multi-stage Dockerfile builds the CGO-enabled host binary AND all
+          # plugins/* .so from the same source in the builder stage, so no
+          # host/plugin toolchain drift (plugin.Open would fail).
           push: true
           tags: |
             ghcr.io/iannil/huan:v${{ env.version }}
