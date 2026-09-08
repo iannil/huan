@@ -89,6 +89,11 @@ func wrapCoverText(text string, face font.Face, maxWidth float64) []string {
 		for cut > 1 && cut < len(rs) && strings.ContainsRune("，。；：！？、）》」』】〉〕,:!?;)]}", rs[cut]) {
 			cut--
 		}
+		// Opening punctuation belongs with the following phrase, never at
+		// the end of a display-title line (e.g. 解构文明（上）).
+		for cut > 1 && cut < len(rs) && strings.ContainsRune("（《「『【〈〔([{", rs[cut-1]) {
+			cut--
+		}
 		// Keep short Latin tokens such as AI/LLM together in Chinese titles.
 		latinToken := func(r rune) bool { return r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' }
 		wordCut := cut
@@ -169,6 +174,10 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 	}
 	text(53, 98, "ZHURONGSHUO", 9, sans, true)
 	title, sub := inlinePlain(book.TitleZH), inlinePlain(book.SubtitleZH)
+	chineseSub := ""
+	if lang != content.LangEN {
+		title, chineseSub = splitChineseCoverTitle(title)
+	}
 	f := cjk
 	size := 60.0
 	if lang == content.LangEN {
@@ -204,7 +213,7 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 		}
 		lines = wrapCoverText(title, face, 320)
 		face.Close()
-		if float64(len(lines))*size*1.2 <= titleHeight {
+		if float64(len(lines))*size*1.2 <= titleHeight && (chineseSub == "" || len(lines) == 1) {
 			break
 		}
 	}
@@ -215,6 +224,21 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 	for _, line := range lines {
 		text(52, y, line, size, f, false)
 		y += size * 1.2
+	}
+	if chineseSub != "" {
+		face, e := opentype.NewFace(cjk, &opentype.FaceOptions{Size: 23, DPI: 72})
+		if e != nil {
+			return nil, e
+		}
+		subs := wrapCoverText(chineseSub, face, 320)
+		face.Close()
+		y += 12
+		for _, line := range subs {
+			if e := text(54, y, line, 23, cjk, false); e != nil {
+				return nil, e
+			}
+			y += 34
+		}
 	}
 	if sub != "" {
 		face, _ := opentype.NewFace(cjk, &opentype.FaceOptions{Size: 13, DPI: 72})
@@ -251,4 +275,14 @@ func publicationCoverSVG(book *content.BookEntry, lang content.Lang, fonts Cover
 		return "", err
 	}
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="595.3" height="841.9" viewBox="0 0 595.3 841.9"><title>%s</title><image width="595.3" height="841.9" xlink:href="data:image/png;base64,%s"/></svg>`, escapeHTML(pdfHeaderTitle(book, lang)), base64.StdEncoding.EncodeToString(data)), nil
+}
+
+// A full Chinese book name is not one display-size text stream. Keep the
+// short main title (including 上/下) intact and typeset the subtitle separately.
+func splitChineseCoverTitle(title string) (string, string) {
+	main, sub, ok := strings.Cut(title, "：")
+	if !ok || strings.TrimSpace(main) == "" || strings.TrimSpace(sub) == "" {
+		return title, ""
+	}
+	return strings.TrimSpace(main), strings.TrimSpace(sub)
 }

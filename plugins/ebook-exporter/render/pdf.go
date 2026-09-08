@@ -143,9 +143,24 @@ func RenderPDF(book *content.BookEntry, lang content.Lang, outPath string, opts 
 // to every page, and their measured heights shrink the body area, so every
 // measurement render must use this same builder.
 func newPDFDocument(book *content.BookEntry, lang content.Lang, opts PDFOptions) (*template.Document, error) {
+	// gpdf v1.0.11 serializes Info-dictionary strings as PDFDocEncoding rather
+	// than UTF-16BE. Use the registered English title/credit here so PDF
+	// readers do not display mojibake; the visible title and copyright pages
+	// retain the edition language.
+	title := book.TitleEN
+	if title == "" {
+		title = book.Slug
+	}
+	subject := fmt.Sprintf("Volume %d", book.VolumeNumber)
 	options := []template.Option{
 		template.WithPageSize(document.A4),
 		template.WithMargins(document.UniformEdges(document.Mm(26))),
+		template.WithMetadata(document.DocumentMetadata{
+			Title:   title,
+			Author:  "Rong Zhu",
+			Subject: subject,
+			Creator: "huan ebook exporter",
+		}),
 	}
 	if opts.FontPath != "" {
 		data, err := style.ReadFontData(opts.FontPath)
@@ -538,8 +553,32 @@ func renderChapterInto(doc *template.Document, ch content.Chapter, lang content.
 			c.Text(inlinePlain(ch.Title), template.FontSize(20), template.Bold(), lineHeight(1.5))
 		})
 	})
-	for i := range unit.Blocks {
+	for i := 0; i < len(unit.Blocks); i++ {
 		b := unit.Blocks[i]
+		// Keep a section heading with its first paragraph or list entry.
+		// Independent AutoRows otherwise leave headings alone at page ends.
+		if b.Kind == BlockHeading && i+1 < len(unit.Blocks) {
+			next := unit.Blocks[i+1]
+			if next.Kind == BlockParagraph || next.Kind == BlockList && len(next.Items) > 0 {
+				first := next
+				if next.Kind == BlockList {
+					first.Items = next.Items[:1]
+				}
+				lead := i > 0
+				page.AutoRow(func(r *template.RowBuilder) {
+					r.Col(12, func(c *template.ColBuilder) {
+						emitBlockOpts(c, b, monoFontPath, lead)
+						emitBlockOpts(c, first, monoFontPath, false)
+					})
+				})
+				if next.Kind == BlockParagraph || len(next.Items) == 1 {
+					i++
+				} else {
+					unit.Blocks[i+1].Items = next.Items[1:]
+				}
+				continue
+			}
+		}
 		// Keep a list item or table row atomic, rather than putting an entire
 		// multi-page list/table inside one AutoRow. gpdf's split of a large
 		// AutoRow can duplicate and widen its boundary line beyond the page.
@@ -554,13 +593,7 @@ func renderChapterInto(doc *template.Document, ch content.Chapter, lang content.
 			continue
 		}
 		if b.Kind == BlockTable {
-			for _, cells := range b.Rows {
-				rowBlock := b
-				rowBlock.Rows = [][]string{cells}
-				page.AutoRow(func(r *template.RowBuilder) {
-					r.Col(12, func(c *template.ColBuilder) { emitBlockOpts(c, rowBlock, monoFontPath, false) })
-				})
-			}
+			emitTableGrid(page, b.Rows)
 			continue
 		}
 		// PDF-4: headings get pre-space only when they follow another block
@@ -573,6 +606,74 @@ func renderChapterInto(doc *template.Document, ch content.Chapter, lang content.
 		})
 	}
 	return nil
+}
+
+// Native Table nodes inside AutoRow report unreliable heights at page
+// boundaries in gpdf 1.0.11. Use ordinary text columns so the row height is
+// measured by the same wrapping and pagination path as body text. Padding
+// belongs to boxes (text padding is not consumed by this gpdf renderer).
+func emitTableGrid(page *template.PageBuilder, rows [][]string) {
+	columns := 0
+	for _, row := range rows {
+		if len(row) > columns {
+			columns = len(row)
+		}
+	}
+	if columns == 0 {
+		return
+	}
+	if emitCompactTableGrid(page, rows, columns) {
+		return
+	}
+	for rowIndex, cells := range rows {
+		// More than twelve columns cannot form readable portrait-page cells.
+		// Preserve all values as labelled records rather than clip columns.
+		if columns > 12 {
+			if rowIndex == 0 {
+				continue
+			}
+			for i, cell := range cells {
+				label := fmt.Sprintf("%d", i+1)
+				if i < len(rows[0]) {
+					label = pdfText(rows[0][i])
+				}
+				page.AutoRow(func(r *template.RowBuilder) {
+					r.Col(12, func(c *template.ColBuilder) {
+						c.Text(label+": "+pdfText(cell), template.FontSize(10.5), lineHeight(1.6))
+					})
+				})
+			}
+			continue
+		}
+		page.AutoRow(func(r *template.RowBuilder) {
+			for col := 0; col < columns; col++ {
+				span := 12 / columns
+				if col < 12%columns {
+					span++
+				}
+				value := ""
+				if col < len(cells) {
+					value = pdfText(cells[col])
+				}
+				r.Col(span, func(c *template.ColBuilder) {
+					c.Line(template.LineThickness(document.Pt(0.4)), template.LineColor(pdf.Gray(0.7)))
+					c.Box(func(cell *template.ColBuilder) {
+						opts := []template.TextOption{template.FontSize(10.5), lineHeight(1.6)}
+						if rowIndex == 0 {
+							opts = append(opts, template.Bold())
+						}
+						cell.Text(value, opts...)
+					}, template.WithBoxPadding(document.UniformEdges(document.Pt(4))))
+				})
+			}
+		})
+	}
+	page.AutoRow(func(r *template.RowBuilder) {
+		r.Col(12, func(c *template.ColBuilder) {
+			c.Line(template.LineThickness(document.Pt(0.4)), template.LineColor(pdf.Gray(0.7)))
+			c.Spacer(document.Pt(6))
+		})
+	})
 }
 
 // emitBlock maps one normalized block onto PDF text lines.
@@ -660,14 +761,98 @@ func emitBlockOpts(c *template.ColBuilder, b Block, monoFontPath string, heading
 			c.Text(line, opts...)
 		}
 	case BlockTable:
-		for _, row := range b.Rows {
-			cells := make([]string, len(row))
-			for i, cell := range row {
-				cells[i] = pdfText(cell)
-			}
-			c.Text(strings.Join(cells, " | "), template.FontSize(10.5), lineHeight(1.6))
+		for i, row := range b.Rows {
+			emitTableRow(c, row, i == 0)
 		}
 	case BlockThematicBreak:
 		c.Text("———", template.FontSize(11))
 	}
+}
+
+// emitTableRow preserves column geometry while the caller keeps each row
+// atomic for pagination. Flattening cells to pipe-separated text loses the
+// relationship between wrapped entries, especially in Chinese comparison tables.
+func emitTableRow(c *template.ColBuilder, row []string, header bool) {
+	if len(row) == 0 {
+		return
+	}
+	cells := make([]string, len(row))
+	widths := make([]float64, len(row))
+	for i, cell := range row {
+		cells[i] = pdfText(cell)
+		widths[i] = 100 / float64(len(row))
+	}
+	opts := []template.TableOption{
+		template.ColumnWidths(widths...),
+		template.WithTableCellBorder(template.Border(
+			template.BorderWidth(document.Pt(0.4)),
+			template.BorderColor(pdf.Gray(0.7)),
+		)),
+	}
+	if header {
+		c.Table(cells, nil, opts...)
+	} else {
+		c.Table(nil, [][]string{cells}, opts...)
+	}
+}
+
+// Compact publication tables move as a single atomic row. The ordinary text
+// columns avoid gpdf's native-table height bug; equal cell heights preserve
+// alignment. Longer tables retain the existing row-by-row rendering path.
+func emitCompactTableGrid(page *template.PageBuilder, rows [][]string, columns int) bool {
+	if columns < 1 || columns > 4 || len(rows) > 6 {
+		return false
+	}
+	// Publication body width is ~448pt. A 12pt advance per rune conservatively
+	// bounds the 10.5pt table font, including bold and full-width punctuation.
+	charsPerLine := (448/columns - 8) / 12
+	if charsPerLine < 1 {
+		return false
+	}
+	heights := make([]float64, len(rows))
+	total := 0.0
+	for i, row := range rows {
+		lines := 1
+		for _, cell := range row {
+			n := 0
+			for _, line := range strings.Split(pdfText(cell), "\n") {
+				n += max(1, (len([]rune(line))+charsPerLine-1)/charsPerLine)
+			}
+			if n > lines {
+				lines = n
+			}
+		}
+		heights[i] = float64(lines)*16.8 + 8
+		total += heights[i] + 0.4
+	}
+	if total > 300 {
+		return false
+	}
+	page.AutoRow(func(r *template.RowBuilder) {
+		for col := 0; col < columns; col++ {
+			span := 12 / columns
+			if col < 12%columns {
+				span++
+			}
+			r.Col(span, func(c *template.ColBuilder) {
+				for i, row := range rows {
+					value := ""
+					if col < len(row) {
+						value = pdfText(row[col])
+					}
+					c.Line(template.LineThickness(document.Pt(0.4)), template.LineColor(pdf.Gray(0.7)))
+					c.Box(func(cell *template.ColBuilder) {
+						opts := []template.TextOption{template.FontSize(10.5), lineHeight(1.6)}
+						if i == 0 {
+							opts = append(opts, template.Bold())
+						}
+						cell.Text(value, opts...)
+					}, template.WithBoxPadding(document.UniformEdges(document.Pt(4))), template.WithBoxHeight(document.Pt(heights[i])))
+				}
+				c.Line(template.LineThickness(document.Pt(0.4)), template.LineColor(pdf.Gray(0.7)))
+				c.Spacer(document.Pt(6))
+			})
+		}
+	})
+	return true
 }

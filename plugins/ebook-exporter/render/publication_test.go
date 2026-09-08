@@ -39,6 +39,31 @@ func TestCoverWrapPreservesLongTitle(t *testing.T) {
 	}
 }
 
+func TestCoverWrapOpeningPunctuation(t *testing.T) {
+	f, err := opentype.Parse(goregular.TTF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{Size: 36, DPI: 72})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer face.Close()
+	for _, opening := range []string{"(", "（", "《", "【"} {
+		title := "AAA" + opening + "BBB"
+		width := float64(font.MeasureString(face, "AAA"+opening))/64 + 0.1
+		lines := wrapCoverText(title, face, width)
+		if strings.Join(lines, "") != title {
+			t.Fatalf("lost title: %v", lines)
+		}
+		for _, line := range lines {
+			if strings.HasSuffix(line, opening) {
+				t.Fatalf("opening mark stranded: %q", line)
+			}
+		}
+	}
+}
+
 func TestDOCXCoverWithoutMetadataKeepsTOC(t *testing.T) {
 	book := mkBook(t, content.LangZH)
 	book.Version = ""

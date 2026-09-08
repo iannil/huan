@@ -255,7 +255,11 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if err != nil {
 		return fmt.Errorf("create epub: %w", err)
 	}
-	e.SetAuthor("iannil")
+	author := "祝融"
+	if lang == content.LangEN {
+		author = "Rong Zhu"
+	}
+	e.SetAuthor(author)
 	if lang == content.LangEN {
 		e.SetLang("en")
 	} else {
@@ -317,6 +321,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	// books (volume / complete) never reuse one — go-epub errors on duplicate
 	// filenames when multiple books each contribute an "introduction".
 	usedFnames := map[string]bool{}
+	linkTargets := map[string]string{}
 
 	for _, sec := range book.OrderedSections() {
 		switch sec.Type {
@@ -339,7 +344,9 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 				chTitle := TypographCJK(ch.Title)
 				cb := `<section epub:type="chapter">` + "\n<h1>" + escapeHTML(chTitle) + "</h1>\n" + blocksToXHTML(b) + "</section>\n"
 				fname := fmt.Sprintf("%s-ch%02d", sec.ID, i+1)
-				if _, err := e.AddSection(cb, chTitle, uniqueFname(fname, usedFnames), cssPath); err != nil {
+				fname = uniqueFname(fname, usedFnames)
+				linkTargets[epubSourceURL(src)] = fname + ".xhtml"
+				if _, err := e.AddSection(cb, chTitle, fname, cssPath); err != nil {
 					return fmt.Errorf("add chapter section: %w", err)
 				}
 			}
@@ -370,6 +377,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 					fname = fmt.Sprintf("%s-ch%02d", fname, i+1)
 				}
 				fname = uniqueFname(fname, usedFnames)
+				linkTargets[epubSourceURL(src)] = fname + ".xhtml"
 				if _, err := e.AddSection(body, chTitle, fname, cssPath); err != nil {
 					return fmt.Errorf("add section %s: %w", fname, err)
 				}
@@ -380,7 +388,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if err := e.Write(outPath); err != nil {
 		return fmt.Errorf("write epub: %w", err)
 	}
-	if err := normalizeEPUB(outPath); err != nil {
+	if err := normalizeEPUB(outPath, linkTargets); err != nil {
 		return fmt.Errorf("normalize epub: %w", err)
 	}
 	return nil
@@ -406,7 +414,7 @@ func epubSemType(secType string) string { return epubSemTypes[secType] }
 // tooling; go-epub hardcodes it on every <body>/<title>, so the written
 // zip is post-processed here. Entry order and the STORED first mimetype
 // entry — both required by the OCF spec and epubcheck — are preserved.
-func normalizeEPUB(path string) error {
+func normalizeEPUB(path string, mappings ...map[string]string) error {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
 		return err
@@ -431,6 +439,9 @@ func normalizeEPUB(path string) error {
 		hdr := f.FileHeader
 		if strings.HasSuffix(f.Name, ".xhtml") || strings.HasSuffix(f.Name, ".html") {
 			data = []byte(strings.ReplaceAll(string(data), ` dir="auto"`, ""))
+			if len(mappings) > 0 {
+				data = []byte(epubResolveLinks(string(data), mappings[0]))
+			}
 		}
 		entries = append(entries, entry{header: hdr, data: data})
 	}
@@ -611,4 +622,33 @@ td, th { border: 1px solid #999; padding: 0.4em 0.8em; }
 // dataURL encodes content as a base64 data: URL.
 func dataURL(mime, content string) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString([]byte(content))
+}
+
+// Source paths may be absolute or relative to the site root.
+func epubSourceURL(src string) string {
+	s := filepath.ToSlash(src)
+	if i := strings.Index(s, "content/"); i >= 0 {
+		s = s[i+len("content/"):]
+	}
+	s = strings.TrimSuffix(strings.TrimSuffix(s, ".md"), ".en")
+	return "/" + strings.Trim(s, "/") + "/"
+}
+
+var epubRootHref = regexp.MustCompile(`href="(/[^" ]*)"`)
+
+func epubResolveLinks(body string, targets map[string]string) string {
+	return epubRootHref.ReplaceAllStringFunc(body, func(attr string) string {
+		url := html.UnescapeString(attr[len(`href="`) : len(attr)-1])
+		if strings.HasPrefix(url, "//") {
+			return `href="https:` + html.EscapeString(url) + `"`
+		}
+		base, fragment, found := strings.Cut(url, "#")
+		if dest, ok := targets[strings.TrimRight(base, "/")+"/"]; ok {
+			if found {
+				dest += "#" + fragment
+			}
+			return `href="` + html.EscapeString(dest) + `"`
+		}
+		return `href="https://zhurongshuo.com` + html.EscapeString(url) + `"`
+	})
 }

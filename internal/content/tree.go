@@ -256,9 +256,9 @@ func BuildTree(pages []*Page, cfg *config.Config, sourceDir string) (*Site, erro
 	}
 	if !homeExists {
 		homePage := &Page{
-			Title:  site.Title,
-			Kind:   "home",
-			URL:    "/",
+			Title:   site.Title,
+			Kind:    "home",
+			URL:     "/",
 			RelPath: "_index.md",
 		}
 		homePage.RegularPages = site.RegularPages
@@ -356,9 +356,9 @@ func collectRegularPagesRecursive(section *Page) []*Page {
 	var result []*Page
 	// Direct regular pages first
 	for _, p := range section.RegularPages {
-		if !p.Draft {
-			result = append(result, p)
-		}
+		// Keep the content tree complete. LinkPageRelationships applies the
+		// build's draft policy; filtering here makes -D recursive lists empty.
+		result = append(result, p)
 	}
 	// Recurse into sub-sections
 	for _, sub := range section.Sections {

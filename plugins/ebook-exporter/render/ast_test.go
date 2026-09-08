@@ -72,3 +72,14 @@ func TestParseChapterTable(t *testing.T) {
 		t.Fatalf("table: %+v", du.Blocks)
 	}
 }
+
+func TestTableKeepsNestedInlineText(t *testing.T) {
+	du, err := ParseChapter(writeMD(t, "| Chapter | Notes |\n|---|---|\n| [First **chapter**](/chapter/) | *emphasis*, `code`, <https://example.com> |\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := du.Blocks[0].Rows[1]
+	if row[0] != "First chapter" || row[1] != "emphasis, code, https://example.com" {
+		t.Fatalf("lost inline content: %q", row)
+	}
+}

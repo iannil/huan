@@ -14,7 +14,9 @@
                             <i class="ri-share-line"></i>
                         </button>
                     </div>
+                    {{ partial "book-reading-nav.html" . }}
                     <div class="post_content markdown">{{ .Content }}</div>
+                    {{ partial "book-reading-nav.html" . }}
                     <div class="post_footer">
                         {{ with .Params.tags }}
                         <div class="meta">

@@ -202,15 +202,28 @@ func codeText(n *gast.FencedCodeBlock, src []byte) string {
 	return sb.String()
 }
 
-// cellText extracts a table cell's source text. Table cells hold inline
-// Text child nodes rather than Lines.
+// cellText extracts visible table text, including text nested in links,
+// emphasis and code spans. Looking only at direct children silently erased
+// linked chapter titles from the printed subject index.
 func cellText(n *east.TableCell, src []byte) string {
 	var sb strings.Builder
-	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-		if txt, ok := c.(*gast.Text); ok {
-			sb.Write(txt.Segment.Value(src))
+	gast.Walk(n, func(node gast.Node, entering bool) (gast.WalkStatus, error) {
+		if !entering {
+			return gast.WalkContinue, nil
 		}
-	}
+		switch txt := node.(type) {
+		case *gast.Text:
+			sb.Write(txt.Segment.Value(src))
+			if txt.SoftLineBreak() || txt.HardLineBreak() {
+				sb.WriteByte(' ')
+			}
+		case *gast.String:
+			sb.Write(txt.Value)
+		case *gast.AutoLink:
+			sb.Write(txt.Label(src))
+		}
+		return gast.WalkContinue, nil
+	})
 	return strings.TrimSpace(sb.String())
 }
 

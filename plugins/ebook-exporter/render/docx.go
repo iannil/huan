@@ -53,9 +53,13 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if lang == content.LangEN {
 		title = TypographCJK(book.TitleEN)
 	}
+	author := "祝融"
+	if lang == content.LangEN {
+		author = "Rong Zhu"
+	}
 	builder := docx.NewDocumentBuilder(
 		docx.WithTitle(title),
-		docx.WithAuthor("iannil"),
+		docx.WithAuthor(author),
 		docx.WithDefaultFont("Noto Sans CJK SC"),
 	)
 	// Title-page title paragraph goes through the builder: Build()
