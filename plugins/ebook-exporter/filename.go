@@ -35,15 +35,19 @@ func sanitizeFilename(s string) string {
 }
 
 // fileStem returns the output filename stem for one unit in one language:
-// the ZH title for zh, the EN title for en (aggregates carry synthesized
-// titles from expandUnits). A missing EN title falls back to the ZH side —
-// the plugin-wide missing-EN policy — and then a "-en" suffix is appended so
-// the two languages' files stay distinct. An empty title falls back to the
-// slug baseName so export never fails on naming.
+// the ZH title for zh; for en, the EN title, falling back to the ZH title
+// when the EN one is empty (the plugin-wide missing-EN policy; aggregates
+// carry synthesized titles from expandUnits). A title that sanitizes to
+// empty falls back to the slug baseName so export never fails on naming.
+// The "-en" suffix is appended whenever the final en stem equals the zh
+// stem, so the two languages' files stay distinct.
 func fileStem(u *unit, lang content.Lang) string {
 	title := u.agg.TitleZH
 	if lang == content.LangEN {
 		title = u.agg.TitleEN
+		if title == "" {
+			title = u.agg.TitleZH
+		}
 	}
 	stem := sanitizeFilename(title)
 	if stem == "" {

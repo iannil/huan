@@ -43,16 +43,25 @@ func TestFileStem(t *testing.T) {
 		t.Errorf("en stem = %q", got)
 	}
 
-	// EN title missing: falls back to the ZH side, "-en" keeps files distinct.
+	// EN title missing: falls back to the ZH title, "-en" keeps files distinct.
 	zhOnly := &unit{
 		baseName: "demo-book",
-		agg:      &content.BookEntry{TitleZH: "示范书", TitleEN: "示范书"},
+		agg:      &content.BookEntry{TitleZH: "示范书", TitleEN: ""},
 	}
 	if got := fileStem(zhOnly, content.LangZH); got != "示范书" {
 		t.Errorf("zh-only stem = %q", got)
 	}
 	if got := fileStem(zhOnly, content.LangEN); got != "示范书-en" {
 		t.Errorf("zh-only en stem = %q", got)
+	}
+
+	// Identical titles: the en stem equals the zh stem, so "-en" applies too.
+	sameTitles := &unit{
+		baseName: "demo-book",
+		agg:      &content.BookEntry{TitleZH: "示范书", TitleEN: "示范书"},
+	}
+	if got := fileStem(sameTitles, content.LangEN); got != "示范书-en" {
+		t.Errorf("same-titles en stem = %q", got)
 	}
 
 	// Aggregate unit: synthesized titles from expandUnits flow through as-is.
