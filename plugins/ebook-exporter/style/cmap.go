@@ -88,13 +88,17 @@ func normalizeCmap(cmap []byte) ([]byte, error) {
 
 	// Pass 2: synthesize BMP format-4 fallbacks for format-12 subtables that
 	// are still oversized (unless a Unicode format-4 already exists to
-	// shadow them).
+	// shadow them). At most one is synthesized per cmap: a second (0,4)
+	// record would be redundant for width-tied pickers and confusing for
+	// spec-conformant ones.
 	var final []cmapSub
 	if !hasUnicodeFormat4 {
+		synthesized := false
 		for i := range subs {
-			if isOversizeFormat12(bodies[i]) {
+			if !synthesized && isOversizeFormat12(bodies[i]) {
 				if f4 := buildFormat4From12(bodies[i]); f4 != nil {
 					final = append(final, cmapSub{platformID: 0, encodingID: 4, data: f4})
+					synthesized = true
 				}
 			}
 			final = append(final, cmapSub{platformID: subs[i].platformID, encodingID: subs[i].encodingID, data: bodies[i]})
@@ -151,24 +155,46 @@ func rebuildCmapRecords(cmap []byte, recs []cmapSub) []byte {
 }
 
 // cmapSubtableLength returns the byte length of the cmap subtable starting
-// at off, per its format's length field (u16 at +2 for the small formats,
-// u32 at +4 for formats 10/12/13).
+// at off, per its format's length field: u16 at +2 for formats 0/2/4/6, u32
+// at +4 for formats 8/10/12/13 (reserved u16 precedes it), u32 at +2 for
+// format 14 (no reserved field). Any anomaly — unknown format, zero or
+// out-of-bounds length — is an error so callers can leave the table
+// untouched instead of slicing out of bounds.
 func cmapSubtableLength(cmap []byte, off int) (int, error) {
 	if off+2 > len(cmap) {
 		return 0, fmt.Errorf("subtable header out of bounds")
 	}
-	switch binary.BigEndian.Uint16(cmap[off:]) {
-	case 10, 12, 13:
-		if off+8 > len(cmap) {
-			return 0, fmt.Errorf("subtable header out of bounds")
-		}
-		return int(binary.BigEndian.Uint32(cmap[off+4:])), nil
-	default:
+	switch format := binary.BigEndian.Uint16(cmap[off:]); format {
+	case 8, 10, 12, 13:
+		return cmapSubtableU32Length(cmap, off, 4)
+	case 14:
+		return cmapSubtableU32Length(cmap, off, 2)
+	case 0, 2, 4, 6:
 		if off+4 > len(cmap) {
 			return 0, fmt.Errorf("subtable header out of bounds")
 		}
-		return int(binary.BigEndian.Uint16(cmap[off+2:])), nil
+		return cmapSubtableExtent(cmap, off, int(binary.BigEndian.Uint16(cmap[off+2:])))
+	default:
+		return 0, fmt.Errorf("unsupported subtable format %d", format)
 	}
+}
+
+// cmapSubtableU32Length reads the u32 length field at off+at and validates
+// the resulting extent.
+func cmapSubtableU32Length(cmap []byte, off, at int) (int, error) {
+	if off+at+4 > len(cmap) {
+		return 0, fmt.Errorf("subtable header out of bounds")
+	}
+	return cmapSubtableExtent(cmap, off, int(binary.BigEndian.Uint32(cmap[off+at:])))
+}
+
+// cmapSubtableExtent validates a subtable's byte length against the cmap
+// table bounds.
+func cmapSubtableExtent(cmap []byte, off, length int) (int, error) {
+	if length <= 0 || off+length > len(cmap) {
+		return 0, fmt.Errorf("subtable length %d out of bounds at offset %d", length, off)
+	}
+	return length, nil
 }
 
 // cmapGroup is one format-12 character-to-glyph group.
@@ -300,17 +326,24 @@ func buildFormat4From12(sub []byte) []byte {
 	deltas := out[14+4*segCount+2:]
 	ranges := out[14+6*segCount+2:]
 	glyphArray := out[14+8*segCount+2:]
+	// charsBefore is the cumulative character count of the segments that
+	// precede i in glyphIdArray; a segment's glyph entries sit at byte
+	// offset 2*charsBefore into the array.
+	charsBefore := 0
 	for i, seg := range segs {
 		binary.BigEndian.PutUint16(ends[2*i:], seg.end)
 		binary.BigEndian.PutUint16(starts[2*i:], seg.start)
 		if i == segCount-1 {
 			binary.BigEndian.PutUint16(deltas[2*i:], 1) // 0xFFFF -> 0
 		} else {
-			// Arbitrary per-char glyphs via the glyph array; the offset
-			// (in bytes, per spec) spans the remaining idRangeOffset
-			// entries down to this segment's slice of glyphIdArray.
-			binary.BigEndian.PutUint16(ranges[2*i:], uint16(2*(segCount-i)))
+			// Arbitrary per-char glyphs via the glyph array. Per spec the
+			// idRangeOffset value (in bytes) is measured from this very
+			// slot, so it spans the remaining idRangeOffset entries down
+			// to glyphIdArray (2*(segCount-i)) PLUS this segment's offset
+			// into the concatenated glyph array (2*charsBefore).
+			binary.BigEndian.PutUint16(ranges[2*i:], uint16(2*(segCount-i)+2*charsBefore))
 		}
+		charsBefore += int(seg.end) - int(seg.start) + 1
 	}
 	for i, g := range glyphs {
 		binary.BigEndian.PutUint16(glyphArray[2*i:], g)

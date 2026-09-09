@@ -281,6 +281,104 @@ func TestNormalizeCmapSynthesizesFormat4(t *testing.T) {
 	}
 }
 
+// TestNormalizeCmapFormat4ExactGlyphs is the regression test for the
+// idRangeOffset arithmetic in synthesized format-4 subtables: each segment's
+// glyph entries sit at a CUMULATIVE offset into the concatenated glyphIdArray
+// (2*(segCount-i) + 2*charsBefore), not at the glyphIdArray start. The
+// fixture is oversized (20001 groups > maxRenderCmapSegments) and spans two
+// segments — a single-segment fixture (charsBefore=0) structurally cannot
+// catch a wrong base. Exact glyph IDs are asserted across all segments.
+func TestNormalizeCmapFormat4ExactGlyphs(t *testing.T) {
+	groups := [][3]uint32{{0x41, 0x41, 10}} // segment A: one codepoint
+	for i := 0; i < 20000; i++ {            // segment B: 20000 codepoints
+		groups = append(groups, [3]uint32{uint32(0x4E00 + i), uint32(0x4E00 + i), uint32(2*i + 7)})
+	}
+	got, err := normalizeCmap(buildFormat12Cmap(t, groups))
+	if err != nil {
+		t.Fatal(err)
+	}
+	font := buildTestFont(t, minimalRenderableTables(got))
+	f, err := opentype.Parse(font)
+	if err != nil {
+		t.Fatalf("opentype.Parse with synthesized format-4: %v", err)
+	}
+	// want = glyphID ground truth; group A maps 0x41->10, group B maps
+	// 0x4E00+i -> 2*i+7, everything else unmapped.
+	cases := []struct {
+		r    rune
+		want uint32
+	}{
+		{0x41, 10},                    // first char of segment A
+		{0x42, 0},                     // unmapped gap
+		{0x4DFF, 0},                   // unmapped gap
+		{0x4E00, 7},                   // first char of segment B (charsBefore=1)
+		{0x4E00 + 9999, 2*9999 + 7},   // middle of segment B
+		{0x4E00 + 19999, 2*19999 + 7}, // last char of segment B
+		{0xFFFF, 0},                   // terminator segment maps to glyph 0
+	}
+	for _, tc := range cases {
+		gid, err := f.GlyphIndex(nil, tc.r)
+		if err != nil {
+			t.Fatalf("GlyphIndex(U+%04X): %v", tc.r, err)
+		}
+		if uint32(gid) != tc.want {
+			t.Fatalf("U+%04X: glyph index = %d, want %d", tc.r, gid, tc.want)
+		}
+	}
+}
+
+// TestNormalizeCmapUnparseableSubtableNoPanic pins the degrade-don't-crash
+// posture: a cmap carrying subtables whose length fields we cannot trust
+// (format-14 Unicode-variation-sequences, as in PingFang/Hiragino, and a
+// bogus-length format-12) must not panic normalizeCmap — it either passes
+// the table through unchanged or returns an error that extraction degrades
+// on, byte-for-byte safe either way.
+func TestNormalizeCmapUnparseableSubtableNoPanic(t *testing.T) {
+	build := func(t *testing.T, extra func(cmap []byte, subOff int) []byte) []byte {
+		t.Helper()
+		cmap := buildFormat12Cmap(t, [][3]uint32{{0x41, 0x41, 1}})
+		return extra(cmap, 12) // format-12 subtable lives at offset 12
+	}
+
+	t.Run("format14", func(t *testing.T) {
+		cmap := build(t, func(cmap []byte, subOff int) []byte {
+			// Real format-14 layout: format u16, length u32 at +2,
+			// numVarSelectorRecords u32 at +6.
+			f14 := make([]byte, 16)
+			binary.BigEndian.PutUint16(f14[0:], 14)
+			binary.BigEndian.PutUint32(f14[2:], 16)
+			// Append as a second record (0,5) and grow numTables.
+			out := make([]byte, 0, len(cmap)+8+len(f14))
+			out = append(out, cmap[:2]...)
+			out = binary.BigEndian.AppendUint16(out, 2) // numTables
+			out = append(out, cmap[4:12]...)            // record 0 (0,4)
+			out = binary.BigEndian.AppendUint16(out, 0)
+			out = binary.BigEndian.AppendUint16(out, 5)
+			out = binary.BigEndian.AppendUint32(out, uint32(len(cmap)))
+			out = append(out, cmap[12:]...)
+			out = append(out, f14...)
+			return out
+		})
+		got, err := normalizeCmap(cmap)
+		if err != nil {
+			return // degrade via error: acceptable
+		}
+		if string(got) != string(cmap) {
+			t.Fatalf("unparseable-subtable cmap must pass through unchanged, got %d bytes (source %d)", len(got), len(cmap))
+		}
+	})
+
+	t.Run("bogusLength", func(t *testing.T) {
+		cmap := build(t, func(cmap []byte, subOff int) []byte {
+			binary.BigEndian.PutUint32(cmap[subOff+4:], 0xFFFFFFF0) // length far beyond the table
+			return cmap
+		})
+		if got, err := normalizeCmap(cmap); err == nil && string(got) != string(cmap) {
+			t.Fatalf("bogus-length cmap must error or pass through unchanged, got %d bytes", len(got))
+		}
+	})
+}
+
 // TestNormalizeCmapIdempotent pins the contract that re-normalizing an
 // already-normalized cmap changes nothing (the extraction cache may miss and
 // rebuild repeatedly).
@@ -303,13 +401,61 @@ func TestNormalizeCmapIdempotent(t *testing.T) {
 	}
 }
 
+// stheitiSourceGroups extracts the (0,4) format-12 groups of the given font
+// index straight from the TTC's cmap, as the glyph-ID ground truth for
+// cross-checking extraction output.
+func stheitiSourceGroups(t *testing.T, data []byte, fontIndex uint32) []cmapGroup {
+	t.Helper()
+	off := binary.BigEndian.Uint32(data[12+4*fontIndex:])
+	numTables := int(binary.BigEndian.Uint16(data[off+4:]))
+	var cmap []byte
+	for j := 0; j < numTables; j++ {
+		rec := off + 12 + 16*uint32(j)
+		if string(data[rec:rec+4]) == "cmap" {
+			cOff := binary.BigEndian.Uint32(data[rec+8:])
+			cLen := binary.BigEndian.Uint32(data[rec+12:])
+			cmap = data[cOff : cOff+cLen]
+		}
+	}
+	if cmap == nil {
+		t.Fatal("source has no cmap table")
+	}
+	so := int(binary.BigEndian.Uint32(cmap[4+8*0+4:]))
+	groups, err := parseFormat12Groups(cmap[so:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return groups
+}
+
+// glyphInGroups binary-searches sorted format-12 groups for the glyph mapped
+// to c (0 when unmapped).
+func glyphInGroups(groups []cmapGroup, c uint32) uint32 {
+	i, j := 0, len(groups)
+	for i < j {
+		h := (i + j) / 2
+		g := groups[h]
+		if c < g.startCharCode {
+			j = h
+		} else if g.endCharCode < c {
+			i = h + 1
+		} else {
+			return g.startGlyphID + c - g.startCharCode
+		}
+	}
+	return 0
+}
+
 // TestExtractTTCRealSTHeiti verifies the real-machine acceptance: extracting
-// font 1 of STHeiti Light.ttc yields a font the render layer can parse.
+// font 1 of STHeiti Light.ttc yields a font the render layer can parse, and
+// glyph lookups through the normalized cmap match the source TTC exactly.
 func TestExtractTTCRealSTHeiti(t *testing.T) {
 	const src = "/System/Library/Fonts/STHeiti Light.ttc"
-	if _, err := os.Stat(src); err != nil {
+	srcData, err := os.ReadFile(src)
+	if err != nil {
 		t.Skipf("no STHeiti Light.ttc on this machine: %v", err)
 	}
+	groups := stheitiSourceGroups(t, srcData, 1)
 	got, err := ExtractTTC(src, 1, filepath.Join(t.TempDir(), "cache"))
 	if err != nil {
 		t.Fatal(err)
@@ -325,9 +471,27 @@ func TestExtractTTCRealSTHeiti(t *testing.T) {
 	if n := f.NumGlyphs(); n == 0 {
 		t.Fatal("extracted STHeiti has no glyphs")
 	}
-	// A BMP CJK lookup must resolve through the synthesized format-4.
-	if gid, err := f.GlyphIndex(nil, '中'); err != nil || gid == 0 {
-		t.Fatalf("GlyphIndex('中') = %d, %v; want non-zero, nil", gid, err)
+	// Exact-glyph probe: x/image resolves BMP codepoints through the
+	// synthesized format-4, so each must match the source TTC's format-12
+	// mapping. Sample covers run starts, middles, and gaps.
+	for _, r := range []rune{'A', 'a', 'z', '0', '中', '文', '说', 0x3042, 0x9FA5, 0xFF21, 0x4E00, 0x12345 - 0x10000 + 0x4E00} {
+		want := glyphInGroups(groups, uint32(r))
+		if want == 0 {
+			t.Logf("U+%04X unmapped in source; skipping", r)
+			continue
+		}
+		gid, err := f.GlyphIndex(nil, r)
+		if err != nil {
+			t.Fatalf("GlyphIndex(U+%04X): %v", r, err)
+		}
+		if uint32(gid) != want {
+			t.Fatalf("U+%04X: extracted glyph = %d, want %d (source cmap)", r, gid, want)
+		}
+	}
+	// Supplementary-plane codepoints resolve to notdef through the BMP-only
+	// format-4 (full coverage remains available to format-12 consumers).
+	if gid, err := f.GlyphIndex(nil, rune(0x20000)); err != nil || gid != 0 {
+		t.Fatalf("U+20000: glyph = %d, %v; want 0, nil", gid, err)
 	}
 	t.Logf("extracted STHeiti: %d glyphs, %d bytes", f.NumGlyphs(), len(data))
 }

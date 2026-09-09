@@ -12,6 +12,11 @@ import (
 	"path/filepath"
 )
 
+// ttcCacheKeyVersion versions the extraction cache key so pre-existing
+// cache entries (written by an older extraction pipeline, e.g. before cmap
+// normalization) miss once and are re-extracted.
+const ttcCacheKeyVersion = "v2"
+
 // ExtractTTC returns the path of a standalone TrueType font for font #index
 // of the collection at sourcePath, extracting (and caching) under cacheDir.
 // A non-collection source is passed through unchanged.
@@ -38,7 +43,7 @@ func ExtractTTC(sourcePath string, index int, cacheDir string) (string, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", fmt.Errorf("font cache dir: %w", err)
 	}
-	key := fmt.Sprintf("%s|%d|%d", sourcePath, info.ModTime().UnixNano(), index)
+	key := fmt.Sprintf("%s|%d|%d|%s", sourcePath, info.ModTime().UnixNano(), index, ttcCacheKeyVersion)
 	sum := sha256.Sum256([]byte(key))
 	cachePath := filepath.Join(cacheDir, fmt.Sprintf("%x.ttf", sum[:16]))
 
@@ -113,8 +118,9 @@ func rebuildStandalone(data []byte, off uint32) ([]byte, error) {
 	for _, e := range entries {
 		var rec16 [16]byte
 		copy(rec16[0:], e.tag)
-		// checkSum is preserved from the source record; recomputed below
-		// alongside offsets for simplicity of the rebuild.
+		// checkSum (rec16[4:8]) is left zeroed: neither x/image nor the PDF
+		// backend verifies table checksums, and only head.checkSumAdjustment
+		// is recomputed below.
 		binary.BigEndian.PutUint32(rec16[8:], uint32(12+16*numTables)+e.off)
 		binary.BigEndian.PutUint32(rec16[12:], e.length)
 		out = append(out, rec16[:]...)
