@@ -108,3 +108,16 @@ func TestFontTrueTypeAt(t *testing.T) {
 		t.Fatal("index out of range: want error")
 	}
 }
+
+func TestFontTrueTypeAtTruncatedOffsetTable(t *testing.T) {
+	// ttc header claims 2 fonts, but the buffer stops after the first
+	// offset entry — reading font 1's offset must error, not panic.
+	out := make([]byte, 12)
+	copy(out, "ttcf")
+	binary.BigEndian.PutUint32(out[4:], 0x00010000)
+	binary.BigEndian.PutUint32(out[8:], 2)
+	out = binary.BigEndian.AppendUint32(out, 20) // only font 0's entry present
+	if _, err := FontTrueTypeAt(out, 1); err == nil {
+		t.Fatal("truncated offset table: want error, got nil")
+	}
+}

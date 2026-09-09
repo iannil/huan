@@ -29,6 +29,11 @@ func fontOffsetAt(data []byte, index int) (uint32, error) {
 	if uint32(index) >= numFonts {
 		return 0, fmt.Errorf("font index %d out of range (collection has %d)", index, numFonts)
 	}
+	// Offset-table entry for font #index must be fully in bounds; arithmetic
+	// in uint64 so a hostile numFonts/index cannot overflow the check.
+	if uint64(index)*4+16 > uint64(len(data)) {
+		return 0, fmt.Errorf("truncated ttc offset table (index %d beyond buffer)", index)
+	}
 	return binary.BigEndian.Uint32(data[12+4*index:]), nil
 }
 
@@ -50,7 +55,9 @@ func FontTrueTypeAt(data []byte, index int) (bool, error) {
 
 // hasTrueTypeOutlinesAt parses the offset table at byte offset off.
 func hasTrueTypeOutlinesAt(data []byte, off uint32) (bool, error) {
-	if int(off)+12 > len(data) {
+	// uint64 arithmetic: a near-MaxUint32 off would overflow int bounds
+	// checks on 32-bit platforms and slip past this guard.
+	if uint64(off)+12 > uint64(len(data)) {
 		return false, fmt.Errorf("offset table out of bounds")
 	}
 	ver := binary.BigEndian.Uint32(data[off:])
