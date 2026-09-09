@@ -63,7 +63,10 @@ func (w *Watcher) addRecursive(root string) error {
 		if !info.IsDir() {
 			return nil
 		}
-		if w.isSkippedDir(path) {
+		// The walk root itself is always watched: a relative root like "."
+		// has a base name starting with a dot and would otherwise SkipDir
+		// the whole tree before anything is added.
+		if path != root && w.isSkippedDir(path) {
 			return filepath.SkipDir
 		}
 		return w.fsw.Add(path)

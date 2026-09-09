@@ -56,7 +56,10 @@ func (w *Watcher) addRecursive(root string) error {
 		if !info.IsDir() {
 			return nil
 		}
-		if w.isIgnored(path) {
+		// The walk root itself is always watched: `huan dev`'s default
+		// --source is ".", whose base name starts with a dot and would
+		// otherwise SkipDir the whole tree before anything is added.
+		if path != root && w.isIgnored(path) {
 			return filepath.SkipDir
 		}
 		return w.fsw.Add(path)
