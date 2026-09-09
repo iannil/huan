@@ -15,6 +15,7 @@
             {{ if eq $bookPage.RelPermalink "" }}
                 {{ failRender (printf "guide 页 %s 找不到书籍页 %s" .File.Path $bookURL) }}
             {{ end }}
+            {{ partial "publication-revision-notice.html" . }}
 
             {{/* 分发：manual.html 覆盖 → v2 多章节手册。manual 覆盖：书目录下
                 guide/manual.html 存在时内嵌自包含手册（safeHTML），并跳过

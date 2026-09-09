@@ -16,6 +16,7 @@ var headFS embed.FS
 type headTestPage struct {
 	Title         string
 	Type          string
+	Section       string
 	IsPage        bool
 	IsHome        bool
 	Description   string
@@ -93,14 +94,14 @@ func parseHead(t *testing.T) *template.Template {
 
 func newHeadTestPage() *headTestPage {
 	return &headTestPage{
-		Title:     "演示导读",
-		Type:      "guide",
-		IsPage:    true,
-		Permalink: "/books/demo/guide/",
+		Title:      "演示导读",
+		Type:       "guide",
+		IsPage:     true,
+		Permalink:  "/books/demo/guide/",
 		RawContent: "```guide\nbook: demo\nsection: books\nthesis:\n  claim: \"演示主张\"\n  puzzle: \"演示困惑文本\"\nmain_chart:\n  chart_type: funnel\n  title: \"漏斗\"\n```\n",
-		Date:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		Lastmod:   time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		Params:    map[string]interface{}{},
+		Date:       time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		Lastmod:    time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		Params:     map[string]interface{}{},
 		Site: &headTestSite{
 			Title:  "祝融说",
 			Params: map[string]interface{}{"description": "站点描述"},
@@ -156,6 +157,21 @@ func TestHeadFrontmatterDescriptionWins(t *testing.T) {
 	}
 	if bytes.Contains([]byte(out), []byte("演示主张")) {
 		t.Fatalf("thesis claim should not be used when frontmatter description exists:\n%s", out)
+	}
+}
+
+func TestHeadLoadsGuideStylesForBookChapters(t *testing.T) {
+	tmpl := parseHead(t)
+	page := newHeadTestPage()
+	page.Type = "books"
+	page.Section = "books"
+
+	var b bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&b, "partials/head.html", page); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !bytes.Contains(b.Bytes(), []byte(`/theme/zhurongshuo/css/guide.css`)) {
+		t.Fatal("book chapter must load guide.css")
 	}
 }
 

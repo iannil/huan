@@ -124,7 +124,7 @@
         href="/theme/zhurongshuo/css/search.css" />
     <link rel="stylesheet" type="text/css" media="screen"
         href="/theme/zhurongshuo/css/post-share.css" />
-    {{ if or (eq .Type "guide") (eq .Type "book") (eq .Type "practice") }}
+    {{ if or (eq .Type "guide") (eq .Type "book") (eq .Type "practice") (eq .Section "books") }}
     <link rel="stylesheet" type="text/css" media="screen"
         href="/theme/zhurongshuo/css/guide.css" />
     {{ end }}

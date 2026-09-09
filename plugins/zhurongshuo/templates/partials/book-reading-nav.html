@@ -25,10 +25,10 @@
     {{ end }}
     {{ $last = . }}
 {{ end }}
-<nav class="book-reading-nav" aria-label="{{ if eq .PageLanguage "en" }}Book navigation{{ else }}书籍阅读导航{{ end }}" style="margin:1.5rem 0;padding:1rem 0;border-top:1px solid #ddd;border-bottom:1px solid #ddd;line-height:1.8">
-    <div><a class="book-contents-link" href="{{ $book.RelPermalink }}">{{ if eq .PageLanguage "en" }}Contents{{ else }}全书目录{{ end }} · {{ $book.Title }}</a></div>
-    {{ with $previous }}<div><a rel="prev" href="{{ .RelPermalink }}">← {{ .Title }}</a></div>{{ end }}
-    {{ with $next }}<div><a rel="next" href="{{ .RelPermalink }}">{{ .Title }} →</a></div>{{ end }}
+<nav class="book-reading-nav" aria-label="{{ if eq .PageLanguage "en" }}Book navigation{{ else }}书籍阅读导航{{ end }}">
+    {{ with $previous }}<a class="book-reading-nav__previous" rel="prev" href="{{ .RelPermalink }}" title="{{ .Title }}">← {{ .Title }}</a>{{ end }}
+    <a class="book-reading-nav__contents" href="{{ $book.RelPermalink }}" title="{{ $book.Title }}">{{ if eq .PageLanguage "en" }}Contents{{ else }}全书目录{{ end }}</a>
+    {{ with $next }}<a class="book-reading-nav__next" rel="next" href="{{ .RelPermalink }}" title="{{ .Title }}">{{ .Title }} →</a>{{ end }}
 </nav>
 {{ end }}
 {{ end }}

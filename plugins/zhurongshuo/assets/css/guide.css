@@ -174,3 +174,50 @@
 .guide_page--v2 .guide_map__part { margin: 1.2em 0; }
 .guide_page--v2 .guide_takeaways ul { line-height: 1.9; }
 .guide_page--v2 .guide_enter_book { margin-top: 2.4em; font-size: .92rem; }
+
+/* 书籍章节导航：上一篇 / 目录 / 下一篇保持在同一行。 */
+.book-reading-nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 1.25rem;
+    margin: 1.8rem 0;
+    padding: .85rem 0;
+    border-top: 1px solid #e5e5e5;
+    border-bottom: 1px solid #e5e5e5;
+    font-size: .82rem;
+    line-height: 1.5;
+}
+.book-reading-nav a {
+    min-width: 0;
+    overflow: hidden;
+    color: #777777;
+    letter-spacing: .02em;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.book-reading-nav a::after { display: none; }
+.book-reading-nav__previous { grid-column: 1; text-align: left; }
+.book-reading-nav__contents {
+    grid-column: 2;
+    color: #424242;
+    font-weight: 500;
+    text-align: center;
+}
+.book-reading-nav__next { grid-column: 3; text-align: right; }
+.book-reading-nav a:hover { color: #1f1f1f; }
+.book-reading-nav a:focus-visible {
+    color: #1f1f1f;
+    outline: 1px solid #777777;
+    outline-offset: 4px;
+}
+
+@media (max-width: 640px) {
+    .book-reading-nav {
+        gap: .65rem;
+        margin: 1.4rem 0;
+        padding: .75rem 0;
+        font-size: .74rem;
+    }
+}

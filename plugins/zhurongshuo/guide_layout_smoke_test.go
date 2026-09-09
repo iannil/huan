@@ -135,12 +135,13 @@ func parseGuideLayout(t *testing.T) *template.Template {
 	}
 	// Stubs for partials whose full versions pull in too much engine context.
 	stubs := map[string]string{
-		"partials/head.html":   `<!DOCTYPE html><html><head><title>{{ .Title }}</title></head>`,
-		"partials/nav.html":    `<nav></nav>`,
-		"partials/header.html": `<header></header>`,
-		"partials/footer.html": `<footer></footer>`,
-		"partials/js.html":     ``,
-		"partials/search.html": ``,
+		"partials/head.html":                        `<!DOCTYPE html><html><head><title>{{ .Title }}</title></head>`,
+		"partials/nav.html":                         `<nav></nav>`,
+		"partials/header.html":                      `<header></header>`,
+		"partials/footer.html":                      `<footer></footer>`,
+		"partials/js.html":                          ``,
+		"partials/search.html":                      ``,
+		"partials/publication-revision-notice.html": ``,
 	}
 	for name, content := range stubs {
 		if _, err := tmpl.New(name).Parse(content); err != nil {
@@ -329,14 +330,14 @@ func TestGuideLayoutV2Chapters(t *testing.T) {
 	}
 	out := b.String()
 	for _, want := range []string{
-		`guide_hook`,           // hook 区块
-		`世界是谁搭好的？`,     // hook.question
-		`guide_chapter`,        // 章节容器
-		`表层：可见的世界`,      // chapter.title
-		`guide_step__explain`,  // step 解释文字容器（与 SVG 内文字区分）
-		`名字即边界。`,          // step.explain
-		`guide_pitfall`,        // 误解区
-		`guide_next`,           // 上手路径区
+		`guide_hook`,          // hook 区块
+		`世界是谁搭好的？`,            // hook.question
+		`guide_chapter`,       // 章节容器
+		`表层：可见的世界`,            // chapter.title
+		`guide_step__explain`, // step 解释文字容器（与 SVG 内文字区分）
+		`名字即边界。`,              // step.explain
+		`guide_pitfall`,       // 误解区
+		`guide_next`,          // 上手路径区
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("v2 output missing %q", want)
