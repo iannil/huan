@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/iannil/huan-plugin-ebook-exporter/content"
@@ -83,5 +84,33 @@ func TestFileStem(t *testing.T) {
 	}
 	if got := fileStem(blank, content.LangEN); got != "demo-book-en" {
 		t.Errorf("blank en stem = %q", got)
+	}
+}
+
+func TestOutPathUsesTitleStem(t *testing.T) {
+	u := &unit{
+		kind:     "books",
+		dirName:  "individual",
+		baseName: "demo-book",
+		agg:      &content.BookEntry{TitleZH: "示范书", TitleEN: "Demo Book: A Story"},
+	}
+	wantZH := filepath.Join("out", "epub", "books", "individual", "示范书.epub")
+	if got := outPath("out", u.kind, u.dirName, u, content.LangZH, "epub"); got != wantZH {
+		t.Errorf("zh outPath = %q, want %q", got, wantZH)
+	}
+	wantEN := filepath.Join("out", "epub", "books", "individual", "Demo Book：A Story.epub")
+	if got := outPath("out", u.kind, u.dirName, u, content.LangEN, "epub"); got != wantEN {
+		t.Errorf("en outPath = %q, want %q", got, wantEN)
+	}
+}
+
+func TestLegacyPathIsSlugBased(t *testing.T) {
+	got := legacyPath("out", "books", "individual", "demo-book", content.LangZH, "epub")
+	if want := filepath.Join("out", "epub", "books", "individual", "demo-book.epub"); got != want {
+		t.Errorf("zh legacyPath = %q, want %q", got, want)
+	}
+	got = legacyPath("out", "books", "individual", "demo-book", content.LangEN, "epub")
+	if want := filepath.Join("out", "epub", "books", "individual", "demo-book-en.epub"); got != want {
+		t.Errorf("en legacyPath = %q, want %q", got, want)
 	}
 }

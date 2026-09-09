@@ -193,8 +193,16 @@ func manifestKey(kind, dirName, base string, lang content.Lang, format string) s
 	return fmt.Sprintf("%s/%s/%s.%s.%s", kind, dirName, base, lang, format)
 }
 
-// outPath builds <outRoot>/<format>/<kind>/<dirName>/<base>[-<lang>].<ext>.
-func outPath(outRoot, kind, dirName, base string, lang content.Lang, format string) string {
+// outPath builds <outRoot>/<format>/<kind>/<dirName>/<stem>.<ext>, where the
+// stem is the language-appropriate book title (see fileStem).
+func outPath(outRoot, kind, dirName string, u *unit, lang content.Lang, format string) string {
+	return filepath.Join(outRoot, format, kind, dirName, fileStem(u, lang)+"."+format)
+}
+
+// legacyPath is the pre-v4 slug-based output path for one unit+language,
+// kept solely so successful re-exports can clean up stale artifacts after
+// the filename localization (spec: 2026-09-09-ebook-export-filename-l10n).
+func legacyPath(outRoot, kind, dirName, base string, lang content.Lang, format string) string {
 	name := base
 	if lang != content.LangZH {
 		name += "-" + string(lang)
@@ -465,7 +473,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 			} else {
 				for _, lang := range langs {
 					res.Skipped = append(res.Skipped, plugin.ExportItem{
-						Path:   outPath(outRoot, u.kind, u.dirName, u.baseName, lang, f),
+						Path:   outPath(outRoot, u.kind, u.dirName, u, lang, f),
 						Lang:   string(lang),
 						Format: f,
 						Slug:   u.agg.Slug,
@@ -508,7 +516,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 			for _, f := range j.formats {
 				formatOK := true
 				for _, lang := range j.langs {
-					out := outPath(outRoot, j.u.kind, j.u.dirName, j.u.baseName, lang, f)
+					out := outPath(outRoot, j.u.kind, j.u.dirName, j.u, lang, f)
 					if err := renderUnit(j.u.agg, lang, f, out, fontPath, monoFontPath, resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.CoverLatinFont)); err != nil {
 						jr.fails = append(jr.fails, plugin.ExportFailure{
 							Item: plugin.ExportItem{Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug},
