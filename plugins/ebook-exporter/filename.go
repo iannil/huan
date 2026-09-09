@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"unicode"
+
+	"github.com/iannil/huan-plugin-ebook-exporter/content"
 )
 
 // sanitizeFilename makes s safe as a filename stem on all platforms:
@@ -30,4 +32,25 @@ func sanitizeFilename(s string) string {
 		}
 	}
 	return strings.Trim(strings.Join(strings.Fields(b.String()), " "), " .")
+}
+
+// fileStem returns the output filename stem for one unit in one language:
+// the ZH title for zh, the EN title for en (aggregates carry synthesized
+// titles from expandUnits). A missing EN title falls back to the ZH side —
+// the plugin-wide missing-EN policy — and then a "-en" suffix is appended so
+// the two languages' files stay distinct. An empty title falls back to the
+// slug baseName so export never fails on naming.
+func fileStem(u *unit, lang content.Lang) string {
+	title := u.agg.TitleZH
+	if lang == content.LangEN {
+		title = u.agg.TitleEN
+	}
+	stem := sanitizeFilename(title)
+	if stem == "" {
+		stem = u.baseName
+	}
+	if lang == content.LangEN && stem == fileStem(u, content.LangZH) {
+		stem += "-en"
+	}
+	return stem
 }

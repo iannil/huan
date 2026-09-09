@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/iannil/huan-plugin-ebook-exporter/content"
+)
 
 func TestSanitizeFilename(t *testing.T) {
 	cases := []struct {
@@ -15,10 +19,60 @@ func TestSanitizeFilename(t *testing.T) {
 		{"leading trailing spaces and dots", "  ..name.. ", "name"},
 		{"empty stays empty", "///", ""},
 		{"only spaces", "   ", ""},
+		{"fullwidth colon swallows space", "a： b", "a：b"},
 	}
 	for _, c := range cases {
 		if got := sanitizeFilename(c.in); got != c.want {
 			t.Errorf("%s: sanitizeFilename(%q) = %q, want %q", c.name, c.in, got, c.want)
 		}
+	}
+}
+
+func TestFileStem(t *testing.T) {
+	bilingual := &unit{
+		baseName: "reality-construction",
+		agg: &content.BookEntry{
+			TitleZH: "实在建构：从无限可能到有限确定",
+			TitleEN: "Reality Construction: From Infinite Possibility to Finite Certainty",
+		},
+	}
+	if got := fileStem(bilingual, content.LangZH); got != "实在建构：从无限可能到有限确定" {
+		t.Errorf("zh stem = %q", got)
+	}
+	if got := fileStem(bilingual, content.LangEN); got != "Reality Construction：From Infinite Possibility to Finite Certainty" {
+		t.Errorf("en stem = %q", got)
+	}
+
+	// EN title missing: falls back to the ZH side, "-en" keeps files distinct.
+	zhOnly := &unit{
+		baseName: "demo-book",
+		agg:      &content.BookEntry{TitleZH: "示范书", TitleEN: "示范书"},
+	}
+	if got := fileStem(zhOnly, content.LangZH); got != "示范书" {
+		t.Errorf("zh-only stem = %q", got)
+	}
+	if got := fileStem(zhOnly, content.LangEN); got != "示范书-en" {
+		t.Errorf("zh-only en stem = %q", got)
+	}
+
+	// Aggregate unit: synthesized titles from expandUnits flow through as-is.
+	vol := &unit{
+		baseName: "volume-1",
+		agg:      &content.BookEntry{TitleZH: "第1卷合集", TitleEN: "Collected Books: Volume 1"},
+	}
+	if got := fileStem(vol, content.LangZH); got != "第1卷合集" {
+		t.Errorf("volume zh stem = %q", got)
+	}
+	if got := fileStem(vol, content.LangEN); got != "Collected Books：Volume 1" {
+		t.Errorf("volume en stem = %q", got)
+	}
+
+	// Both titles sanitize to empty: fall back to the slug (export never fails).
+	blank := &unit{baseName: "demo-book", agg: &content.BookEntry{}}
+	if got := fileStem(blank, content.LangZH); got != "demo-book" {
+		t.Errorf("blank zh stem = %q", got)
+	}
+	if got := fileStem(blank, content.LangEN); got != "demo-book-en" {
+		t.Errorf("blank en stem = %q", got)
 	}
 }
