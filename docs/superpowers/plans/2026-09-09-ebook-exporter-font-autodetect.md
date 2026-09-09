@@ -913,3 +913,57 @@ cd /Users/rong.zhu/Code/zhurong/zhurongshuo && git add huan.yaml && git commit -
 ```
 
 （huan 发版/VERSION bump 不在本计划内，由用户另行决策——CI 装 latest release 后才在线上生效。）
+
+---
+
+### Task 4b: cmap format-12 合并重写（2026-09-09 追加，用户决策）
+
+**背景**：实现中发现 spec 缺陷——STHeiti 全量提取字体虽为 TrueType 轮廓，但其 cmap
+format-12 子表含 22861 个碎片化 groups（未合并连续区间），超过渲染层 x/image sfnt 的
+`maxCmapSegments = 20000` 硬上限（x/image font/sfnt/cmap.go:266），host 无关。原 python
+管线可用 STHeiti 是因 pyftsubset 顺带把 cmap 子集/合并了。合并连续区间后 STHeiti 仅需
+~3420 groups。用户决策：在插件内用纯 Go 做 cmap 合并重写，保住 STHeiti 出版设计。
+
+**Files:**
+- Create: `plugins/ebook-exporter/style/cmap.go`
+- Modify: `plugins/ebook-exporter/style/ttc.go`（`rebuildStandalone` 中对 cmap 表调用归一化）
+- Modify: `plugins/ebook-exporter/plugin.go`（顺手修两条 Task 4 review minors）
+- Test: `plugins/ebook-exporter/style/cmap_test.go`
+
+**Interfaces:**
+- Consumes: `rebuildStandalone`（Task 2）的表数据布局；x/image `font/opentype`（go.mod 已有）
+- Produces: `func normalizeCmap(cmap []byte) ([]byte, error)` — 输入一个 cmap 表的完整字节，
+  输出归一化后的 cmap 表字节：解析 header（version u16、numTables u16、encoding records
+  8B each：platformID u16/encodingID u16/offset u32），对每个 format-12 子表合并可合并的
+  相邻 groups（`end[i]+1 == start[i+1] && startGlyph[i+1] == startGlyph[i] + (end[i]-start[i]) + 1`），
+  重写子表 length 与 encoding record offsets，其余子表原样保留。format-4 子表不动
+  （x/image 取 (3,10)/(0,x) format-12 优先；format-4 超限的系统字体不在已知源内）。
+  合并是幂等的、无条件执行（碎片化才有多余 groups，已合并字体为 no-op）。
+
+**Steps:**
+
+1. 失败测试 `style/cmap_test.go`：
+   - `buildFragmentedCmapTTC(t)`：用 `buildTestFont` 造一个 cmap 表为 format-12、
+     25000 个单码点 groups 的字体（每 group startCharCode=i、endCharCode=i、startGlyphID=i+1，
+     可全部合并成 1 个 group），打包成 TTC（参照 `buildTestTTC` 的 20/20+len 偏移写法）。
+   - `TestNormalizeCmapMergesRuns`：直接调用 `normalizeCmap`，断言输出的 format-12 子表
+     nGroups 远小于输入（此 fixture 应为 1），且抽查若干码点的 glyphID 映射不变
+     （读 group 二分或线性扫描均可）。
+   - `TestExtractTTCNormalizesCmap`：`ExtractTTC` 该 TTC 后，对输出文件
+     `opentype.Parse`（x/image）必须成功——这是渲染层验收，回归 STHeiti 事故的根因。
+     （对照：不做归一化时该 fixture 25000 groups > 20000，Parse 必失败。）
+   - `TestNormalizeCmapPassthrough`：已是连续区间的 cmap 字节原样通过（或等价重写）。
+2. 实现 `style/cmap.go`（大端；注意所有偏移重算与 4 字节对齐）。
+3. `style/ttc.go`：`rebuildStandalone` 中，当复制的表 tag 为 "cmap" 时对表数据调用
+   `normalizeCmap`，err 时返回错误（提取失败进既有的错误路径）。
+4. 顺手修 Task 4 review minors（plugin.go）：
+   - 回归测试 warning 断言收紧为 `strings.Contains(strings.Join(...), "fonts")`（test 文件）。
+   - "is not renderable, degrading" 警告补上降级目标（"degrading to system scan font"
+     / "degrading to builtin cover font"）。
+5. `cd plugins/ebook-exporter && go test ./...` 全绿 + `go vet`/`gofmt`；真机抽查：
+   `ExtractTTC("/System/Library/Fonts/STHeiti Light.ttc", 1, <tmp>)` 后对输出
+   `opentype.Parse` 成功（可写成 `TestExtractTTCRealSTHeiti`，系统无该文件时 skip）。
+6. Commit：`feat(ebook-exporter): merge fragmented cmap groups so extracted system fonts render`
+
+**验收**：真机导出 PDF/封面走 STHeiti 派生字体（warnings 报 "derived from ...STHeiti"，
+无 "not renderable" 降级）；Task 5 e2e 复验。
