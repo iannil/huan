@@ -49,7 +49,16 @@ huan export ebook --type all --format all --force
 
 - **系统 CJK 字体**：PDF 渲染需要 TrueType 字体。推荐安装 [Noto Sans CJK SC](https://github.com/notofonts/noto-cjk)（macOS 可 `brew install font-noto-sans-cjk-sc`）。默认扫描 `~/Library/Fonts`、`/Library/Fonts`、`/System/Library/Fonts`（Linux: `/usr/share/fonts`）；也可用 `fonts_dir` 配置指定目录。找不到 CJK 字体时报明确错误。
 - PDF 应使用含 `glyf` 表的 TrueType 字体。gpdf v1.0.11 虽可读入 CFF/OTF，却会按 TrueType 嵌入，实际阅读器可能丢字；EPUB 可继续使用 OTF。`pdf_font` 与 EPUB 的 `fonts_dir` 分开配置。
-- **字体子集化（fonts_dir 预子集路线）**：EPUB 内嵌字体走"预子集"——`fonts_dir` 指向一个已用 pyftsubset 子集化的字体文件（15.7 MB 全量 → ~1.9 MB 子集），插件按 `notosanscjk`+`sc` 文件名匹配直接嵌入。子集字体由 zhurongshuo 仓库 `scripts/gen_subset_font.sh` 生成（字符集 = books/practices 全部 zh + .en.md 全文 + 元数据 yaml），不入库、机器本地；换机器或新增生僻字内容后须先重跑该脚本再 `huan export --force`。PDF 侧 gpdf 嵌入时自行子集，不受影响。
+- **字体自动解析（2026-09-09 起）**：`pdf_font` / `cover_font` / `cover_latin_font` 配置路径缺失时，
+  插件自动回退：PDF/封面中文 → `/System/Library/Fonts/STHeiti Light.ttc`（TTC 内嵌提取，
+  缓存于 `<output_dir>/.font-cache/`）→ 系统扫描（仅 TrueType 轮廓）；封面英文 →
+  Times New Roman → Georgia → 空值降级（中文渲染器顶替）。回退发生时在导出结果的
+  warnings 中列明实际来源。不再需要 `prepare_publication_fonts.py` / `gen_subset_font.sh`
+  预生成字体；EPUB 内嵌字体在无预子集字体时回退全量系统字体（体积代价，见限制清单）。
+  cmap 归一化说明：自动提取的 macOS STHeiti 经 TTC 提取 + 碎片 cmap 归一化（format-12
+  分组合并，必要时合成 format-4 BMP 子表）后可直接渲染；增补平面码位（> U+FFFF）在
+  光栅封面中按回退字形显示（x/image 限制），PDF 正文不受影响（gpdf 优先使用保留的
+  format-12 子表）。
 
 ## V1 限制清单
 
@@ -58,7 +67,7 @@ huan export ebook --type all --format all --force
 - DOCX 目录为双列表（TOC field + plain list）：Task 7 起目录页同时含 F9 TOC field（Word 内可刷新页码）与静态 plain list——部分阅读器/预览器不渲染 field，双列保证到处可见；代价是 Word 中刷新 field 后目录会重复出现一次。
 - 合集使用可读的中英文书名（书籍全集 / Collected Books、实践全集 / Collected Practices），分卷、分季提供英文标题；不再将输出文件的 slug 作为封面书名。章节级标题/标签缺失时仍回退中文侧。
 - PDF 导出耗时 ~3m20s/本：逐章双渲染（测量 + 成书）保证目录页码正确，正确性优先于速度；epub/docx 为秒级。
-- 子集字体是机器本地产物（见"依赖"节）：其他机器未先跑 `gen_subset_font.sh` 时，EPUB 会回退嵌入 15.7 MB 全量字体（体积问题，非渲染问题）。
+- EPUB 内嵌字体默认回退全量系统字体（~15.7MB/本，仅本地体积问题，非渲染问题）；预子集字体（`fonts_dir` 指向 pyftsubset 产物）仍被支持但不再是必需。
 - PDF 表格降级为文本行渲染
 - DOCX 表格降级为 tab 连接的文本段
 - EPUB 列表统一渲染为 `<ul>`
@@ -70,13 +79,5 @@ huan export ebook --type all --format all --force
 三种格式共用 `render/publication_cover.go`：白底书名区、`#AD2F2E` 红色侧栏、三枚 `#FCFBEF` 竖排圆点，取自 zhurongshuo.com favicon；文字使用网站的深灰及辅助灰。封面以 300 dpi 生成，嵌入 EPUB、DOCX、PDF，避免不同阅读器替换封面字体。长书名按实际字宽换行，必要时缩小字号，完整保留标题。DOCX 封面有独立页面节，正文样式不变。
 
 PDF 使用 A4、26 mm 页边距、12 pt 正文、22.2 pt 基线行距；引用与列表同步，代码 9.5 pt、表格 10.5 pt，均为 1.6 倍行距。EPUB、DOCX 正文延续原样式。设计版本、元数据与字体内容参与增量缓存键，避免更换封面后仍跳过旧产物。
-
-复现此次字体配置（macOS，需本机 fontTools，仅在准备字体时使用）：
-
-```bash
-python3 plugins/ebook-exporter/tools/prepare_publication_fonts.py /path/to/zhurongshuo
-```
-
-将站点配置中的 `pdf_font` 与 `cover_font` 指向 `developer/audit-tools/publication-fonts/body-cover-cjk.ttf`，`cover_latin_font` 指向同目录 `cover-latin.ttf`。字体从本机字体库提取，不随代码分发；新增字符后重新运行准备脚本。其他平台可传入对应的本地授权字体路径。
 
 封面和版式验收不等于特殊内容功能全部完成：PDF/DOCX 表格仍为文本降级；公式、脚注和流程图的语义渲染、标题孤悬等须另行修复和验收。
