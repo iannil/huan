@@ -377,6 +377,23 @@ func TestNormalizeCmapUnparseableSubtableNoPanic(t *testing.T) {
 			t.Fatalf("bogus-length cmap must error or pass through unchanged, got %d bytes", len(got))
 		}
 	})
+
+	t.Run("lengthOne", func(t *testing.T) {
+		// A declared subtable length of 1 cannot even hold the 2-byte format
+		// field; the extent validator must reject it before any format read
+		// slices data[0:] (a 2-byte read off a 1-byte subtable).
+		cmap := build(t, func(cmap []byte, subOff int) []byte {
+			binary.BigEndian.PutUint32(cmap[subOff+4:], 1) // format-12 length field
+			return cmap
+		})
+		got, err := normalizeCmap(cmap)
+		if err != nil {
+			return // degrade via error: acceptable
+		}
+		if string(got) != string(cmap) {
+			t.Fatalf("length-1 subtable cmap must error or pass through unchanged, got %d bytes (source %d)", len(got), len(cmap))
+		}
+	})
 }
 
 // TestNormalizeCmapIdempotent pins the contract that re-normalizing an

@@ -157,9 +157,9 @@ func rebuildCmapRecords(cmap []byte, recs []cmapSub) []byte {
 // cmapSubtableLength returns the byte length of the cmap subtable starting
 // at off, per its format's length field: u16 at +2 for formats 0/2/4/6, u32
 // at +4 for formats 8/10/12/13 (reserved u16 precedes it), u32 at +2 for
-// format 14 (no reserved field). Any anomaly — unknown format, zero or
-// out-of-bounds length — is an error so callers can leave the table
-// untouched instead of slicing out of bounds.
+// format 14 (no reserved field). Any anomaly — unknown format, sub-2-byte
+// (cannot hold the format field) or out-of-bounds length — is an error so
+// callers can leave the table untouched instead of slicing out of bounds.
 func cmapSubtableLength(cmap []byte, off int) (int, error) {
 	if off+2 > len(cmap) {
 		return 0, fmt.Errorf("subtable header out of bounds")
@@ -189,9 +189,10 @@ func cmapSubtableU32Length(cmap []byte, off, at int) (int, error) {
 }
 
 // cmapSubtableExtent validates a subtable's byte length against the cmap
-// table bounds.
+// table bounds. A subtable must contain at least its 2-byte format field,
+// so length 1 (which would panic the format read) is rejected.
 func cmapSubtableExtent(cmap []byte, off, length int) (int, error) {
-	if length <= 0 || off+length > len(cmap) {
+	if length < 2 || off+length > len(cmap) {
 		return 0, fmt.Errorf("subtable length %d out of bounds at offset %d", length, off)
 	}
 	return length, nil

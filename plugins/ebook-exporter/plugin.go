@@ -455,18 +455,21 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 	// auto-derivation; a resolution error only fails items that need PDF.
 	fontCacheDir := filepath.Join(outRoot, ".font-cache")
 	pdfFont, pdfNote, pdfErr := style.FindPublicationCJKFont(resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.FontsDir), fontCacheDir)
-	coverFont, coverNote, _ := style.FindPublicationCJKFont(resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.FontsDir), fontCacheDir)
+	coverFont, coverNote, coverErr := style.FindPublicationCJKFont(resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.FontsDir), fontCacheDir)
 	coverLatinFont := style.FindPublicationLatinFont(resolveFont(p.cfg.CoverLatinFont))
 	if pdfErr != nil {
 		res.Warnings = append(res.Warnings, "pdf font: "+pdfErr.Error())
 		pdfFont = ""
 	}
+	if coverErr != nil {
+		res.Warnings = append(res.Warnings, "cover font: "+coverErr.Error())
+	}
 	if pdfFont != "" && !renderableFont(pdfFont) {
-		res.Warnings = append(res.Warnings, "fonts: pdf font "+pdfFont+" is not renderable, degrading to system scan font")
+		res.Warnings = append(res.Warnings, "fonts: pdf font "+pdfFont+" is not renderable, degrading to the generic chain font")
 		pdfFont = ""
 	}
 	if coverFont != "" && !renderableFont(coverFont) {
-		res.Warnings = append(res.Warnings, "fonts: cover font "+coverFont+" is not renderable, degrading to builtin cover font")
+		res.Warnings = append(res.Warnings, "fonts: cover font "+coverFont+" is not renderable, degrading to system font scan")
 		coverFont = ""
 	}
 	for _, n := range []string{pdfNote, coverNote} {

@@ -44,8 +44,10 @@ func readableTrueType(ref FontRef, cacheDir string) (string, bool) {
 // FindPublicationCJKFont resolves the PDF/cover CJK slot:
 // cfgPath → publicationCJKSources → system scan (TrueType only).
 func FindPublicationCJKFont(cfgPath, fontsDir, cacheDir string) (string, string, error) {
-	if path, ok := readableTrueType(FontRef{Path: cfgPath, Index: 0}, cacheDir); cfgPath != "" && ok {
-		return path, "", nil
+	if cfgPath != "" {
+		if path, ok := readableTrueType(FontRef{Path: cfgPath, Index: 0}, cacheDir); ok {
+			return path, "", nil
+		}
 	}
 	for _, src := range publicationCJKSources {
 		if path, ok := readableTrueType(src, cacheDir); ok {

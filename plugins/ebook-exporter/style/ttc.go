@@ -1,5 +1,6 @@
-// Package style internal: TTC→standalone-TTF extraction with a content-keyed
-// on-disk cache. Pure Go; table data is copied verbatim except for the cmap
+// Package style internal: TTC→standalone-TTF extraction with a
+// path+mtime-keyed on-disk cache. Pure Go; table data is copied verbatim
+// except for the cmap
 // normalization (see cmap.go), and the table directory offsets and
 // head.checkSumAdjustment are recomputed.
 package style

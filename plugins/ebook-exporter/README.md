@@ -52,7 +52,7 @@ huan export ebook --type all --format all --force
 - **字体自动解析（2026-09-09 起）**：`pdf_font` / `cover_font` / `cover_latin_font` 配置路径缺失时，
   插件自动回退：PDF/封面中文 → `/System/Library/Fonts/STHeiti Light.ttc`（TTC 内嵌提取，
   缓存于 `<output_dir>/.font-cache/`）→ 系统扫描（仅 TrueType 轮廓）；封面英文 →
-  Times New Roman → Georgia → 空值降级（中文渲染器顶替）。回退发生时在导出结果的
+  Times New Roman → Georgia → Didot → Charter → 空值降级（中文渲染器顶替）。回退发生时在导出结果的
   warnings 中列明实际来源。不再需要 `prepare_publication_fonts.py` / `gen_subset_font.sh`
   预生成字体；EPUB 内嵌字体在无预子集字体时回退全量系统字体（体积代价，见限制清单）。
   cmap 归一化说明：自动提取的 macOS STHeiti 经 TTC 提取 + 碎片 cmap 归一化（format-12
