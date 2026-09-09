@@ -12,6 +12,8 @@ import (
 	"github.com/iannil/huan-plugin-ebook-exporter/render"
 	"github.com/iannil/huan-plugin-ebook-exporter/style"
 	"github.com/iannil/huan/pkg/plugin"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/font/sfnt"
 )
 
 // Config is the ebook-exporter configuration from huan.yaml
@@ -392,6 +394,32 @@ func expandUnits(kind string, col *content.Collection, req plugin.ExportRequest)
 	return units
 }
 
+// renderableFont reports whether the render backends can actually consume
+// the font file: opentype.Parse, or a collection parse with font 0 selected
+// — the same acceptance path as render.loadCoverFont. The publication chain
+// validates TrueType outlines only; fonts like STHeiti pass that check but
+// are rejected by x/image sfnt (its format-4 cmap exceeds the 20000-segment
+// limit), so the integration layer re-validates and the caller degrades to
+// the generic chain's font when the check fails.
+func renderableFont(path string) bool {
+	if path == "" {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	if _, err := opentype.Parse(data); err == nil {
+		return true
+	}
+	if c, err := sfnt.ParseCollection(data); err == nil {
+		if _, err := c.Font(0); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Export runs the batch. See pkg/plugin.Exporter for the contract:
 // per-item results even on partial failure; a non-nil error only when the
 // export cannot proceed at all.
@@ -419,6 +447,33 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 	// Mono font for PDF code blocks (PDF-1); empty degrades to the body font.
 	monoFontPath := style.FindMonoFont(resolveFont(p.cfg.FontsDir))
 
+	res := plugin.ExportResult{}
+
+	// Publication font slots resolve once per batch: explicit config →
+	// known system sources (TTC extraction) → system scan. Notes surface
+	// auto-derivation; a resolution error only fails items that need PDF.
+	fontCacheDir := filepath.Join(outRoot, ".font-cache")
+	pdfFont, pdfNote, pdfErr := style.FindPublicationCJKFont(resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.FontsDir), fontCacheDir)
+	coverFont, coverNote, _ := style.FindPublicationCJKFont(resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.FontsDir), fontCacheDir)
+	coverLatinFont := style.FindPublicationLatinFont(resolveFont(p.cfg.CoverLatinFont))
+	if pdfErr != nil {
+		res.Warnings = append(res.Warnings, "pdf font: "+pdfErr.Error())
+		pdfFont = ""
+	}
+	if pdfFont != "" && !renderableFont(pdfFont) {
+		res.Warnings = append(res.Warnings, "fonts: pdf font "+pdfFont+" is not renderable, degrading")
+		pdfFont = ""
+	}
+	if coverFont != "" && !renderableFont(coverFont) {
+		res.Warnings = append(res.Warnings, "fonts: cover font "+coverFont+" is not renderable, degrading")
+		coverFont = ""
+	}
+	for _, n := range []string{pdfNote, coverNote} {
+		if n != "" {
+			res.Warnings = append(res.Warnings, "fonts: "+n)
+		}
+	}
+
 	// Resolve kinds and discover collections. A missing content root for a
 	// requested kind is a hard error (cannot start).
 	kinds := []string{"books", "practices"}
@@ -438,11 +493,13 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		units = append(units, expandUnits(kind, col, req)...)
 	}
 
-	res := plugin.ExportResult{}
 	manifest := LoadManifest(outRoot)
 	// A changed publication design, font or metadata must invalidate exports
 	// even when chapter Markdown is unchanged. Output paths are not hashed.
-	assets := []string{fontPath, monoFontPath, resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.CoverLatinFont), filepath.Join(req.SourceDir, "data/books.yaml"), filepath.Join(req.SourceDir, "data/practices.yaml")}
+	// Hash the finally-resolved publication font paths, so a config path that
+	// silently stops resolving (e.g. a removed pre-generated file) invalidates
+	// existing exports once the derivation changes.
+	assets := []string{fontPath, monoFontPath, pdfFont, coverFont, coverLatinFont, filepath.Join(req.SourceDir, "data/books.yaml"), filepath.Join(req.SourceDir, "data/practices.yaml")}
 	assetHash := ComputeHash(assets)
 	hash := func(u *unit) string { return "publication-v4-20260909:" + assetHash + ":" + ComputeHash(u.mdPaths) }
 	reqFormats := formatsFor(req.Format)
@@ -521,7 +578,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 				formatOK := true
 				for _, lang := range j.langs {
 					out := outPath(outRoot, j.u.kind, j.u.dirName, j.u, lang, f)
-					if err := renderUnit(j.u.agg, lang, f, out, fontPath, monoFontPath, resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.CoverLatinFont)); err != nil {
+					if err := renderUnit(j.u.agg, lang, f, out, fontPath, monoFontPath, pdfFont, coverFont, coverLatinFont); err != nil {
 						jr.fails = append(jr.fails, plugin.ExportFailure{
 							Item: plugin.ExportItem{Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug},
 							Err:  err.Error(),

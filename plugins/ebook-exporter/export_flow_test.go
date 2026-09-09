@@ -162,3 +162,34 @@ func TestExportRenamesSlugArtifacts(t *testing.T) {
 		t.Fatalf("localized artifact missing: %v", err)
 	}
 }
+
+// TestExportFallsBackWhenConfiguredFontsMissing is the regression test for
+// the 2026-09-09 incident: huan.yaml font paths pointing at pre-generated
+// files that no longer exist must fall back to system-derived fonts instead
+// of failing every item.
+func TestExportFallsBackWhenConfiguredFontsMissing(t *testing.T) {
+	if _, ferr := style.FindCJKFont(""); ferr != nil {
+		t.Skipf("no CJK font: %v", ferr)
+	}
+	root := writeBookProject(t)
+	cfg, err := ParseConfig(map[string]any{
+		"pdf_font":         "developer/audit-tools/publication-fonts/body-cover-cjk.ttf",
+		"cover_font":       "developer/audit-tools/publication-fonts/body-cover-cjk.ttf",
+		"cover_latin_font": "developer/audit-tools/publication-fonts/cover-latin.ttf",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := New(cfg)
+
+	res, err := ex.Export(context.Background(), plugin.ExportRequest{Type: "books", SourceDir: root, Slug: "demo-book", Level: "individual", Format: "pdf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findItems(res, res.Succeeded, "pdf"); len(got) == 0 {
+		t.Fatalf("pdf items all failed: failed=%+v", res.Failed)
+	}
+	if len(res.Warnings) == 0 {
+		t.Fatalf("auto-derivation must be surfaced as a warning, got none")
+	}
+}
