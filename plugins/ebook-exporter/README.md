@@ -43,7 +43,7 @@ huan export ebook --season 3
 huan export ebook --type all --format all --force
 ```
 
-产物落 `developer/export/{epub,pdf,docx}/books|practices|posts/{individual|volumes|complete}/`，英文版带 `-en` 后缀。重跑时未变化的书自动跳过（增量 manifest）。
+产物落 `developer/export/{epub,pdf,docx}/books|practices|posts/{individual|volumes|complete}/`，文件名随语言本地化：中文版用中文书名（`title`），英文版用英文书名（`subtitle`，半角冒号转全角）；英文书名缺失回退中文书名并加 `-en` 后缀。重跑时未变化的书自动跳过（增量 manifest）。旧 slug 命名文件在重导出成功后自动清理。
 
 ## 依赖
 
