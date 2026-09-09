@@ -11,7 +11,10 @@ import (
 
 // FontRef names one candidate font file; Index selects a font inside a TTC
 // and is ignored for standalone files.
-type FontRef struct{ Path string; Index int }
+type FontRef struct {
+	Path  string
+	Index int
+}
 
 // publicationCJKSources are the approved publication-design sources
 // (STHeiti, macOS system). Package-level for test overrides.
@@ -78,8 +81,14 @@ func FindPublicationLatinFont(cfgPath string) string {
 			return cfgPath
 		}
 	}
+	// Exact known path first: fontCandidates matches filename substrings,
+	// and the system file name contains spaces ("Times New Roman.ttf").
+	const timesNewRoman = "/System/Library/Fonts/Supplemental/Times New Roman.ttf"
+	if _, err := os.Stat(timesNewRoman); err == nil {
+		return timesNewRoman
+	}
 	for _, pattern := range [][]string{
-		{"timesnewroman"}, {"georgia"}, {"didot"}, {"charter"},
+		{"times new roman"}, {"georgia"}, {"didot"}, {"charter"},
 	} {
 		if cands := fontCandidates(defaultFontDirs(), pattern...); len(cands) > 0 {
 			return cands[0]

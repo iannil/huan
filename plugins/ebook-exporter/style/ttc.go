@@ -74,7 +74,10 @@ func rebuildStandalone(data []byte, off uint32) ([]byte, error) {
 	copy(out, data[off:off+12])
 
 	// Pass 1: collect table data (4-byte padded), pass 2: directory.
-	type entry struct{ tag string; off, length uint32 }
+	type entry struct {
+		tag         string
+		off, length uint32
+	}
 	var entries []entry
 	body := make([]byte, 0, 64)
 	for i := 0; i < numTables; i++ {

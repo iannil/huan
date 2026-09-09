@@ -9,7 +9,7 @@ import (
 
 // withFakeCJKSource points the known-source chain at a temp TTC whose font 1
 // has TrueType outlines (buildTestTTC fixture) for the duration of the test.
-func withFakeCJKSource(t *testing.T, cacheDir string) string {
+func withFakeCJKSource(t *testing.T) string {
 	t.Helper()
 	src := filepath.Join(t.TempDir(), "fake.ttc")
 	if err := os.WriteFile(src, buildTestTTC(t), 0o644); err != nil {
@@ -37,7 +37,7 @@ func TestFindPublicationCJKFontPrefersConfig(t *testing.T) {
 func TestFindPublicationCJKFontFallsBackToKnownSource(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "cache")
-	src := withFakeCJKSource(t, cache)
+	src := withFakeCJKSource(t)
 
 	got, note, err := FindPublicationCJKFont(filepath.Join(dir, "missing.ttf"), "", cache)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestFindPublicationCJKFontMissingConfigEmpty(t *testing.T) {
 	// 空 cfgPath：直接走已知源（不报错）。
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "cache")
-	withFakeCJKSource(t, cache)
+	withFakeCJKSource(t)
 	if _, _, err := FindPublicationCJKFont("", "", cache); err != nil {
 		t.Fatalf("empty cfgPath should try known sources, got %v", err)
 	}
@@ -74,14 +74,15 @@ func TestFindPublicationLatinFont(t *testing.T) {
 	if got := FindPublicationLatinFont(cfg); got != cfg {
 		t.Fatalf("configured latin: got %q want %q", got, cfg)
 	}
-	// 系统扫描取决于宿主机（macOS 自带 Georgia.ttf），缺失 cfgPath 时
-	// 期望要么 graceful degrade 返回 ""，要么命中已知回退名。
+	// 系统扫描取决于宿主机（macOS 自带 Georgia.ttf 与 Supplemental 下的
+	// Times New Roman.ttf），缺失 cfgPath 时期望要么 graceful degrade
+	// 返回 ""，要么命中已知回退名。
 	got := FindPublicationLatinFont(filepath.Join(dir, "nope.ttf"))
 	if got == "" {
 		return
 	}
 	lower := strings.ToLower(got)
-	for _, s := range []string{"timesnewroman", "georgia", "didot", "charter"} {
+	for _, s := range []string{"times new roman", "georgia", "didot", "charter"} {
 		if strings.Contains(lower, s) {
 			return
 		}
