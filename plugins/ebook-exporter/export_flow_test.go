@@ -126,3 +126,39 @@ func TestExportMixedSkipAllFormats(t *testing.T) {
 		t.Fatalf("second pdf run: want no successes: %+v", second.Succeeded)
 	}
 }
+
+// TestExportRenamesSlugArtifacts verifies the filename localization rollout:
+// a stale slug-named artifact left by a pre-v4 export is removed once the
+// unit re-exports under its localized title, and the localized file exists.
+func TestExportRenamesSlugArtifacts(t *testing.T) {
+	if _, ferr := style.FindCJKFont(""); ferr != nil {
+		t.Skipf("no CJK font: %v", ferr)
+	}
+	root := writeBookProject(t)
+	p, _ := InitPlugin(nil)
+	ex := p.(plugin.Exporter)
+
+	// Simulate a pre-v4 export: slug-named epub sitting in the output dir.
+	legacy := filepath.Join(root, "developer/export/epub/books/individual/demo-book.epub")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ex.Export(context.Background(), plugin.ExportRequest{Type: "books", SourceDir: root, Slug: "demo-book", Level: "individual", Format: "epub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findItems(res, res.Succeeded, "epub"); len(got) != 1 {
+		t.Fatalf("epub succeeded = %+v failed=%+v", res.Succeeded, res.Failed)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy slug artifact still exists (err=%v)", err)
+	}
+	localized := filepath.Join(root, "developer/export/epub/books/individual/示范书.epub")
+	if _, err := os.Stat(localized); err != nil {
+		t.Fatalf("localized artifact missing: %v", err)
+	}
+}

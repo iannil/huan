@@ -184,11 +184,12 @@ func unitLangs(b *content.BookEntry, res *plugin.ExportResult) []content.Lang {
 }
 
 // manifestKey builds the manifest key for one unit+language+format:
-// "<kind>/<dirName>/<base>.<lang>.<format>". Deriving from the same
-// components as the output path makes cross-kind collisions structurally
-// impossible (books and practices both produce volume-1 artifacts, but under
-// distinct keys), and the format dimension prevents a hash recorded for one
-// format from causing another format to be falsely skipped.
+// "<kind>/<dirName>/<base>.<lang>.<format>". The key components are shared
+// with the legacy output path (legacyPath), which makes cross-kind collisions
+// structurally impossible (books and practices both produce volume-1
+// artifacts, but under distinct keys), and the format dimension prevents a
+// hash recorded for one format from causing another format to be falsely
+// skipped.
 func manifestKey(kind, dirName, base string, lang content.Lang, format string) string {
 	return fmt.Sprintf("%s/%s/%s.%s.%s", kind, dirName, base, lang, format)
 }
@@ -443,7 +444,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 	// even when chapter Markdown is unchanged. Output paths are not hashed.
 	assets := []string{fontPath, monoFontPath, resolveFont(p.cfg.PDFFont), resolveFont(p.cfg.CoverFont), resolveFont(p.cfg.CoverLatinFont), filepath.Join(req.SourceDir, "data/books.yaml"), filepath.Join(req.SourceDir, "data/practices.yaml")}
 	assetHash := ComputeHash(assets)
-	hash := func(u *unit) string { return "publication-v3-20260905:" + assetHash + ":" + ComputeHash(u.mdPaths) }
+	hash := func(u *unit) string { return "publication-v4-20260909:" + assetHash + ":" + ComputeHash(u.mdPaths) }
 	reqFormats := formatsFor(req.Format)
 
 	// Phase 1: incremental skip — cheap, sequential, no rendering.
@@ -498,6 +499,9 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		// formatOK[f] is true when format f rendered successfully for all
 		// langs of this job.
 		formatOK map[string]bool
+		// warns collects non-fatal issues (e.g. failed stale-artifact
+		// removal) surfaced as result Warnings in phase 3.
+		warns []string
 	}
 	results := make([]*jobResult, len(pending))
 	sem := make(chan struct{}, req.Jobs)
@@ -528,6 +532,13 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 					jr.items = append(jr.items, plugin.ExportItem{
 						Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug,
 					})
+					// Clean up the pre-v4 slug-named artifact, if any, now
+					// that the localized file rendered successfully.
+					if legacy := legacyPath(outRoot, j.u.kind, j.u.dirName, j.u.baseName, lang, f); legacy != out {
+						if rmErr := os.Remove(legacy); rmErr != nil && !os.IsNotExist(rmErr) {
+							jr.warns = append(jr.warns, fmt.Sprintf("remove stale %s: %v", legacy, rmErr))
+						}
+					}
 				}
 				jr.formatOK[f] = formatOK
 			}
@@ -547,6 +558,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		u := pending[i].u
 		res.Succeeded = append(res.Succeeded, jr.items...)
 		res.Failed = append(res.Failed, jr.fails...)
+		res.Warnings = append(res.Warnings, jr.warns...)
 		for _, f := range pending[i].formats {
 			if !jr.formatOK[f] {
 				continue
