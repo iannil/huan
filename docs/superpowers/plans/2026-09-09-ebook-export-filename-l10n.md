@@ -79,23 +79,34 @@ import "strings"
 // sanitizeFilename makes s safe as a filename stem on all platforms:
 // half-width colons become full-width (Chinese-style), Windows-illegal
 // characters and control runes are dropped, whitespace runs collapse to a
-// single space, and leading/trailing spaces and dots are trimmed. An empty
-// return means the caller must fall back (see fileStem).
+// single space, and leading/trailing spaces and dots are trimmed. Whitespace
+// immediately following a full-width colon is swallowed, since CJK typography
+// never spaces after it. An empty return means the caller must fall back
+// (see fileStem).
 func sanitizeFilename(s string) string {
 	var b strings.Builder
+	suppressSpace := false
 	for _, r := range s {
 		switch {
-		case r == ':':
+		case r == ':' || r == '：':
 			b.WriteRune('：')
+			suppressSpace = true
+		case suppressSpace && unicode.IsSpace(r):
+			// dropped: whitespace right after a full-width colon
 		case r < 0x20 || strings.ContainsRune(`\/*?"<>|`, r):
 			// dropped
 		default:
+			suppressSpace = false
 			b.WriteRune(r)
 		}
 	}
 	return strings.Trim(strings.Join(strings.Fields(b.String()), " "), " .")
 }
 ```
+
+> **执行修订（2026-09-09，Task 1）**：原片段无法通过计划自带的测试表
+> （转换后的全角冒号后不应有空格）。按 TDD 以测试为准，实现对半角与
+> 既有全角冒号统一吞掉后续空格，import 需增加 `unicode`。
 
 - [ ] **Step 4: 运行确认通过**
 
