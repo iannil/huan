@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/iannil/huan-plugin-ebook-exporter/style"
@@ -191,5 +192,14 @@ func TestExportFallsBackWhenConfiguredFontsMissing(t *testing.T) {
 	}
 	if len(res.Warnings) == 0 {
 		t.Fatalf("auto-derivation must be surfaced as a warning, got none")
+	}
+	foundFontWarning := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "fonts") {
+			foundFontWarning = true
+		}
+	}
+	if !foundFontWarning {
+		t.Fatalf("want a font-related warning, got %q", res.Warnings)
 	}
 }

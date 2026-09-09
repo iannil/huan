@@ -398,9 +398,10 @@ func expandUnits(kind string, col *content.Collection, req plugin.ExportRequest)
 // the font file: opentype.Parse, or a collection parse with font 0 selected
 // — the same acceptance path as render.loadCoverFont. The publication chain
 // validates TrueType outlines only; fonts like STHeiti pass that check but
-// are rejected by x/image sfnt (its format-4 cmap exceeds the 20000-segment
-// limit), so the integration layer re-validates and the caller degrades to
-// the generic chain's font when the check fails.
+// are rejected by x/image sfnt (its 20000-segment cmap limit; extraction
+// normalizes the cmap, but any residual overflow still fails Parse), so the
+// integration layer re-validates and the caller degrades to the generic
+// chain's font when the check fails.
 func renderableFont(path string) bool {
 	if path == "" {
 		return false
@@ -461,11 +462,11 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 		pdfFont = ""
 	}
 	if pdfFont != "" && !renderableFont(pdfFont) {
-		res.Warnings = append(res.Warnings, "fonts: pdf font "+pdfFont+" is not renderable, degrading")
+		res.Warnings = append(res.Warnings, "fonts: pdf font "+pdfFont+" is not renderable, degrading to system scan font")
 		pdfFont = ""
 	}
 	if coverFont != "" && !renderableFont(coverFont) {
-		res.Warnings = append(res.Warnings, "fonts: cover font "+coverFont+" is not renderable, degrading")
+		res.Warnings = append(res.Warnings, "fonts: cover font "+coverFont+" is not renderable, degrading to builtin cover font")
 		coverFont = ""
 	}
 	for _, n := range []string{pdfNote, coverNote} {

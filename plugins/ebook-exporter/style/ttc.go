@@ -1,6 +1,7 @@
 // Package style internal: TTC→standalone-TTF extraction with a content-keyed
-// on-disk cache. Pure Go; table data is copied verbatim, only the table
-// directory offsets and head.checkSumAdjustment are recomputed.
+// on-disk cache. Pure Go; table data is copied verbatim except for the cmap
+// normalization (see cmap.go), and the table directory offsets and
+// head.checkSumAdjustment are recomputed.
 package style
 
 import (
@@ -91,11 +92,23 @@ func rebuildStandalone(data []byte, off uint32) ([]byte, error) {
 		if int(tOff)+int(tLen) > len(data) {
 			return nil, fmt.Errorf("table %s out of bounds", tag)
 		}
+		tbl := data[tOff : int(tOff)+int(tLen)]
+		if tag == "cmap" {
+			// Normalize the cmap so the render layer (x/image sfnt,
+			// maxCmapSegments=20000) accepts the font: merge fragmented
+			// format-12 groups and, for still-oversized subtables, add a
+			// compact BMP format-4 fallback.
+			normed, nerr := normalizeCmap(tbl)
+			if nerr != nil {
+				return nil, fmt.Errorf("table %s: %w", tag, nerr)
+			}
+			tbl = normed
+		}
 		for len(body)%4 != 0 {
 			body = append(body, 0)
 		}
-		entries = append(entries, entry{tag, uint32(len(body)), tLen})
-		body = append(body, data[tOff:int(tOff)+int(tLen)]...)
+		entries = append(entries, entry{tag, uint32(len(body)), uint32(len(tbl))})
+		body = append(body, tbl...)
 	}
 	for _, e := range entries {
 		var rec16 [16]byte
