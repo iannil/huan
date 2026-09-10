@@ -19,7 +19,17 @@ var assetFS embed.FS
 // ZhurongshuoTheme is the official zhurongshuo (祝融说) theme plugin.
 // It provides templates, custom template functions, and static assets
 // for the zhurongshuo content site.
-type ZhurongshuoTheme struct{}
+type ZhurongshuoTheme struct {
+	cfg Config
+}
+
+// New creates a configured zhurongshuo theme plugin.
+func New(cfg *Config) *ZhurongshuoTheme {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	return &ZhurongshuoTheme{cfg: *cfg}
+}
 
 // Name returns the unique identifier for this theme plugin.
 // It matches the theme name used in huan.yaml theme: field.
@@ -64,16 +74,17 @@ func (t *ZhurongshuoTheme) Templates() []map[string]string {
 // FuncMap returns custom template functions available to templates.
 func (t *ZhurongshuoTheme) FuncMap() template.FuncMap {
 	return template.FuncMap{
-		"readingTime":    readingTime,
-		"relatedPosts":   relatedPosts,
-		"toc":            toc,
-		"darkModeToggle": darkModeToggle,
-		"parseGuideYAML": parseGuideYAML,
-		"svgTextWidth":   svgTextWidth,
-		"svgTruncate":    svgTruncate,
-		"svgWrap":         svgWrap,
-		"failRender":      failRender,
-		"guideChartTypes": guideChartTypesFn,
+		"readingTime":               readingTime,
+		"relatedPosts":              relatedPosts,
+		"toc":                       toc,
+		"darkModeToggle":            darkModeToggle,
+		"parseGuideYAML":            parseGuideYAML,
+		"svgTextWidth":              svgTextWidth,
+		"svgTruncate":               svgTruncate,
+		"svgWrap":                   svgWrap,
+		"failRender":                failRender,
+		"guideChartTypes":           guideChartTypesFn,
+		"publicationRevisionNotice": t.publicationRevisionNotice,
 	}
 }
 

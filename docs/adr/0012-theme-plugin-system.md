@@ -44,8 +44,25 @@ huan 已完成插件化架构（ADR 0003），现有三种能力类型：Deploye
 ```yaml
 theme: "zhurongshuo"    # 顶层 key，激活主题
 plugins:
-  zhurongshuo: {}       # 主题插件配置（预留）
+  zhurongshuo:
+    category: static
+    publicationRevisionNotice:
+      enabled: true
+      urlPattern: "^/(?:en/)?books/"  # Go 正则，匹配页面 RelPermalink
+      content:
+        zh-cn:
+          ariaLabel: "出版状态"
+          title: "预览版，非最终版本。"
+          body: "内容可能随研究与规范复核而修改。"
+        en:
+          ariaLabel: "Publication status"
+          title: "Preview, not the final version."
+          body: "Content may change as research and relevant standards are reviewed."
 ```
+
+`publicationRevisionNotice` 缺失或 `enabled: false` 时不渲染；启用后仅在
+`urlPattern` 匹配页面 URL 且 `content` 存在当前页面语言时渲染。配置文本由
+Go 模板自动转义，非法正则会在插件初始化时报错。
 
 ## 架构
 

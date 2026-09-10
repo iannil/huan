@@ -180,6 +180,18 @@ plugins:
   # ---- zhurongshuo — 祝融说主题插件（特定站点专属） ----
   zhurongshuo:
     category: static
+    publicationRevisionNotice:
+      enabled: false
+      urlPattern: "^/"
+      content:
+        zh-cn:
+          ariaLabel: "出版状态"
+          title: "预览版，非最终版本。"
+          body: "内容可能随研究与规范复核而修改。"
+        en:
+          ariaLabel: "Publication status"
+          title: "Preview, not the final version."
+          body: "Content may change as research and relevant standards are reviewed."
 
   # ---- image-pipeline — 图像处理（缩放、格式转换、srcset） ----
   image_pipeline:

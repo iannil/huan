@@ -1,10 +1,8 @@
-<aside class="publication-revision-notice" role="note" aria-label="{{ if eq .PageLanguage "en" }}status{{ else }}状态{{ end }}">
-    {{ if eq .PageLanguage "en" }}
-    <strong>RC preview, not the final version.</strong> The content may be revised at any time as arguments, facts, citations, and structure are reviewed against cutting-edge research and relevant specifications.
-    {{ else }}
-    <strong>RC预览版，非最终版本。</strong> 内容随时可能会随前沿研究与相关规范复核并修改论证、事实、引文和结构。
-    {{ end }}
+{{ with publicationRevisionNotice .RelPermalink .PageLanguage }}
+<aside class="publication-revision-notice" role="note" aria-label="{{ .AriaLabel }}">
+    <strong>{{ .Title }}</strong> {{ .Body }}
 </aside>
 <style>
 .publication-revision-notice{margin:1rem 0 1.5rem;padding:.85rem 1rem;border-left:3px solid #ad2f2e;background:#fcfbef;color:#4a4038;font-size:.92rem;line-height:1.7}.publication-revision-notice strong{color:#8f2726}
 </style>
+{{ end }}
