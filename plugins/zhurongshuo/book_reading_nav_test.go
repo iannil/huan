@@ -134,6 +134,8 @@ func TestBookReadingNavCSSContract(t *testing.T) {
 	css := string(content)
 	for _, rule := range []string{
 		"grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr)",
+		"border-top: 1px solid #f2f2f2",
+		"border-bottom: 1px solid #f2f2f2",
 		".book-reading-nav__previous { grid-column: 1; text-align: left; }",
 		".book-reading-nav__contents {",
 		".book-reading-nav__next { grid-column: 3; text-align: right; }",

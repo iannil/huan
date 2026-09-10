@@ -1,13 +1,10 @@
-{{ $url := .RelPermalink }}
-{{ if or (hasPrefix $url "/books/volume-1/") (hasPrefix $url "/books/volume-2/") (hasPrefix $url "/books/volume-3/") (hasPrefix $url "/books/volume-4/") (hasPrefix $url "/en/books/volume-1/") (hasPrefix $url "/en/books/volume-2/") (hasPrefix $url "/en/books/volume-3/") (hasPrefix $url "/en/books/volume-4/") }}
-<aside class="publication-revision-notice" role="note" aria-label="{{ if eq .PageLanguage "en" }}Publication status{{ else }}出版状态{{ end }}">
+<aside class="publication-revision-notice" role="note" aria-label="{{ if eq .PageLanguage "en" }}status{{ else }}状态{{ end }}">
     {{ if eq .PageLanguage "en" }}
-    <strong>Publication revision in progress.</strong> This is not the final edition. Claims, citations, structure, and translation are being reviewed against the RC theoretical corpus and current research.
+    <strong>RC preview, not the final version.</strong> The content may be revised at any time as arguments, facts, citations, and structure are reviewed against cutting-edge research and relevant specifications.
     {{ else }}
-    <strong>出版修订中，非最终版本。</strong> 本页正在依据 RC 理论母本、前沿研究与出版规范复核论证、事实、引文和结构。
+    <strong>RC预览版，非最终版本。</strong> 内容随时可能会随前沿研究与相关规范复核并修改论证、事实、引文和结构。
     {{ end }}
 </aside>
 <style>
 .publication-revision-notice{margin:1rem 0 1.5rem;padding:.85rem 1rem;border-left:3px solid #ad2f2e;background:#fcfbef;color:#4a4038;font-size:.92rem;line-height:1.7}.publication-revision-notice strong{color:#8f2726}
 </style>
-{{ end }}
