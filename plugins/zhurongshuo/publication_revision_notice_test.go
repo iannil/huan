@@ -89,7 +89,7 @@ func TestParseConfigPublicationRevisionNoticeRejectsInvalidConfig(t *testing.T) 
 
 func TestPublicationRevisionNoticeIsEmbeddedAndConfigured(t *testing.T) {
 	theme := New(&Config{})
-	var partial, single, bookList, guide string
+	var partial, single, bookList, practiceList, guide string
 	for _, entry := range theme.Templates() {
 		switch entry["path"] {
 		case "partials/publication-revision-notice.html":
@@ -98,6 +98,8 @@ func TestPublicationRevisionNoticeIsEmbeddedAndConfigured(t *testing.T) {
 			single = entry["content"]
 		case "book/list.html":
 			bookList = entry["content"]
+		case "practice/list.html":
+			practiceList = entry["content"]
 		case "guide/single.html":
 			guide = entry["content"]
 		}
@@ -119,6 +121,7 @@ func TestPublicationRevisionNoticeIsEmbeddedAndConfigured(t *testing.T) {
 	for name, body := range map[string]string{
 		"default single": single,
 		"book list":      bookList,
+		"practice list":  practiceList,
 		"guide single":   guide,
 	} {
 		if !strings.Contains(body, `partial "publication-revision-notice.html" .`) {
