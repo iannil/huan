@@ -15,6 +15,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/iannil/huan/internal/config"
+	cjkfriendly "github.com/tats-u/goldmark-cjk-friendly/v2"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -34,10 +35,11 @@ type Renderer struct {
 // Fenced code blocks are syntax-highlighted using chroma (matching Hugo's output).
 func NewRenderer(cfg *config.MarkupConfig) *Renderer {
 	extensions := []goldmark.Extender{
-		extension.GFM,      // GitHub Flavored Markdown (tables, strikethrough, etc.)
-		extension.Linkify,  // Auto-detect bare URLs
-		extension.TaskList, // GitHub-style task lists
-		extension.Footnote, // PHP Markdown Extra footnotes (matches Hugo default)
+		cjkfriendly.CJKFriendlyEmphasis, // Emphasis next to CJK punctuation
+		extension.GFM,                   // GitHub Flavored Markdown (tables, strikethrough, etc.)
+		extension.Linkify,               // Auto-detect bare URLs
+		extension.TaskList,              // GitHub-style task lists
+		extension.Footnote,              // PHP Markdown Extra footnotes (matches Hugo default)
 	}
 	typoEnabled := cfg == nil || cfg.Goldmark.Extensions.Typographer
 	if typoEnabled {
@@ -465,7 +467,7 @@ func stripHTMLTags(s string) string {
 // matching Hugo's built-in emoji rendering. Only shortcodes that appear
 // in the content are included.
 var hugoEmojiMap = map[string]string{
-	":white_check_mark:": "&#9989;",   // ✅ U+2705
+	":white_check_mark:": "&#9989;",         // ✅ U+2705
 	":warning:":          "&#9888;&#xfe0f;", // ⚠️ U+26A0 U+FE0F
 	":x:":                "&#x274c;",        // ❌ U+274C
 }

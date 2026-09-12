@@ -8,6 +8,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/prometheus/client_golang v1.20.0
 	github.com/spf13/cobra v1.10.2
+	github.com/tats-u/goldmark-cjk-friendly/v2 v2.0.2
 	github.com/tdewolff/minify/v2 v2.24.13
 	github.com/yuin/goldmark v1.8.2
 	golang.org/x/net v0.56.0

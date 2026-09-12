@@ -20,6 +20,7 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	cjkfriendly "github.com/tats-u/goldmark-cjk-friendly/v2"
 	"github.com/yuin/goldmark"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
 )
@@ -650,8 +651,9 @@ func lastFunc(n int, s interface{}) ([]interface{}, error) {
 }
 
 // whereFunc supports Hugo's where function with multiple forms:
-//   where collection key value             - exact match
-//   where collection key operator value    - operator: eq, ne, gt, lt, ge, le, in
+//
+//	where collection key value             - exact match
+//	where collection key operator value    - operator: eq, ne, gt, lt, ge, le, in
 //
 // Returns the same type as the input when possible (PageSlice stays PageSlice),
 // so templates can chain methods like .ByDate on the result.
@@ -1184,12 +1186,15 @@ func compare(a, b interface{}) int {
 // --- ADR 0010 gate 2: real implementations + panic-on-call for unimplemented ---
 
 // markdownifyFunc renders a Markdown string to HTML using goldmark. This is
-// the simplest correct implementation — no chroma highlighting, no extensions.
+// uses CJK-friendly emphasis, matching body rendering without syntax highlighting.
 // Hugo's markdownify also uses the configured goldmark; this is good enough
 // for templates that need to render Markdown at runtime (e.g., from a data
 // field or frontmatter).
 func markdownifyFunc(s string) (string, error) {
-	md := goldmark.New(goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()))
+	md := goldmark.New(
+		goldmark.WithExtensions(cjkfriendly.CJKFriendlyEmphasis),
+		goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()),
+	)
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(s), &buf); err != nil {
 		return "", fmt.Errorf("markdownify: %w", err)

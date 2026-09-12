@@ -462,7 +462,7 @@ var testedFuncs = map[string]bool{
 	"newScratch": true, "querify": true, "getenv": true, "os_Getenv": true,
 	"time": true, "i18n": true, "T": true, "hreflang": true, "langPrefix": true,
 	"translationLinks": true,
-	"printf": true, "string": true, "int": true, "echoParam": true,
+	"printf":           true, "string": true, "int": true, "echoParam": true,
 	"truncate": true, "dict": true, "merge": true, "htmlEscape": true,
 	"htmlUnescape": true, "humanize": true, "print": true, "println": true,
 	"split": true, "replace": true, "trim": true, "trimPrefix": true,
@@ -476,10 +476,10 @@ var testedFuncs = map[string]bool{
 // panic at call time (per ADR 0010 gate 2). The 守护测试 treats these as
 // "covered" — they fail loud rather than silently lying.
 var panicOnCallFuncs = map[string]bool{
-	"emojify":      true,
-	"pluralize":    true,
-	"singularize":  true,
-	"apply":        true,
+	"emojify":     true,
+	"pluralize":   true,
+	"singularize": true,
+	"apply":       true,
 }
 
 // TestNoSilentNoOpFuncs is the coverage gate (守护测试) for ADR 0010 gate 2.
@@ -561,5 +561,16 @@ func TestReadFileAndFileExists(t *testing.T) {
 	}
 	if _, err := readFile("content/books/demo/guide/missing.html"); err == nil {
 		t.Fatal("readFile on missing file should error")
+	}
+}
+
+func TestMarkdownifyCJKEmphasis(t *testing.T) {
+	output, err := markdownifyFunc("这是**（重要）**结论与*旁注。*文字")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "这是<strong>（重要）</strong>结论与<em>旁注。</em>文字"
+	if output != "<p>"+want+"</p>\n" {
+		t.Fatalf("want %q in %q", want, output)
 	}
 }

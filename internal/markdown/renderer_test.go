@@ -225,3 +225,34 @@ func TestRenderer_ChromaNoModeClass(t *testing.T) {
 		t.Errorf("Chroma mode class 'light' should be stripped; output:\n%s", html)
 	}
 }
+
+func TestRenderer_CJKEmphasisBoundaries(t *testing.T) {
+	cases := []struct{ name, source, want string }{
+		{"sentence", "结论：**AI 是杠杆，你是支点。**杠杆越长", "结论：<strong>AI 是杠杆，你是支点。</strong>杠杆越长"},
+		{"latin following", "**判断回到第一性判据。**Meurer 的演讲", "<strong>判断回到第一性判据。</strong>Meurer 的演讲"},
+		{"parentheses", "这是**（重要）**结论", "这是<strong>（重要）</strong>结论"},
+		{"italic", "这是*（旁注）*文字", "这是<em>（旁注）</em>文字"},
+		{"nested", "这是***重要。***文字", "这是<em><strong>重要。</strong></em>文字"},
+		{"table", "| 说明 |\n|---|\n| **重要。**文字 |", "<strong>重要。</strong>文字"},
+		{"inline code", "`**文字。**`", "<code>**文字。**</code>"},
+		{"fenced code", "```text\n**文字。**\n```", "**文字。**"},
+		{"escaped", `\*\*文字。\*\*`, "**文字。**"},
+		{"english", "A **strong** and *italic* word", "A <strong>strong</strong> and <em>italic</em> word"},
+		{"english punctuation", "a**()**a", "a**()**a"},
+		{"underscores", "foo_bar_baz", "foo_bar_baz"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := NewRenderer(&config.MarkupConfig{}).Render(tc.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(output, tc.want) {
+				t.Fatalf("want %q in %q", tc.want, output)
+			}
+			if tc.name == "fenced code" && strings.Contains(output, "<strong>") {
+				t.Fatalf("formatted code: %s", output)
+			}
+		})
+	}
+}
