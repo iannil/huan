@@ -48,9 +48,14 @@ func TestWriterConcurrentDistinctPaths(t *testing.T) {
 	opts := CanonifyOptions{BaseURL: "https://example.org/"}
 	w.SetCanonify(opts)
 	sequential.SetCanonify(opts)
-	var wg sync.WaitGroup
+	type fixture struct {
+		path     string
+		content  string
+		expected []byte
+	}
+	fixtures := make([]fixture, 64)
 	var expectedBytes int64
-	for i := 0; i < 64; i++ {
+	for i := range fixtures {
 		path := fmt.Sprintf("page-%d/index.html", i)
 		content := fmt.Sprintf(`<html><head><style>body { color: #ffffff; }</style></head><body>  <a href="/page/%d/">Page %d</a><script>var n = %d;</script></body></html>`, i, i, i)
 		if err := sequential.Write(path, content); err != nil {
@@ -60,24 +65,31 @@ func TestWriterConcurrentDistinctPaths(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		fixtures[i] = fixture{path: path, content: content, expected: expected}
 		expectedBytes += int64(len(expected))
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for _, item := range fixtures {
 		wg.Add(1)
-		go func() {
+		go func(f fixture) {
 			defer wg.Done()
-			if err := w.Write(path, content); err != nil {
+			<-start
+			if err := w.Write(f.path, f.content); err != nil {
 				t.Error(err)
 				return
 			}
-			actual, err := os.ReadFile(PathToFilePath(path, w.publishDir))
+			actual, err := os.ReadFile(PathToFilePath(f.path, w.publishDir))
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			if !bytes.Equal(actual, expected) {
-				t.Errorf("%s differs from sequential output", path)
+			if !bytes.Equal(actual, f.expected) {
+				t.Errorf("%s differs from sequential output", f.path)
 			}
-		}()
+		}(item)
 	}
+	close(start)
 	wg.Wait()
 	if files, size := w.Stats(); files != 64 || size != expectedBytes {
 		t.Fatalf("Stats = %d, %d; want 64, %d", files, size, expectedBytes)
