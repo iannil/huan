@@ -28,18 +28,9 @@ ENV CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN go build -o /huan ./cmd/huan && \
     chmod +x /huan
 
-# Every plugin under plugins/*/ that has its own go.mod, built with
-# -buildmode=plugin against the same source tree. Output name follows the
-# loader convention: config key underscores ↔ filename hyphens
-# (seo_injector ↔ seo-injector.so), same as scripts/build-plugins.sh.
-RUN mkdir -p /plugins-out && \
-    for dir in plugins/*/; do \
-      if [ -f "$dir/go.mod" ]; then \
-        name="$(basename "$dir")"; \
-        echo "building $name -> $name.so"; \
-        (cd "$dir" && go build -buildmode=plugin -o "/plugins-out/$name.so" .); \
-      fi; \
-    done && \
+# Compile every plugin, including root-module diagram-renderer, using the
+# same toolchain and flags as the host. Names follow the loader convention.
+RUN scripts/build-plugins.sh /plugins-out && \
     ls -lh /plugins-out
 
 # ── Stage 2: minimal runtime image ───────────────────────────────────────────
