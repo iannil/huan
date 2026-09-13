@@ -105,3 +105,52 @@ func TestInputPipelineCacheIsolation(t *testing.T) {
 		t.Fatal("filter/cache shared language input")
 	}
 }
+
+func TestInputPipelineCachePairedLanguages(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "content/posts/foo.md", "---\ntitle: Source\n---\nDefault body")
+	writeFile(t, dir, "content/posts/foo.en.md", "---\ntitle: English\n---\nEnglish body")
+	writeFile(t, dir, "content/gallery/image.md", "---\ntitle: Image\n---\nNeutral body")
+	writeFile(t, dir, "content/gallery/image.en.md", "---\ntitle: Excluded\n---\nExcluded sidecar")
+	cfg := &config.Config{}
+	in, err := loadBuildInputs(dir, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var neutralCopies []*content.Page
+	for _, lang := range []string{"", "en"} {
+		t.Run("language_"+lang, func(t *testing.T) {
+			calls := 0
+			pc := NewPipelineCache()
+			p := newPipeline(Options{SourceDir: dir, PipelineCache: pc, PageFilter: func(pg *content.Page) bool {
+				calls++
+				if strings.HasPrefix(pg.RelPath, "gallery/") {
+					return pg.Language == ""
+				}
+				return pg.Language == lang
+			}})
+			p.cfg, p.inputs = cfg, in
+			if err := p.loadContent(); err != nil {
+				t.Fatal(err)
+			}
+			if calls != len(in.pages) || len(p.pages) != 2 {
+				t.Fatalf("filter calls=%d retained=%d", calls, len(p.pages))
+			}
+			for _, retained := range p.pages {
+				cached, err := pc.ContentCache.GetOrLoad(retained.RelPath, func(string) (*content.Page, time.Time, error) { t.Fatal("cache miss"); return nil, time.Time{}, nil })
+				if err != nil || cached != retained || cached.Language != retained.Language || cached.RawContent != retained.RawContent {
+					t.Fatalf("cache contains excluded variant for %s: cached=%+v retained=%+v err=%v", retained.RelPath, cached, retained, err)
+				}
+				if strings.HasPrefix(retained.RelPath, "gallery/") {
+					if cached.Language != "" || !strings.Contains(cached.RawContent, "Neutral body") {
+						t.Fatal("neutral gallery cache language changed")
+					}
+					neutralCopies = append(neutralCopies, cached)
+				}
+			}
+		})
+	}
+	if len(neutralCopies) != 2 || neutralCopies[0] == neutralCopies[1] {
+		t.Fatal("neutral cache copies share identity")
+	}
+}

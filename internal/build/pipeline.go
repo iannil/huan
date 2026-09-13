@@ -222,13 +222,6 @@ func (p *pipeline) loadContent() error {
 			for i, pg := range p.inputs.pages {
 				copied := cloneInputPage(pg)
 				p.pages[i] = copied
-				if contentCache != nil {
-					fi, err := os.Stat(copied.FilePath)
-					if err != nil {
-						return fmt.Errorf("load content: %w", err)
-					}
-					contentCache.Store(copied.RelPath, copied, fi.ModTime())
-				}
 			}
 			p.data = cloneInputData(p.inputs.data).(map[string]interface{})
 			return nil
@@ -270,6 +263,17 @@ func (p *pipeline) loadContent() error {
 		}
 		p.logf("  Pages after filter: %d (of %d loaded)\n", len(filtered), len(p.pages))
 		p.pages = filtered
+	}
+	// Sidecars share normalized RelPath keys. Store only retained language
+	// copies so excluded variants cannot replace the JIT cache entries.
+	if p.inputs != nil && contentCache != nil {
+		for _, pg := range p.pages {
+			fi, err := os.Stat(pg.FilePath)
+			if err != nil {
+				return fmt.Errorf("load content: %w", err)
+			}
+			contentCache.Store(pg.RelPath, pg, fi.ModTime())
+		}
 	}
 	p.logf("  Pages loaded: %d\n", len(p.pages))
 
