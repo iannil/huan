@@ -246,6 +246,12 @@ my-site/
 ./huan dev --disableWatch         # 文件变化时不重建
 ```
 
+使用 `huan build --timings` 或 `huan dev --timings` 查看构建阶段耗时。
+dev 首次构建和每次重建分别输出报告；重建总耗时包含输出目录交换，
+构建失败时也会输出报告。耗时是实际经过的时间，包含页面并行渲染。
+带父阶段前缀的子项（如 `static + finalize/hook seo_injector`）与父项重叠，
+不能将嵌套项相加作为总耗时。CLI 总耗时还包含配置、插件及主题准备和图片处理。
+
 ### 对 Hugo 验证（回归门禁）
 
 ```bash
@@ -429,9 +435,3 @@ go test ./...
 ## 许可证
 
 [MIT](./LICENSE) © 2026 iannil
-
-使用 `huan build --timings` 或 `huan dev --timings` 查看构建阶段耗时。
-dev 首次构建和每次重建分别输出报告；重建总耗时包含输出目录交换，
-构建失败时也会输出报告。耗时是实际经过的时间，包含页面并行渲染。
-带父阶段前缀的子项（如 `static + finalize/hook seo_injector`）与父项重叠，
-不能将嵌套项相加作为总耗时。CLI 总耗时还包含配置、插件及主题准备和图片处理。

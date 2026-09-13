@@ -116,7 +116,7 @@ func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
 	if cfg.IsMultiLanguage() {
 		multiResult, err := build.BuildMultiSite(build.Options{
 			Timings:         timings,
-			Logf:            func(format string, args ...any) { cmd.Printf(format, args...) },
+			Logf:            func(format string, args ...any) { fmt.Fprintf(cmd.OutOrStdout(), format, args...) },
 			SourceDir:       sourceDir,
 			OutputDir:       outputDir,
 			IncludeDrafts:   includeDrafts,
@@ -141,7 +141,7 @@ func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
 
 	_, err = build.BuildSite(build.Options{
 		Timings:         timings,
-		Logf:            func(format string, args ...any) { cmd.Printf(format, args...) },
+		Logf:            func(format string, args ...any) { fmt.Fprintf(cmd.OutOrStdout(), format, args...) },
 		SourceDir:       sourceDir,
 		OutputDir:       outputDir,
 		IncludeDrafts:   includeDrafts,
