@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/iannil/huan/internal/plugin"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
@@ -35,6 +37,7 @@ func main() {
 	buildCmd.Flags().BoolP("buildExpired", "E", false, "include expired content")
 	buildCmd.Flags().StringP("destination", "d", "", "filesystem path to write files to (overrides publishDir)")
 	buildCmd.Flags().StringP("baseURL", "b", "", "hostname to the root (overrides baseURL)")
+	buildCmd.Flags().Bool("timings", false, "report build stage durations")
 	buildCmd.Flags().Bool("minify", false, "minify output (overrides config)")
 	buildCmd.Flags().String("plugins", "", "path to plugins directory (overrides sourceDir/plugins/)")
 
@@ -57,8 +60,16 @@ func main() {
 	}
 }
 
-func runBuild(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(sourceDir)
+func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
+	timings := commandTimings(cmd)
+	start := time.Now()
+	defer func() { reportTimings(cmd, timings, "build total", start, buildErr) }()
+	var cfg *config.Config
+	err := timings.Measure("cli", "config preparation", func() error {
+		var err error
+		cfg, err = config.Load(sourceDir)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -85,28 +96,36 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	// Create plugin registry and theme manager
 	pluginsDir, _ := cmd.Flags().GetString("plugins")
-	reg, _ := newPluginRegistry(cfg, sourceDir, pluginsDir)
-	themeMgr := theme.NewManager(reg)
-	if cfg.Theme != "" {
-		if err := themeMgr.Activate(cfg.Theme); err != nil {
-			fmt.Fprintf(os.Stderr, "huan: theme activate %q: %v\n", cfg.Theme, err)
+	var reg *plugin.Registry
+	var themeMgr *theme.Manager
+	_ = timings.Measure("cli", "registry + theme preparation", func() error {
+		reg, _ = newPluginRegistry(cfg, sourceDir, pluginsDir)
+		themeMgr = theme.NewManager(reg)
+		if cfg.Theme != "" {
+			if err := themeMgr.Activate(cfg.Theme); err != nil {
+				fmt.Fprintf(os.Stderr, "huan: theme activate %q: %v\n", cfg.Theme, err)
+			}
 		}
-	}
+
+		return nil
+	})
 
 	// Multi-language dispatch: when huan.yaml declares a languages: block,
 	// route through BuildMultiSite which renders each language under its
 	// baseURL prefix. Single-language configs use the existing BuildSite path.
 	if cfg.IsMultiLanguage() {
 		multiResult, err := build.BuildMultiSite(build.Options{
-			SourceDir:        sourceDir,
-			OutputDir:        outputDir,
-			IncludeDrafts:    includeDrafts,
-			IncludeFuture:    includeFuture,
-			IncludeExpired:   includeExpired,
-			BaseURLOverride:  baseURLOverride,
-			MinifyOverride:   minifyOverride,
-			PluginRegistry:   reg,
-			ThemeManager:     themeMgr,
+			Timings:         timings,
+			Logf:            func(format string, args ...any) { cmd.Printf(format, args...) },
+			SourceDir:       sourceDir,
+			OutputDir:       outputDir,
+			IncludeDrafts:   includeDrafts,
+			IncludeFuture:   includeFuture,
+			IncludeExpired:  includeExpired,
+			BaseURLOverride: baseURLOverride,
+			MinifyOverride:  minifyOverride,
+			PluginRegistry:  reg,
+			ThemeManager:    themeMgr,
 		})
 		if err != nil {
 			return err
@@ -114,28 +133,29 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		fmt.Println(build.SummarizeMultiSite(multiResult))
 
 		// Run image pipeline after build if configured
-		if err := runImagePipeline(sourceDir, outputDir, reg); err != nil {
+		if err := timings.Measure("cli", "image processing", func() error { return runImagePipeline(sourceDir, outputDir, reg) }); err != nil {
 			return fmt.Errorf("after build: %w", err)
 		}
 		return nil
 	}
 
 	_, err = build.BuildSite(build.Options{
-		SourceDir:        sourceDir,
-		OutputDir:        outputDir,
-		IncludeDrafts:    includeDrafts,
-		IncludeFuture:    includeFuture,
-		IncludeExpired:   includeExpired,
-		BaseURLOverride:  baseURLOverride,
-		MinifyOverride:   minifyOverride,
-		PluginRegistry:   reg,
-		ThemeManager:     themeMgr,
+		Timings:         timings,
+		Logf:            func(format string, args ...any) { cmd.Printf(format, args...) },
+		SourceDir:       sourceDir,
+		OutputDir:       outputDir,
+		IncludeDrafts:   includeDrafts,
+		IncludeFuture:   includeFuture,
+		IncludeExpired:  includeExpired,
+		BaseURLOverride: baseURLOverride,
+		MinifyOverride:  minifyOverride,
+		PluginRegistry:  reg,
+		ThemeManager:    themeMgr,
 	})
 	if err != nil {
 		return err
 	}
 
 	// Run image pipeline after build if configured
-	return runImagePipeline(sourceDir, outputDir, reg)
+	return timings.Measure("cli", "image processing", func() error { return runImagePipeline(sourceDir, outputDir, reg) })
 }
-

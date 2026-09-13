@@ -14,6 +14,11 @@ import (
 // publishDir (project overrides theme) and captures writer.Stats into
 // the result. This is the last stage — after it, BuildSite returns.
 func (p *pipeline) copyStaticAndFinalize() {
+	p.measureVoid("static copy", p.copyStatic)
+	p.finalize()
+}
+
+func (p *pipeline) copyStatic() {
 	themeName := DetectThemeName(p.opts.SourceDir)
 	if themeName != "" {
 		themeStatic := filepath.Join(p.opts.SourceDir, "themes", themeName, "static")
@@ -47,6 +52,9 @@ func (p *pipeline) copyStaticAndFinalize() {
 		}
 	}
 
+}
+
+func (p *pipeline) finalize() {
 	files, bytes := p.writer.Stats()
 	p.result.FilesWritten = files
 	p.result.BytesWritten = bytes

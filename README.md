@@ -433,3 +433,11 @@ For coding conventions, observability requirements, and the memory system, read 
 ## License
 
 [MIT](./LICENSE) © 2026 iannil
+
+Use `huan build --timings` or `huan dev --timings` to report build stage durations.
+Each dev startup build and rebuild gets a separate report; rebuild total includes
+swapping the output directory. Reports are also printed on build failures.
+Durations measure wall time, including parallel page rendering. Qualified child
+stages (such as `static + finalize/hook seo_injector`) overlap their parent;
+do not sum nested entries to estimate total time. The CLI total includes
+configuration, plugin/theme preparation and image processing.

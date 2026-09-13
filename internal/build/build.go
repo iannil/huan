@@ -14,12 +14,13 @@ import (
 	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/output"
 	"github.com/iannil/huan/internal/plugin"
-	"github.com/iannil/huan/internal/theme"
 	tmpl "github.com/iannil/huan/internal/template"
+	"github.com/iannil/huan/internal/theme"
 )
 
 // Options controls a single BuildSite invocation.
 type Options struct {
+	Timings          *Timings
 	SourceDir        string
 	OutputDir        string // absolute path
 	IncludeDrafts    bool
@@ -123,7 +124,7 @@ func BuildSite(opts Options) (*Result, error) {
 	if p.themeManager != nil {
 		if tp := p.themeManager.Active(); tp != nil {
 			if hooks, ok := tp.(theme.ThemeHooks); ok {
-				if err := hooks.BeforeRender(context.Background()); err != nil {
+				if err := opts.Timings.Measure(p.timingScope, "theme before render", func() error { return hooks.BeforeRender(context.Background()) }); err != nil {
 					return nil, fmt.Errorf("theme before render: %w", err)
 				}
 			}
@@ -140,19 +141,19 @@ func BuildSite(opts Options) (*Result, error) {
 		{"setup templates + writer", p.setupTemplatesAndWriter},
 	}
 	for _, s := range stages {
-		if err := s.fn(); err != nil {
+		if err := opts.Timings.Measure(p.timingScope, s.name, s.fn); err != nil {
 			return nil, fmt.Errorf("%s: %w", s.name, err)
 		}
 	}
 
 	// buildContexts is infallible (no error return path).
-	p.buildContexts()
+	p.measureVoid("contexts", p.buildContexts)
 
 	// render + postprocess stages: errors counted into Result.Errors,
 	// not propagated. Build continues so partial output is produced.
-	p.renderPages()
-	p.renderFeedsAndSpecials()
-	p.copyStaticAndFinalize()
+	p.measureVoid("pages render + write", p.renderPages)
+	p.measureVoid("feeds + specials", p.renderFeedsAndSpecials)
+	p.measureVoid("static + finalize", p.copyStaticAndFinalize)
 
 	p.result.Duration = time.Since(start)
 
@@ -162,7 +163,7 @@ func BuildSite(opts Options) (*Result, error) {
 	if p.themeManager != nil {
 		if tp := p.themeManager.Active(); tp != nil {
 			if hooks, ok := tp.(theme.ThemeHooks); ok {
-				if err := hooks.AfterRender(context.Background()); err != nil {
+				if err := opts.Timings.Measure(p.timingScope, "theme after render", func() error { return hooks.AfterRender(context.Background()) }); err != nil {
 					p.logf("WARN: theme after render: %v\n", err)
 				}
 			}
@@ -174,14 +175,14 @@ func BuildSite(opts Options) (*Result, error) {
 		renderPageFn := func(pg *content.Page) (string, error) {
 			return p.renderSinglePage(pg)
 		}
-		if err := opts.AfterBuild(p.result, renderPageFn); err != nil {
+		if err := opts.Timings.Measure(p.timingScope, "AfterBuild", func() error { return opts.AfterBuild(p.result, renderPageFn) }); err != nil {
 			return p.result, fmt.Errorf("AfterBuild callback: %w", err)
 		}
 	}
 
 	// Invoke AfterBuildSite callback if provided (for daemon DAG builder).
 	if opts.AfterBuildSite != nil {
-		if err := opts.AfterBuildSite(p.site); err != nil {
+		if err := opts.Timings.Measure(p.timingScope, "AfterBuildSite", func() error { return opts.AfterBuildSite(p.site) }); err != nil {
 			return p.result, fmt.Errorf("AfterBuildSite callback: %w", err)
 		}
 	}

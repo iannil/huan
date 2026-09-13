@@ -5,6 +5,7 @@ package build
 
 import (
 	"fmt"
+	"html/template"
 	"os"
 	"path/filepath"
 
@@ -36,11 +37,16 @@ func sameDir(a, b string) bool {
 // `i18n` is executed.
 func (p *pipeline) setupTemplatesAndWriter() error {
 	if p.cfg.ShouldCleanPublishDir() && !sameDir(p.opts.OutputDir, p.opts.SourceDir) {
-		if err := output.CleanPublishDir(p.opts.OutputDir); err != nil {
+		if err := p.opts.Timings.Measure(p.timingScope, "setup templates + writer/cleanup", func() error { return output.CleanPublishDir(p.opts.OutputDir) }); err != nil {
 			return fmt.Errorf("clean publish dir: %w", err)
 		}
 	}
-	tmpls, err := tmpl.LoadAllTemplates(p.opts.SourceDir, p.cfg.BaseURL, p.themeManager)
+	var tmpls *template.Template
+	err := p.opts.Timings.Measure(p.timingScope, "templates", func() error {
+		var err error
+		tmpls, err = tmpl.LoadAllTemplates(p.opts.SourceDir, p.cfg.BaseURL, p.themeManager)
+		return err
+	})
 	if err != nil {
 		return err
 	}

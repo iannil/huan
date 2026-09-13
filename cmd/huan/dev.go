@@ -32,12 +32,13 @@ func init() {
 	devCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
 	devCmd.Flags().Bool("disableLiveReload", false, "disable browser auto-refresh")
 	devCmd.Flags().Duration("debounce", 400*time.Millisecond, "file change debounce delay")
+	devCmd.Flags().Bool("timings", false, "report build stage durations")
 	devCmd.Flags().Bool("disableWatch", false, "do not watch files for changes")
 	devCmd.Flags().String("adminDev", "", "admin UI Vite dev server URL (e.g. http://localhost:5173) for hot reload")
 	devCmd.Flags().String("plugins", "", "path to plugins directory (overrides sourceDir/plugins/)")
 }
 
-func runDev(cmd *cobra.Command, args []string) error {
+func runDev(cmd *cobra.Command, args []string) (devErr error) {
 	port, _ := cmd.Flags().GetString("port")
 	bind, _ := cmd.Flags().GetString("bind")
 	disableLR, _ := cmd.Flags().GetBool("disableLiveReload")
@@ -47,8 +48,19 @@ func runDev(cmd *cobra.Command, args []string) error {
 	adminDevURL, _ := cmd.Flags().GetString("adminDev")
 	pluginsDir, _ := cmd.Flags().GetString("plugins")
 
-	cfg, err := config.Load(sourceDir)
+	startupTimings := commandTimings(cmd)
+	startupStart := time.Now()
+	startupReported := false
+	var startupErr error
+	defer func() {
+		if !startupReported {
+			reportTimings(cmd, startupTimings, "build total", startupStart, devErr)
+		}
+	}()
+	var cfg *config.Config
+	err := startupTimings.Measure("cli", "config preparation", func() error { var err error; cfg, err = config.Load(sourceDir); return err })
 	if err != nil {
+		startupErr = err
 		return fmt.Errorf("load config: %w", err)
 	}
 
@@ -89,6 +101,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	defer os.RemoveAll(tmpDir)
 
 	buildOpts := build.Options{
+		Timings:          startupTimings,
 		SourceDir:        sourceDir,
 		OutputDir:        tmpDir,
 		IncludeDrafts:    includeDrafts,
@@ -99,15 +112,20 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create PluginRegistry and ThemeManager, auto-activate from config
-	reg, _ := newPluginRegistry(cfg, sourceDir, pluginsDir)
-	buildOpts.PluginRegistry = reg
-	themeMgr := theme.NewManager(reg)
-	if cfg.Theme != "" {
-		if err := themeMgr.Activate(cfg.Theme); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "huan: theme activate %q: %v\n", cfg.Theme, err)
+	var reg *plugin.Registry
+	var themeMgr *theme.Manager
+	_ = startupTimings.Measure("cli", "registry + theme preparation", func() error {
+		reg, _ = newPluginRegistry(cfg, sourceDir, pluginsDir)
+		buildOpts.PluginRegistry = reg
+		themeMgr = theme.NewManager(reg)
+		if cfg.Theme != "" {
+			if err := themeMgr.Activate(cfg.Theme); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "huan: theme activate %q: %v\n", cfg.Theme, err)
+			}
 		}
-	}
-	buildOpts.ThemeManager = themeMgr
+		buildOpts.ThemeManager = themeMgr
+		return nil
+	})
 
 	runBuild := func(opts build.Options) error {
 		if cfg.IsMultiLanguage() {
@@ -123,15 +141,19 @@ func runDev(cmd *cobra.Command, args []string) error {
 			}
 		}
 		// Run image pipeline after build if configured
-		reg, _ := newPluginRegistry(cfg, sourceDir, pluginsDir)
-		if err := runImagePipeline(sourceDir, opts.OutputDir, reg); err != nil {
+		var reg *plugin.Registry
+		_ = opts.Timings.Measure("cli", "image registry preparation", func() error { reg, _ = newPluginRegistry(cfg, sourceDir, pluginsDir); return nil })
+		if err := opts.Timings.Measure("cli", "image processing", func() error { return runImagePipeline(sourceDir, opts.OutputDir, reg) }); err != nil {
 			return fmt.Errorf("image pipeline: %w", err)
 		}
 		return nil
 	}
 
-	if err := runBuild(buildOpts); err != nil {
-		return err
+	startupErr = runBuild(buildOpts)
+	reportTimings(cmd, startupTimings, "build total", startupStart, startupErr)
+	startupReported = true
+	if startupErr != nil {
+		return startupErr
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -152,7 +174,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 			start := time.Now()
 			_ = os.RemoveAll(nextDir)
 			buildOpts.OutputDir = nextDir
-			if err := runBuild(buildOpts); err != nil {
+			buildOpts.Timings = commandTimings(cmd)
+			var swapErr error
+			rebuildErr := func() (err error) {
+				defer func() { reportTimings(cmd, buildOpts.Timings, "rebuild total", start, err) }()
+				if err = runBuild(buildOpts); err != nil {
+					return err
+				}
+				swapErr = buildOpts.Timings.Measure("cli", "directory swap", func() error { return build.SwapBuildDir(tmpDir, nextDir) })
+				return swapErr
+			}()
+			if err := rebuildErr; err != nil && swapErr == nil {
 				_ = os.RemoveAll(nextDir)
 				buildOpts.OutputDir = tmpDir
 				fmt.Printf("[watch] rebuild error: %v\n", err)
@@ -161,10 +193,10 @@ func runDev(cmd *cobra.Command, args []string) error {
 				}
 				break
 			}
-			if err := build.SwapBuildDir(tmpDir, nextDir); err != nil {
+			if swapErr != nil {
 				_ = os.RemoveAll(nextDir)
 				buildOpts.OutputDir = tmpDir
-				fmt.Printf("[watch] swap failed, kept old build: %v\n", err)
+				fmt.Printf("[watch] swap failed, kept old build: %v\n", swapErr)
 			}
 			buildOpts.OutputDir = tmpDir
 			fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))

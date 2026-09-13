@@ -20,8 +20,8 @@ import (
 	"github.com/iannil/huan/internal/output"
 	"github.com/iannil/huan/internal/shortcode"
 	"github.com/iannil/huan/internal/taxonomy"
-	"github.com/iannil/huan/internal/theme"
 	tmpl "github.com/iannil/huan/internal/template"
+	"github.com/iannil/huan/internal/theme"
 	pkgplugin "github.com/iannil/huan/pkg/plugin"
 )
 
@@ -33,9 +33,10 @@ import (
 // options/result. A struct keeps these out of every function signature and
 // lets each stage read what it needs without ~10-arg plumbing.
 type pipeline struct {
-	opts   Options
-	logf   func(string, ...any)
-	result *Result
+	timingScope string
+	opts        Options
+	logf        func(string, ...any)
+	result      *Result
 
 	// themeManager, if non-nil, is used to discover theme hooks
 	// that participate in the build pipeline.
@@ -76,7 +77,12 @@ func (p *pipeline) runOnContentLoaded() {
 		if !ok {
 			continue
 		}
-		modified, err := hook.OnContentLoaded(context.Background(), p.pages)
+		var modified []*content.Page
+		err := p.opts.Timings.Measure(p.timingScope, "load content/hook "+hook.Name(), func() error {
+			var err error
+			modified, err = hook.OnContentLoaded(context.Background(), p.pages)
+			return err
+		})
 		if err != nil {
 			p.logf("  WARN: hook %s OnContentLoaded: %v\n", hook.Name(), err)
 			continue
@@ -98,7 +104,7 @@ func (p *pipeline) runOnPageRendered(pg *content.Page) {
 		if !ok {
 			continue
 		}
-		if err := hook.OnPageRendered(context.Background(), pg); err != nil {
+		if err := p.opts.Timings.Measure(p.timingScope, "pages render + write/hook "+hook.Name(), func() error { return hook.OnPageRendered(context.Background(), pg) }); err != nil {
 			p.logf("  WARN: hook %s OnPageRendered %s: %v\n", hook.Name(), pg.RelPath, err)
 		}
 	}
@@ -114,13 +120,13 @@ func (p *pipeline) runOnOutputWritten() {
 	}
 	for _, h := range p.opts.PluginRegistry.All() {
 		if hook, ok := h.(Hook); ok {
-			if err := hook.OnOutputWritten(context.Background(), p.opts.OutputDir); err != nil {
+			if err := p.opts.Timings.Measure(p.timingScope, "static + finalize/hook "+hook.Name(), func() error { return hook.OnOutputWritten(context.Background(), p.opts.OutputDir) }); err != nil {
 				p.logf("  WARN: hook %s OnOutputWritten: %v\n", hook.Name(), err)
 			}
 			continue
 		}
 		if pbh, ok := h.(pkgplugin.PostBuildHook); ok {
-			if err := pbh.OnOutputWritten(context.Background(), p.opts.OutputDir); err != nil {
+			if err := p.opts.Timings.Measure(p.timingScope, "static + finalize/hook "+pbh.Name(), func() error { return pbh.OnOutputWritten(context.Background(), p.opts.OutputDir) }); err != nil {
 				p.logf("  WARN: hook %s OnOutputWritten: %v\n", pbh.Name(), err)
 			}
 		}
@@ -129,7 +135,12 @@ func (p *pipeline) runOnOutputWritten() {
 
 // newPipeline initializes the struct with options + result. Stages mutate it.
 func newPipeline(opts Options) *pipeline {
+	scope := "site"
+	if opts.CfgOverride != nil && opts.CfgOverride.LanguageCode != "" {
+		scope = opts.CfgOverride.LanguageCode
+	}
 	return &pipeline{
+		timingScope:  scope,
 		opts:         opts,
 		logf:         opts.logf(),
 		result:       &Result{},
@@ -154,6 +165,10 @@ func (p *pipeline) loadConfig() error {
 			return fmt.Errorf("load config: %w", err)
 		}
 		p.cfg = cfg
+	}
+
+	if p.cfg.LanguageCode != "" {
+		p.timingScope = p.cfg.LanguageCode
 	}
 
 	// serve mode overrides cfg.BaseURL so all in-site absolute URLs point at
@@ -333,23 +348,30 @@ func (p *pipeline) renderMarkdownAndTree() error {
 		}
 	}
 
-	for _, pg := range p.pages {
-		if pg.RawContent == "" {
-			continue
+	if err := p.opts.Timings.Measure(p.timingScope, "markdown", func() error {
+		for _, pg := range p.pages {
+			if pg.RawContent == "" {
+				continue
+			}
+			if err := p.renderPageMarkdown(pg); err != nil {
+				return err
+			}
 		}
-		if err := p.renderPageMarkdown(pg); err != nil {
-			return err
-		}
-	}
 
-	site, err := content.BuildTree(p.pages, p.cfg, p.opts.SourceDir)
-	if err != nil {
-		return fmt.Errorf("build tree: %w", err)
+		return nil
+	}); err != nil {
+		return err
 	}
-	site.Data = p.data
-	p.site = site
-	p.buildTaxonomies()
-	return nil
+	return p.opts.Timings.Measure(p.timingScope, "tree + taxonomy", func() error {
+		site, err := content.BuildTree(p.pages, p.cfg, p.opts.SourceDir)
+		if err != nil {
+			return fmt.Errorf("build tree: %w", err)
+		}
+		site.Data = p.data
+		p.site = site
+		p.buildTaxonomies()
+		return nil
+	})
 }
 
 // renderPageMarkdown expands shortcodes, renders Markdown to HTML, and
@@ -418,4 +440,16 @@ func (p *pipeline) populateCache(cache *PipelineCache) {
 	cache.Writer = p.writer
 	cache.Renderer = p.renderer
 	cache.BuiltAt = time.Now()
+}
+
+// measureVoid records accumulated render failures without changing stage control flow.
+func (p *pipeline) measureVoid(stage string, fn func()) {
+	if p.opts.Timings == nil {
+		fn()
+		return
+	}
+	start := time.Now()
+	before := p.result.Errors
+	fn()
+	p.opts.Timings.Record(p.timingScope, stage, time.Since(start), p.result.Errors > before)
 }

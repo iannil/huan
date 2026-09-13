@@ -45,8 +45,8 @@ type LanguageBuildResult struct {
 //     c. Append language baseURL to cfg.BaseURL when non-empty (e.g. /en).
 //     d. Append language baseURL to opts.OutputDir when non-empty.
 //     e. Set PageFilter: default-lang pages (Language="" or matches default code)
-//        go to the default build; sidecar pages (Language="<code>") go to
-//        their respective language build.
+//     go to the default build; sidecar pages (Language="<code>") go to
+//     their respective language build.
 //     f. Call BuildSite with CfgOverride + PageFilter + AvailableTranslations.
 //
 // Single-language backward compatibility: when cfg.Languages is empty, callers
@@ -56,7 +56,8 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 	multiStart := time.Now()
 
 	// Load master config once.
-	masterCfg, err := config.Load(opts.SourceDir)
+	var masterCfg *config.Config
+	err := opts.Timings.Measure("multi", "load config", func() error { var err error; masterCfg, err = config.Load(opts.SourceDir); return err })
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -74,7 +75,12 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 	// Pre-scan content directory to build the AvailableTranslations map.
 	// This lets hreflang output skip languages that don't have sidecar files
 	// for a given page (prevents SEO 404s).
-	available, err := buildAvailableTranslations(opts.SourceDir, masterCfg)
+	var available map[string]map[string]bool
+	err = opts.Timings.Measure("multi", "shared input preparation", func() error {
+		var err error
+		available, err = buildAvailableTranslations(opts.SourceDir, masterCfg)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("scan translations: %w", err)
 	}
