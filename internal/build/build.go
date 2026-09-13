@@ -115,8 +115,13 @@ func (o *Options) logf() func(string, ...any) {
 // Any stage error aborts the build immediately. Errors during per-page render
 // are accumulated into Result.Errors instead.
 func BuildSite(opts Options) (*Result, error) {
+	return buildSiteWithInputs(opts, nil)
+}
+
+func buildSiteWithInputs(opts Options, inputs *buildInputs) (*Result, error) {
 	start := time.Now()
 	p := newPipeline(opts)
+	p.inputs = inputs
 
 	// BeforeRender Hook: collection-not-interruption semantics.
 	// Fail-fast: a BeforeRender error aborts the build so the user

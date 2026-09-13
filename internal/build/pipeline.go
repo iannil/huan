@@ -33,6 +33,7 @@ import (
 // options/result. A struct keeps these out of every function signature and
 // lets each stage read what it needs without ~10-arg plumbing.
 type pipeline struct {
+	inputs      *buildInputs
 	timingScope string
 	opts        Options
 	logf        func(string, ...any)
@@ -215,7 +216,26 @@ func (p *pipeline) loadContent() error {
 		contentCache = p.opts.PipelineCache.ContentCache
 	}
 
-	if contentCache != nil {
+	if p.inputs != nil {
+		if err := p.opts.Timings.Measure(p.timingScope, "load content/language copy", func() error {
+			p.pages = make([]*content.Page, len(p.inputs.pages))
+			for i, pg := range p.inputs.pages {
+				copied := cloneInputPage(pg)
+				p.pages[i] = copied
+				if contentCache != nil {
+					fi, err := os.Stat(copied.FilePath)
+					if err != nil {
+						return fmt.Errorf("load content: %w", err)
+					}
+					contentCache.Store(copied.RelPath, copied, fi.ModTime())
+				}
+			}
+			p.data = cloneInputData(p.inputs.data).(map[string]interface{})
+			return nil
+		}); err != nil {
+			return err
+		}
+	} else if contentCache != nil {
 		pages, err := p.loadContentWithCache(contentDir, contentCache)
 		if err != nil {
 			return fmt.Errorf("load content: %w", err)
@@ -253,13 +273,14 @@ func (p *pipeline) loadContent() error {
 	}
 	p.logf("  Pages loaded: %d\n", len(p.pages))
 
-	dataDir := filepath.Join(p.opts.SourceDir, "data")
-	data, err := content.LoadDataFiles(dataDir)
-	if err != nil {
-		return fmt.Errorf("load data: %w", err)
+	if p.inputs == nil {
+		data, err := content.LoadDataFiles(filepath.Join(p.opts.SourceDir, "data"))
+		if err != nil {
+			return fmt.Errorf("load data: %w", err)
+		}
+		p.data = data
 	}
-	p.logf("  Data files:   %d\n", len(data))
-	p.data = data
+	p.logf("  Data files:   %d\n", len(p.data))
 
 	// Invoke OnContentLoaded hooks
 	p.runOnContentLoaded()
@@ -302,7 +323,14 @@ func (p *pipeline) checkStaleTranslations(contentDir string) error {
 	if !p.cfg.IsMultiLanguage() {
 		return nil
 	}
+	if p.inputs != nil {
+		return p.reportStaleTranslations(p.inputs.stale, p.inputs.staleErr)
+	}
 	report, err := checkStaleTranslations(contentDir)
+	return p.reportStaleTranslations(report, err)
+}
+
+func (p *pipeline) reportStaleTranslations(report *I18nStaleReport, err error) error {
 	if err != nil {
 		p.logf("  WARN: i18n stale check error: %v\n", err)
 		return nil

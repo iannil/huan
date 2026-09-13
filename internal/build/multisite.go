@@ -72,19 +72,20 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		masterCfg.BaseURL = opts.BaseURLOverride
 	}
 
-	// Pre-scan content directory to build the AvailableTranslations map.
+	// Load raw content and data once and derive AvailableTranslations.
 	// This lets hreflang output skip languages that don't have sidecar files
 	// for a given page (prevents SEO 404s).
-	var available map[string]map[string]bool
+	var inputs *buildInputs
 	err = opts.Timings.Measure("multi", "shared input preparation", func() error {
 		var err error
-		available, err = buildAvailableTranslations(opts.SourceDir, masterCfg)
+		inputs, err = loadBuildInputs(opts.SourceDir, masterCfg, opts.Timings)
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("scan translations: %w", err)
+		return nil, err
 	}
 
+	available := inputs.available
 	defaultCode := masterCfg.DefaultLanguageCode()
 	result := &MultiSiteResult{}
 
@@ -192,7 +193,7 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		// (see above), so a later language only cleans its own subdirectory
 		// of already-generated output and regenerates it immediately.
 		// No cross-language wipe.
-		built, err := BuildSite(langOpts)
+		built, err := buildSiteWithInputs(langOpts, inputs)
 		if err != nil {
 			return result, fmt.Errorf("build language %s: %w", code, err)
 		}
@@ -251,20 +252,7 @@ func buildAvailableTranslations(sourceDir string, cfg *config.Config) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]map[string]bool)
-	for _, p := range pages {
-		if _, ok := out[p.RelPath]; !ok {
-			out[p.RelPath] = make(map[string]bool)
-		}
-		// p.Language is the language code from filename suffix ("" for default)
-		// Normalize empty to default language code for consistent lookup.
-		lang := p.Language
-		if lang == "" {
-			lang = cfg.DefaultLanguageCode()
-		}
-		out[p.RelPath][lang] = true
-	}
-	return out, nil
+	return availableTranslationsFromPages(pages, cfg), nil
 }
 
 // SummarizeMultiSite returns a one-line summary string for a MultiSiteResult,

@@ -249,7 +249,9 @@ languages:
     catalogSections: [books]
     neutralSections: [gallery]
 `)
-	mk := func(rel, body string) { writeFile(t, dir, filepath.Join("content", rel), "---\ntitle: T\ndate: 2026-06-14T00:00:00Z\n---\n"+body+"\n") }
+	mk := func(rel, body string) {
+		writeFile(t, dir, filepath.Join("content", rel), "---\ntitle: T\ndate: 2026-06-14T00:00:00Z\n---\n"+body+"\n")
+	}
 	// books: catalog → only en index should render, content dropped.
 	mk("books/_index.md", "")
 	mk("books/_index.en.md", "")
@@ -258,7 +260,8 @@ languages:
 	// gallery: neutral → en index + default content image page.
 	mk("gallery/_index.md", "")
 	mk("gallery/_index.en.md", "")
-	mk("gallery/img1.md", "image page")
+	writeFile(t, dir, "content/gallery/img1.md", "---\ntitle: Image\ntags: [original]\nkeywords: [key]\ncascade:\n  build:\n    render: always\n---\nimage page\n")
+	writeFile(t, dir, "data/books.yaml", "books:\n  - title: Original\n")
 	// hidden: excluded entirely.
 	mk("hidden/_index.md", "")
 	mk("hidden/h1.md", "secret")
@@ -268,8 +271,56 @@ languages:
 	mk("posts/p1.en.md", "English")
 
 	out := filepath.Join(dir, "docs")
-	if _, err := BuildMultiSite(Options{SourceDir: dir, OutputDir: out}); err != nil {
+	var sites []*content.Site
+	timings := NewTimings()
+	if _, err := BuildMultiSite(Options{SourceDir: dir, OutputDir: out, Timings: timings, AfterBuildSite: func(site *content.Site) error {
+		sites = append(sites, site)
+		if len(sites) == 1 {
+			for _, pg := range site.Pages {
+				if pg.RelPath == "gallery/img1.md" {
+					pg.Tags[0] = "changed"
+					pg.Keywords[0] = "changed"
+					pg.Cascade.Build.Render = "never"
+				}
+			}
+			site.Data["books"].(map[string]interface{})["books"].([]interface{})[0].(map[string]interface{})["title"] = "Changed"
+		}
+		return nil
+	}}); err != nil {
 		t.Fatalf("BuildMultiSite: %v", err)
+	}
+
+	if len(sites) != 2 {
+		t.Fatalf("captured %d sites", len(sites))
+	}
+	var first, second *content.Page
+	for _, pg := range sites[0].Pages {
+		if pg.RelPath == "gallery/img1.md" {
+			first = pg
+		}
+	}
+	for _, pg := range sites[1].Pages {
+		if pg.RelPath == "gallery/img1.md" {
+			second = pg
+		}
+	}
+	if first == nil || second == nil || first == second || second.Tags[0] != "original" || second.Keywords[0] != "key" || second.Cascade.Build.Render != "always" {
+		t.Fatal("neutral page was shared across languages")
+	}
+	if sites[1].Data["books"].(map[string]interface{})["books"].([]interface{})[0].(map[string]interface{})["title"] != "Original" {
+		t.Fatal("language data was shared")
+	}
+	counts := map[string]int{}
+	for _, entry := range timings.Entries() {
+		counts[entry.Stage]++
+	}
+	for _, stage := range []string{"shared input preparation/stale check", "shared input preparation/content", "shared input preparation/data"} {
+		if counts[stage] != 1 {
+			t.Errorf("%s count = %d", stage, counts[stage])
+		}
+	}
+	if counts["load content/language copy"] != 2 {
+		t.Fatal("expected two language copy stages")
 	}
 	en := readFile(t, filepath.Join(out, "en", "sitemap.xml"))
 
