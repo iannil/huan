@@ -9,8 +9,8 @@ import (
 
 // CanonifyOptions controls how canonifyURLs rewrites paths.
 type CanonifyOptions struct {
-	BaseURL   string // e.g., "https://zhurongshuo.com/"
-	IsHome    bool   // if true, inject Hugo generator meta
+	BaseURL string // e.g., "https://zhurongshuo.com/"
+	IsHome  bool   // if true, inject Hugo generator meta
 }
 
 // canonifyQuotedPattern matches href="/..." and src="/..." with double quotes.
@@ -19,6 +19,7 @@ type CanonifyOptions struct {
 var canonifyQuotedPattern = regexp.MustCompile(`((?:href|src)\s*=\s*")(/[^"]*")`)
 var canonifyBarePattern = regexp.MustCompile(`((?:href|src)=)(/[^\s"/>]+)`)
 var canonifyBareRootPattern = regexp.MustCompile(`((?:href|src)=)/([\s>])`)
+var canonifyCodeRegionPattern = regexp.MustCompile(`(?s)<(?:code|pre)(?:\s[^>]*)?>.*?</(?:code|pre)>`)
 
 // Canonify rewrites root-relative URLs in href/src attributes to absolute URLs.
 // Mirrors Hugo's canonifyURLs = true behavior.
@@ -49,13 +50,6 @@ func Canonify(html string, opts CanonifyOptions) string {
 	return html
 }
 
-// codeOpenRe matches opening <code> or <pre> tags (with any attributes, post-minify).
-// codeCloseRe matches the corresponding close tags.
-var (
-	codeRegionOpenRe  = regexp.MustCompile(`<(?:code|pre)(?:\s[^>]*)?>`)
-	codeRegionCloseRe = regexp.MustCompile(`</(?:code|pre)>`)
-)
-
 // applyCanonifyOutsideCode splits the HTML into segments separated by
 // <code>/<pre> regions, applies canonify to OUTSIDE segments only, and emits
 // inside segments verbatim. Inside code/pre, content is escaped text
@@ -67,14 +61,9 @@ var (
 // at their boundaries, which is fine since the bare/quoted patterns don't
 // match the tags themselves).
 func applyCanonifyOutsideCode(html, base string) string {
-	// regionRe matches a full <code>...</code> or <pre>...</pre> block (greedy
-	// is OK because we treat anything inside as "raw text" — if a code block
-	// contains another open tag, that's literal text).
-	regionRe := regexp.MustCompile(`(?s)<(?:code|pre)(?:\s[^>]*)?>.*?</(?:code|pre)>`)
-
 	var sb strings.Builder
 	lastEnd := 0
-	for _, m := range regionRe.FindAllStringIndex(html, -1) {
+	for _, m := range canonifyCodeRegionPattern.FindAllStringIndex(html, -1) {
 		start, end := m[0], m[1]
 		// Canonify the outside text before this region.
 		if start > lastEnd {
@@ -93,32 +82,47 @@ func applyCanonifyOutsideCode(html, base string) string {
 
 // canonifySegment applies the three canonify patterns to a code-free HTML segment.
 func canonifySegment(html, base string) string {
-	html = canonifyQuotedPattern.ReplaceAllStringFunc(html, func(match string) string {
-		parts := canonifyQuotedPattern.FindStringSubmatch(match)
-		if parts == nil {
-			return match
-		}
-		path := strings.TrimPrefix(parts[2], `/`)
-		if strings.HasPrefix(path, "/") {
-			return match
-		}
-		return parts[1] + base + "/" + path
-	})
-
-	html = canonifyBarePattern.ReplaceAllStringFunc(html, func(match string) string {
-		parts := canonifyBarePattern.FindStringSubmatch(match)
-		if parts == nil {
-			return match
-		}
-		path := strings.TrimPrefix(parts[2], `/`)
-		if strings.HasPrefix(path, "/") {
-			return match
-		}
-		return parts[1] + base + "/" + path
-	})
+	html = rewriteCanonifyMatches(html, base, canonifyQuotedPattern)
+	html = rewriteCanonifyMatches(html, base, canonifyBarePattern)
 
 	html = canonifyBareRootPattern.ReplaceAllString(html, "${1}"+base+"/${2}")
 	return html
+}
+
+// rewriteCanonifyMatches rewrites matching attributes from capture offsets
+// produced by one regex scan. Both patterns expose the prefix and URL in
+// groups 1 and 2 respectively.
+func rewriteCanonifyMatches(html, base string, pattern *regexp.Regexp) string {
+	matches := pattern.FindAllStringSubmatchIndex(html, -1)
+	if len(matches) == 0 {
+		return html
+	}
+
+	var sb strings.Builder
+	lastEnd := 0
+	changed := false
+	for _, match := range matches {
+		pathStart, pathEnd := match[4], match[5]
+		// A second leading slash is a protocol-relative URL.
+		if pathStart < 0 || pathEnd <= pathStart+1 || html[pathStart+1] == '/' {
+			continue
+		}
+		if !changed {
+			sb.Grow(len(html) + len(matches)*(len(base)+1))
+			changed = true
+		}
+		sb.WriteString(html[lastEnd:match[0]])
+		sb.WriteString(html[match[2]:match[3]])
+		sb.WriteString(base)
+		sb.WriteByte('/')
+		sb.WriteString(html[pathStart+1 : pathEnd])
+		lastEnd = match[1]
+	}
+	if !changed {
+		return html
+	}
+	sb.WriteString(html[lastEnd:])
+	return sb.String()
 }
 
 // injectGenerator inserts `<meta name=generator content="Hugo X.Y">` immediately
@@ -148,6 +152,7 @@ func uppercasePercentEncoding(html string) string {
 		return strings.ToUpper(s)
 	})
 }
+
 // single-line minified JSON, matching Hugo's output. It preserves field order
 // by stripping whitespace rather than re-encoding.
 func minifyJSONLD(html string) string {

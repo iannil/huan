@@ -51,6 +51,18 @@ func TestCanonify_BareRootAttribute(t *testing.T) {
 	}
 }
 
+// TestCanonify_BareRootRetainsReplacementExpansionBehavior characterizes the
+// existing regexp replacement semantics when a BaseURL contains a dollar
+// expansion. This unusual input is still part of the established contract.
+func TestCanonify_BareRootRetainsReplacementExpansionBehavior(t *testing.T) {
+	in := `<a href=/>home</a>`
+	got := Canonify(in, CanonifyOptions{BaseURL: "https://example.com/$1/"})
+	want := `<a href=https://example.com/href=/>home</a>`
+	if got != want {
+		t.Errorf("bare root replacement expansion: got %q, want %q", got, want)
+	}
+}
+
 // TestCanonify_SkipsCodeRegions verifies URLs inside <code>/<pre> blocks
 // are NOT rewritten. This is critical for code samples showing source
 // (e.g., a tutorial showing `<link href=/api/foo>`). The inside-code text
@@ -129,5 +141,68 @@ func TestCanonify_MinifiesJSONLD(t *testing.T) {
 				t.Errorf("JSON-LD not minified:\n%s", body)
 			}
 		}
+	}
+}
+
+// TestCanonify_CompatibilityEdges records established output for forms that
+// appear in minified pages. It catches changes to the URL-match boundaries
+// while allowing the matching implementation to be replaced.
+func TestCanonify_CompatibilityEdges(t *testing.T) {
+	base := CanonifyOptions{BaseURL: "https://example.com/"}
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "duplicate quoted and bare attributes",
+			in:   `<a href="/one" href=/two src="/three.png" src=/four.png>`,
+			want: `<a href="https://example.com/one" href=https://example.com/two src="https://example.com/three.png" src=https://example.com/four.png>`,
+		},
+		{
+			name: "quoted whitespace around equals",
+			in:   "<a href = \"/space\">x</a><img src\t=\t\"/tab.png\">",
+			want: "<a href = \"https://example.com/space\">x</a><img src\t=\t\"https://example.com/tab.png\">",
+		},
+		{
+			name: "bare root before whitespace and tag end",
+			in:   `<a href=/ >x</a><img src=/>`,
+			want: `<a href=https://example.com/ >x</a><img src=https://example.com/>`,
+		},
+		{
+			name: "protocol relative values remain unchanged",
+			in:   `<a href="//cdn.example.com/a.js"><img src=//cdn.example.com/b.png>`,
+			want: `<a href="//cdn.example.com/a.js"><img src=//cdn.example.com/b.png>`,
+		},
+		{
+			name: "code and pre regions including malformed nesting remain verbatim",
+			in:   `<a href=/outside><pre>before <code>href=/inside</code> after href=/also-inside</pre><img src=/after>`,
+			want: `<a href=https://example.com/outside><pre>before <code>href=/inside</code> after href=https://example.com/also-inside</pre><img src=https://example.com/after>`,
+		},
+		{
+			name: "json ld is compacted after canonification",
+			in:   `<script type=application/ld+json>{ "url": "/docs", "name": "A B" }</script><a href=/next>`,
+			want: `<script type=application/ld+json>{"url":"/docs","name":"A B"}</script><a href=https://example.com/next>`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Canonify(tc.in, base); got != tc.want {
+				t.Errorf("Canonify() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func BenchmarkCanonify_ManyRootRelativeAttributes(b *testing.B) {
+	const unit = `<a href="/posts/entry">entry</a><img src=/assets/image.png><a href=/ >home</a>`
+	html := strings.Repeat(unit, 200)
+	opts := CanonifyOptions{BaseURL: "https://example.com/", IsHome: true}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(html)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = Canonify(html, opts)
 	}
 }
