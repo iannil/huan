@@ -154,3 +154,42 @@ func TestInputPipelineCachePairedLanguages(t *testing.T) {
 		t.Fatal("neutral cache copies share identity")
 	}
 }
+
+func TestInputPageEmptySlicePreservation(t *testing.T) {
+	for _, src := range []*content.Page{{}, {Tags: []string{}, Keywords: []string{}}} {
+		copied := cloneInputPage(src)
+		if (copied.Tags == nil) != (src.Tags == nil) || (copied.Keywords == nil) != (src.Keywords == nil) {
+			t.Fatalf("clone changed slice nilness: source=%+v clone=%+v", src, copied)
+		}
+	}
+}
+
+func TestInputSearchEmptySlices(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "huan.yaml", `baseURL: https://example.com/
+title: Test
+languageCode: zh-cn
+defaultContentLanguage: zh-cn
+languages:
+  zh-cn:
+    weight: 1
+  en:
+    weight: 2
+    baseURL: /en
+    neutralSections: [gallery]
+`)
+	writeFile(t, dir, "content/gallery/image.md", "---\ntitle: Image\ntags: []\nkeywords: []\n---\nNeutral image")
+	writeFile(t, dir, "layouts/_default/list.html", "{{ .Title }}")
+	writeFile(t, dir, "layouts/_default/single.html", "{{ .Title }}")
+	writeFile(t, dir, "layouts/_default/index.searchindex.json", `{{ range .Site.RegularPages }}{"tags":{{ jsonify .Tags }},"keywords":{{ jsonify .Keywords }}}{{ end }}`)
+	out := filepath.Join(dir, "out")
+	if _, err := BuildMultiSite(Options{SourceDir: dir, OutputDir: out}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"search.json", "en/search.json"} {
+		got := strings.TrimSpace(readFile(t, filepath.Join(out, rel)))
+		if got != `{"tags":[],"keywords":[]}` {
+			t.Errorf("%s = %s", rel, got)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package build
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
@@ -47,8 +48,8 @@ func loadBuildInputs(sourceDir string, cfg *config.Config, timings *Timings) (*b
 
 func cloneInputPage(src *content.Page) *content.Page {
 	out := *src
-	out.Tags = append([]string(nil), src.Tags...)
-	out.Keywords = append([]string(nil), src.Keywords...)
+	out.Tags = slices.Clone(src.Tags)
+	out.Keywords = slices.Clone(src.Keywords)
 	// Build, Cascade and Sitemap contain only value fields.
 	out.Parent = nil
 	out.Pages, out.RegularPages, out.RegularPagesRecursive, out.Sections = nil, nil, nil, nil
