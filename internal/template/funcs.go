@@ -216,10 +216,11 @@ func reflectField(item interface{}, name string) interface{} {
 	return f.Interface()
 }
 
+var stripTagsRE = regexp.MustCompile(`<[^>]*>`)
+
 // stripTags removes all HTML tags from a string.
 func stripTags(s string) string {
-	re := regexp.MustCompile(`<[^>]*>`)
-	return re.ReplaceAllString(s, "")
+	return stripTagsRE.ReplaceAllString(s, "")
 }
 
 // hugoNewLinePlaceholder mirrors Hugo's `tpl/template.go` constant. Used by
@@ -972,8 +973,44 @@ func replaceREFunc(pattern, repl interface{}, src interface{}) string {
 	p := toString(pattern)
 	r := toString(repl)
 	s := toString(src)
+	if p == `\s+` && r == " " {
+		return collapseASCIIWhitespace(s)
+	}
 	re := regexp.MustCompile(p)
 	return re.ReplaceAllString(s, r)
+}
+
+// collapseASCIIWhitespace implements Go regexp's \s+ for the search-index
+// path without compiling or running a regexp. Go defines \s as ASCII space,
+// tab, newline, form feed, and carriage return; notably it excludes vertical
+// tab and all Unicode whitespace.
+func collapseASCIIWhitespace(s string) string {
+	first := strings.IndexAny(s, " \t\n\f\r")
+	if first == -1 {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	b.WriteString(s[:first])
+	b.WriteByte(' ')
+	wasSpace := true
+	for i := first + 1; i < len(s); i++ {
+		if isASCIIRegexSpace(s[i]) {
+			if !wasSpace {
+				b.WriteByte(' ')
+			}
+			wasSpace = true
+			continue
+		}
+		b.WriteByte(s[i])
+		wasSpace = false
+	}
+	return b.String()
+}
+
+func isASCIIRegexSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\f' || b == '\r'
 }
 
 func findREFunc(pattern, src string) []string {

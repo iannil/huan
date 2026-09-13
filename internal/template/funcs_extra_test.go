@@ -455,6 +455,55 @@ func TestFuncMap_ReplaceRE(t *testing.T) {
 	}
 }
 
+func TestReplaceREWhitespaceCollapseCharacterBoundaries(t *testing.T) {
+	// This guards the optimized search-index path: Go regexp's \s is the five
+	// ASCII characters below. In particular, vertical tab and Unicode spaces
+	// are not matches and must stay untouched.
+	fn := getFunc(t, "replaceRE").(func(interface{}, interface{}, interface{}) string)
+	got := fn(`\s+`, " ", "a\tb\nc\fd\re f\vg\u00a0h\u3000i")
+	want := "a b c d e f\vg\u00a0h\u3000i"
+	if got != want {
+		t.Errorf("replaceRE(\\s+, space) = %q, want %q", got, want)
+	}
+}
+
+func TestReplaceREWhitespaceCollapsePreservesEdgesAndNoMatch(t *testing.T) {
+	fn := getFunc(t, "replaceRE").(func(interface{}, interface{}, interface{}) string)
+
+	if got := fn(`\s+`, " ", "\t\ncontent\r\f"); got != " content " {
+		t.Errorf("replaceRE(\\s+, space) edges = %q, want %q", got, " content ")
+	}
+	if got := fn(`\s+`, " ", "内容\u00a0保持\u3000原样\v"); got != "内容\u00a0保持\u3000原样\v" {
+		t.Errorf("replaceRE(\\s+, space) no match = %q, want unchanged input", got)
+	}
+}
+
+func TestReplaceREWhitespaceCollapseAcceptsTemplateHTML(t *testing.T) {
+	fn := getFunc(t, "replaceRE").(func(interface{}, interface{}, interface{}) string)
+	got := fn(`\s+`, " ", template.HTML("标题\n\t正文"))
+	if got != "标题 正文" {
+		t.Errorf("replaceRE(\\s+, space, template.HTML) = %q, want %q", got, "标题 正文")
+	}
+}
+
+func TestReplaceREFallbackPreservesPatternAndDollarReplacementSemantics(t *testing.T) {
+	fn := getFunc(t, "replaceRE").(func(interface{}, interface{}, interface{}) string)
+	got := fn(`([a-z]+)-(\d+)`, "${2}:$1", "post-42 next-7")
+	if got != "42:post 7:next" {
+		t.Errorf("replaceRE fallback = %q, want %q", got, "42:post 7:next")
+	}
+}
+
+func TestReplaceREFallbackPanicsForInvalidPattern(t *testing.T) {
+	fn := getFunc(t, "replaceRE").(func(interface{}, interface{}, interface{}) string)
+	defer func() {
+		if recover() == nil {
+			t.Error("replaceRE must preserve regexp.MustCompile panic for invalid patterns")
+		}
+	}()
+	fn("[", " ", "text")
+}
+
 func TestFuncMap_FindRE(t *testing.T) {
 	fm := FuncMap("https://example.com/")
 	f := fm["findRE"]
