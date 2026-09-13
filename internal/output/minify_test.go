@@ -2,6 +2,7 @@ package output
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -119,18 +120,18 @@ func TestMinify_MinifyBytesMatchesString(t *testing.T) {
 // TestMediaTypeForExt covers the extension → media-type mapping.
 func TestMediaTypeForExt(t *testing.T) {
 	cases := map[string]string{
-		"page.html":     "text/html",
-		"page.htm":      "text/html",
-		"style.css":     "text/css",
-		"app.js":        "application/javascript",
-		"app.mjs":       "application/javascript",
-		"data.json":     "application/json",
-		"logo.svg":      "image/svg+xml",
-		"feed.xml":      "application/xml",
-		"index.txt":     "",
-		"image.png":     "",
-		"noext":         "",
-		"weird.PNG":     "", // case-insensitive ext, but png not mapped
+		"page.html": "text/html",
+		"page.htm":  "text/html",
+		"style.css": "text/css",
+		"app.js":    "application/javascript",
+		"app.mjs":   "application/javascript",
+		"data.json": "application/json",
+		"logo.svg":  "image/svg+xml",
+		"feed.xml":  "application/xml",
+		"index.txt": "",
+		"image.png": "",
+		"noext":     "",
+		"weird.PNG": "", // case-insensitive ext, but png not mapped
 	}
 	for path, want := range cases {
 		t.Run(path, func(t *testing.T) {
@@ -156,4 +157,43 @@ func TestMinify_JSMinifiesBasic(t *testing.T) {
 	if !strings.Contains(got, "function") {
 		t.Errorf("JS minify lost content:\n%s", got)
 	}
+}
+
+func TestMinifyConcurrentFormatsMatchSequential(t *testing.T) {
+	cases := []struct{ path, content string }{
+		{"page.html", `<html><head><style>body { color: #ffffff; }</style></head><body><script>function x() { return 2 + 3; }</script><svg><path d="M 0 0 L 10 10" /></svg><p> hello </p></body></html>`},
+		{"style.css", `body { color: #ffffff; margin: 0px 0px; }`},
+		{"app.js", `function foo(value) { var sum = value + 1; return sum; }`},
+		{"feed.xml", `<?xml version="1.0"?><rss> <channel><title>Test</title></channel> </rss>`},
+		{"data.json", `{ "name": "test", "values": [1, 2, 3] }`},
+		{"logo.svg", `<svg xmlns="http://www.w3.org/2000/svg"><style>path { fill: #ffffff; }</style><path d="M 0 0 L 10 10" /></svg>`},
+	}
+	sequential := NewMinifier()
+	expected := make([]string, len(cases))
+	for i, c := range cases {
+		expected[i] = sequential.Minify(c.path, c.content)
+		if expected[i] == c.content {
+			t.Fatalf("fixture %s was not minified", c.path)
+		}
+	}
+	shared := NewMinifier()
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for round := 0; round < 32; round++ {
+		for i, c := range cases {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if got := shared.Minify(c.path, c.content); got != expected[i] {
+					t.Errorf("concurrent string %s differs", c.path)
+				}
+				if got := string(shared.MinifyBytes(c.path, []byte(c.content))); got != expected[i] {
+					t.Errorf("concurrent bytes %s differs", c.path)
+				}
+			}()
+		}
+	}
+	close(start)
+	wg.Wait()
 }

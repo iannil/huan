@@ -12,8 +12,14 @@ import (
 )
 
 // Writer writes files to the publish directory.
+// Configure it before writing; cleaning must occur outside the write stage.
+// minify v2.24.13 documents Minify/String as concurrent-safe. Registration
+// happens only in NewMinifier. CSS/SVG copy options per call; HTML/JS/JSON/XML
+// keep working state local (HTML's deprecated mutating option is disabled).
+// Thus different paths can minify, canonify and write concurrently.
 type Writer struct {
-	mu sync.Mutex
+	mu        sync.Mutex // statistics only
+	pathLocks [256]sync.Mutex
 
 	publishDir string
 	minifier   *Minifier
@@ -62,8 +68,9 @@ func PathToFilePath(path, publishDir string) string {
 // minified according to the file's media type before writing. If canonify
 // is set, root-relative URLs in HTML are rewritten to absolute URLs.
 func (w *Writer) Write(relPath, content string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	lock := w.pathMutex(relPath)
+	lock.Lock()
+	defer lock.Unlock()
 	if w.minifier != nil {
 		content = w.minifier.Minify(relPath, content)
 	}
@@ -84,8 +91,7 @@ func (w *Writer) Write(relPath, content string) error {
 		return fmt.Errorf("write %s: %w", fullPath, err)
 	}
 
-	w.written++
-	w.bytes += int64(len(content))
+	w.recordWrite(int64(len(content)))
 	return nil
 }
 
@@ -105,8 +111,9 @@ func isHomePath(relPath string) bool {
 // WriteBytesPath writes raw bytes WITHOUT applying minify/canonify.
 // Use for pre-formatted content that should be emitted verbatim.
 func (w *Writer) WriteBytesPath(relPath string, data []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	lock := w.pathMutex(relPath)
+	lock.Lock()
+	defer lock.Unlock()
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -115,16 +122,16 @@ func (w *Writer) WriteBytesPath(relPath string, data []byte) error {
 	if err := os.WriteFile(fullPath, data, 0644); err != nil {
 		return fmt.Errorf("write %s: %w", fullPath, err)
 	}
-	w.written++
-	w.bytes += int64(len(data))
+	w.recordWrite(int64(len(data)))
 	return nil
 }
 
 // WriteBytes writes raw bytes to a file path under publishDir.
 // Minification is applied if a minifier is set.
 func (w *Writer) WriteBytes(relPath string, data []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	lock := w.pathMutex(relPath)
+	lock.Lock()
+	defer lock.Unlock()
 	if w.minifier != nil {
 		data = w.minifier.MinifyBytes(relPath, data)
 	}
@@ -137,8 +144,7 @@ func (w *Writer) WriteBytes(relPath string, data []byte) error {
 	if err := os.WriteFile(fullPath, data, 0644); err != nil {
 		return fmt.Errorf("write %s: %w", fullPath, err)
 	}
-	w.written++
-	w.bytes += int64(len(data))
+	w.recordWrite(int64(len(data)))
 	return nil
 }
 
@@ -179,8 +185,9 @@ func (w *Writer) CopyStatic(srcDir string, excludes []string) error {
 }
 
 func (w *Writer) copyFile(src, relPath string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	lock := w.pathMutex(relPath)
+	lock.Lock()
+	defer lock.Unlock()
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
@@ -202,10 +209,11 @@ func (w *Writer) copyFile(src, relPath string) error {
 		return fmt.Errorf("copy to %s: %w", dst, err)
 	}
 
-	w.written++
+	var size int64
 	if info, err := os.Stat(src); err == nil {
-		w.bytes += info.Size()
+		size = info.Size()
 	}
+	w.recordWrite(size)
 	return nil
 }
 
@@ -220,4 +228,22 @@ func (w *Writer) Stats() (files int, bytes int64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.written, w.bytes
+}
+
+// pathMutex bounds lock storage and serializes aliases of the same clean path.
+// Hash collisions only reduce concurrency.
+func (w *Writer) pathMutex(relPath string) *sync.Mutex {
+	path := filepath.Clean(PathToFilePath(relPath, w.publishDir))
+	var hash uint32 = 2166136261
+	for i := 0; i < len(path); i++ {
+		hash = (hash ^ uint32(path[i])) * 16777619
+	}
+	return &w.pathLocks[hash%uint32(len(w.pathLocks))]
+}
+
+func (w *Writer) recordWrite(size int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.written++
+	w.bytes += size
 }
