@@ -34,6 +34,16 @@ $(document).ready((function (_this) {
     icon.click(function () {
       nav.slideToggle(250)
     })
+    // frosted pills behind the fixed mobile controls only while scrolled —
+    // transparent again at the top of the page
+    let container
+    container = $('.nav_container')
+    let syncNavScrolled
+    syncNavScrolled = function () {
+      return container.toggleClass('nav-scrolled', $(window).scrollTop() > 0)
+    }
+    $(window).scroll(syncNavScrolled)
+    return syncNavScrolled()
   }
 })(this))
 

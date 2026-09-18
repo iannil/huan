@@ -963,6 +963,7 @@ a.back_to_top:hover span {
     top: 10px;
     display: block;
     z-index: 1000;
+    padding: 0;
   }
   .nav_container .lang-dropdown {
     position: fixed;
@@ -971,28 +972,40 @@ a.back_to_top:hover span {
     z-index: 1000;
     margin: 0;
   }
-  /* Fixed controls float over scrolling content — give them a frosted pill
-     so text underneath stays legible (tokens match .lang-dropdown-menu). */
-  .nav_container .menu_icon a {
-    display: block;
-    padding: 5px 10px;
-    background-color: rgba(255, 255, 255, 0.86);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+  /* Fixed controls float over scrolling content. Sizing is unconditional so
+     the pair stays aligned; the frosted pill (tokens match
+     .lang-dropdown-menu) kicks in only once the page is scrolled
+     (zozo.js toggles .nav-scrolled) and clears at the top. */
+  .nav_container .menu_icon a,
+  .nav_container .lang-dropdown-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid transparent;
     border-radius: 8px;
+  }
+  .nav_container.nav-scrolled .menu_icon a,
+  .nav_container.nav-scrolled .lang-dropdown-trigger {
+    background-color: rgba(255, 255, 255, 0.86);
+    border-color: rgba(0, 0, 0, 0.06);
     -webkit-backdrop-filter: saturate(180%) blur(12px);
     backdrop-filter: saturate(180%) blur(12px);
     -webkit-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .nav_container .menu_icon a {
+    font-size: 1rem;
+    line-height: 1;
   }
   .nav_container .lang-dropdown-trigger {
-    background-color: rgba(255, 255, 255, 0.86);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    -webkit-backdrop-filter: saturate(180%) blur(12px);
-    backdrop-filter: saturate(180%) blur(12px);
-    -webkit-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    gap: 2px;
+    font-size: 0.9rem;
+    line-height: 1;
   }
-  .nav_container .lang-dropdown-trigger:hover {
+  .nav_container.nav-scrolled .lang-dropdown-trigger:hover {
     background-color: rgba(255, 255, 255, 0.95);
   }
   .back_to_top {
