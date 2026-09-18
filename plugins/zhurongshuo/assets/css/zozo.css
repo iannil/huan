@@ -971,6 +971,30 @@ a.back_to_top:hover span {
     z-index: 1000;
     margin: 0;
   }
+  /* Fixed controls float over scrolling content — give them a frosted pill
+     so text underneath stays legible (tokens match .lang-dropdown-menu). */
+  .nav_container .menu_icon a {
+    display: block;
+    padding: 5px 10px;
+    background-color: rgba(255, 255, 255, 0.86);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 8px;
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .nav_container .lang-dropdown-trigger {
+    background-color: rgba(255, 255, 255, 0.86);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .nav_container .lang-dropdown-trigger:hover {
+    background-color: rgba(255, 255, 255, 0.95);
+  }
   .back_to_top {
     display: none !important;
   }

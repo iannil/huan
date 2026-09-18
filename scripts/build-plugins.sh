@@ -36,6 +36,15 @@ for dir in "$ROOT"/plugins/*/; do
   so="${name//_/-}.so"
   echo "building $(basename "$dir") -> $so"
   ( cd "$dir" && go build -buildmode=plugin -o "$OUT_DIR/$so" . )
+  if [ "$(uname -s)" = "Darwin" ]; then
+    # macOS 27 dyld rejects Go plugin .so files: machoCombineDwarf appends the
+    # __DWARF segment after the chained-fixups payload was written, so seg_count
+    # ends up one short of the real segment count. Patch it in place and re-sign
+    # (see scripts/fix_plugin_segcount.py). No-op on already-correct files and
+    # entirely skipped on non-Darwin hosts.
+    "$ROOT/scripts/fix_plugin_segcount.py" "$OUT_DIR/$so"
+    codesign --force --sign - "$OUT_DIR/$so"
+  fi
   built=$((built + 1))
 done
 
