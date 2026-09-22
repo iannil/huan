@@ -32,24 +32,128 @@ func (o *InjectOptions) setDefaults() {
 	}
 }
 
+// htmlAnalysis holds the result of a single html.Parse pass over a document:
+// existing meta tag identifiers, the <title> text, and the plain text of
+// <body>. Collecting all three from one parse replaces the previous three
+// full parses per file (title + existing tags + plain text).
+type htmlAnalysis struct {
+	existing map[string]bool
+	title    string
+	bodyText string
+}
+
+// analyzeHTML parses src once and collects meta tag identifiers (whole
+// document), the first non-empty <title> text, and the plain text of the
+// first <body> (skipping style/script/nav/header/footer subtrees) — matching
+// what ExtractExistingTags, extractTitle and ExtractPlainText produced from
+// separate parses.
+func analyzeHTML(src string) *htmlAnalysis {
+	a := &htmlAnalysis{existing: make(map[string]bool)}
+	doc, err := html.Parse(strings.NewReader(src))
+	if err != nil {
+		return a
+	}
+
+	// Single walk: collect meta identifiers and the title.
+	var walk func(*html.Node)
+	var body *html.Node
+	walk = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "meta":
+				if name := getAttr(n, "name"); name != "" {
+					a.existing[name] = true
+				}
+				if prop := getAttr(n, "property"); prop != "" {
+					a.existing[prop] = true
+				}
+			case "title":
+				if a.title == "" && n.FirstChild != nil {
+					a.title = strings.TrimSpace(n.FirstChild.Data)
+				}
+			case "body":
+				if body == nil {
+					body = n
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	if body != nil {
+		var buf strings.Builder
+		var extract func(*html.Node)
+		extract = func(n *html.Node) {
+			if n == nil {
+				return
+			}
+			if n.Type == html.ElementNode {
+				switch n.Data {
+				case "style", "script", "nav", "header", "footer":
+					return
+				}
+			}
+			if n.Type == html.TextNode {
+				if text := strings.TrimSpace(n.Data); text != "" {
+					if buf.Len() > 0 {
+						buf.WriteString(" ")
+					}
+					buf.WriteString(text)
+				}
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				extract(c)
+			}
+		}
+		extract(body)
+		a.bodyText = strings.TrimSpace(buf.String())
+	}
+	return a
+}
+
 // InjectHTML scans HTML <head>, checks existing tags, and injects missing ones.
 // Returns modified HTML. If src has no <head>, returns src unchanged.
 func InjectHTML(src string, opts *InjectOptions) (string, error) {
+	return injectHTML(src, opts, nil)
+}
+
+// injectHTML is InjectHTML with an optional precomputed analysis (nil = parse).
+func injectHTML(src string, opts *InjectOptions, a *htmlAnalysis) (string, error) {
 	if opts == nil {
 		return src, nil
 	}
 	opts.setDefaults()
 
-	// Parse existing tags
-	existing := ExtractExistingTags(src)
+	if a == nil {
+		a = analyzeHTML(src)
+	}
+	existing := a.existing
+
+	// Plain text of <body>, extracted at most once per document.
+	descText := ""
+	descDone := false
+	description := func() string {
+		if !descDone {
+			descDone = true
+			if a.bodyText != "" {
+				descText = TruncateToWordBoundary(a.bodyText, opts.DescriptionMaxLength)
+			}
+		}
+		return descText
+	}
 
 	// Build missing tags
 	var tags []string
 
 	// description
 	if _, has := existing["description"]; !has {
-		desc := extractDescriptionFromHTML(src, opts.DescriptionMaxLength)
-		if desc != "" {
+		if desc := description(); desc != "" {
 			tags = append(tags, fmt.Sprintf(`<meta name="description" content="%s">`, html.EscapeString(desc)))
 		}
 	}
@@ -62,8 +166,7 @@ func InjectHTML(src string, opts *InjectOptions) (string, error) {
 
 		// og:description
 		if _, has := existing["og:description"]; !has {
-			desc := extractDescriptionFromHTML(src, opts.DescriptionMaxLength)
-			if desc != "" {
+			if desc := description(); desc != "" {
 				tags = append(tags, fmt.Sprintf(`<meta property="og:description" content="%s">`, html.EscapeString(desc)))
 			}
 		}
@@ -101,8 +204,7 @@ func InjectHTML(src string, opts *InjectOptions) (string, error) {
 
 		// twitter:description
 		if _, has := existing["twitter:description"]; !has {
-			desc := extractDescriptionFromHTML(src, opts.DescriptionMaxLength)
-			if desc != "" {
+			if desc := description(); desc != "" {
 				tags = append(tags, fmt.Sprintf(`<meta name="twitter:description" content="%s">`, html.EscapeString(desc)))
 			}
 		}
@@ -126,99 +228,12 @@ func InjectHTML(src string, opts *InjectOptions) (string, error) {
 // ExtractExistingTags returns a set of already-present meta tag identifiers.
 // Key for name-based: name attribute value. Key for property-based: property attribute value.
 func ExtractExistingTags(htmlSrc string) map[string]bool {
-	result := make(map[string]bool)
-	doc, err := html.Parse(strings.NewReader(htmlSrc))
-	if err != nil {
-		return result
-	}
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n == nil {
-			return
-		}
-		if n.Type == html.ElementNode && n.Data == "meta" {
-			name := getAttr(n, "name")
-			prop := getAttr(n, "property")
-			if name != "" {
-				result[name] = true
-			}
-			if prop != "" {
-				result[prop] = true
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
-	return result
-}
-
-// extractDescriptionFromHTML extracts plain text from <body> and truncates it.
-func extractDescriptionFromHTML(htmlSrc string, maxLen int) string {
-	bodyText := ExtractPlainText(htmlSrc)
-	if bodyText == "" {
-		return ""
-	}
-	return TruncateToWordBoundary(bodyText, maxLen)
+	return analyzeHTML(htmlSrc).existing
 }
 
 // ExtractPlainText extracts all text content from <body> of an HTML document.
 func ExtractPlainText(htmlSrc string) string {
-	doc, err := html.Parse(strings.NewReader(htmlSrc))
-	if err != nil {
-		return ""
-	}
-	var buf strings.Builder
-	var extract func(*html.Node)
-	extract = func(n *html.Node) {
-		if n == nil {
-			return
-		}
-		// Skip <style>, <script>, <nav>, <header>, <footer> content
-		if n.Type == html.ElementNode {
-			tag := strings.ToLower(n.Data)
-			if tag == "style" || tag == "script" || tag == "nav" || tag == "header" || tag == "footer" {
-				return
-			}
-		}
-		if n.Type == html.TextNode {
-			text := strings.TrimSpace(n.Data)
-			if text != "" {
-				if buf.Len() > 0 {
-					buf.WriteString(" ")
-				}
-				buf.WriteString(text)
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			extract(c)
-		}
-	}
-
-	// Find <body>
-	var findBody func(*html.Node) *html.Node
-	findBody = func(n *html.Node) *html.Node {
-		if n == nil {
-			return nil
-		}
-		if n.Type == html.ElementNode && n.Data == "body" {
-			return n
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if found := findBody(c); found != nil {
-				return found
-			}
-		}
-		return nil
-	}
-
-	body := findBody(doc)
-	if body == nil {
-		return ""
-	}
-	extract(body)
-	return strings.TrimSpace(buf.String())
+	return analyzeHTML(htmlSrc).bodyText
 }
 
 // TruncateToWordBoundary truncates text to maxLen characters at the last word boundary.

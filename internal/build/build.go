@@ -122,6 +122,7 @@ func buildSiteWithInputs(opts Options, inputs *buildInputs) (*Result, error) {
 	start := time.Now()
 	p := newPipeline(opts)
 	p.inputs = inputs
+	defer p.waitCleanup()
 
 	// BeforeRender Hook: collection-not-interruption semantics.
 	// Fail-fast: a BeforeRender error aborts the build so the user
@@ -209,6 +210,7 @@ func buildSiteWithInputs(opts Options, inputs *buildInputs) (*Result, error) {
 // Experimental: API may change in future versions.
 func RenderPage(opts Options, pg *content.Page) (string, error) {
 	p := newPipeline(opts)
+	defer p.waitCleanup()
 
 	// Stage 1-4: minimal pipeline setup
 	if err := p.loadConfig(); err != nil {
@@ -317,6 +319,7 @@ func IncrementalRender(opts Options, cache *PipelineCache, affectedURLs []string
 	}
 
 	p := newPipeline(opts)
+	defer p.waitCleanup()
 
 	// Stage 1: load config. Reuse cached cfg when available (faster).
 	if cache != nil && cache.SiteCfg != nil {

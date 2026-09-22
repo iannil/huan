@@ -9,7 +9,9 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iannil/huan/internal/build/cache"
@@ -46,6 +48,10 @@ type pipeline struct {
 	// Stage 1 (loadConfig)
 	cfg *config.Config
 	now time.Time
+
+	// cleanupWg tracks background publish-dir deletion started in stage 4;
+	// waitCleanup must run before the build returns.
+	cleanupWg sync.WaitGroup
 
 	// Stage 2 (loadContent)
 	pages []*content.Page
@@ -381,15 +387,43 @@ func (p *pipeline) renderMarkdownAndTree() error {
 	}
 
 	if err := p.opts.Timings.Measure(p.timingScope, "markdown", func() error {
+		// Pages are independent: goldmark Convert is stateless per call, the
+		// shortcode registry is read-only after setup, and each goroutine only
+		// mutates its own page. Render concurrently with a bounded worker pool.
+		maxWorkers := runtime.GOMAXPROCS(0)
+		sem := make(chan struct{}, maxWorkers)
+		var wg sync.WaitGroup
+		var errMu sync.Mutex
+		var firstErr error
+
 		for _, pg := range p.pages {
 			if pg.RawContent == "" {
 				continue
 			}
-			if err := p.renderPageMarkdown(pg); err != nil {
-				return err
+			errMu.Lock()
+			failed := firstErr != nil
+			errMu.Unlock()
+			if failed {
+				break
 			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(pg *content.Page) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if err := p.renderPageMarkdown(pg); err != nil {
+					errMu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					errMu.Unlock()
+				}
+			}(pg)
 		}
-
+		wg.Wait()
+		if firstErr != nil {
+			return firstErr
+		}
 		return nil
 	}); err != nil {
 		return err

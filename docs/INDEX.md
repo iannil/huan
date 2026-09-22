@@ -43,6 +43,7 @@
 
 | 日期 | 文档 | 主题 |
 |------|------|------|
+| 2026-09-22 | [`build-performance-optimization.md`](reports/completed/2026-09-22-build-performance-optimization.md) | 全量构建性能优化（6.2s → 3.5s） |
 | 2026-07-22 | [`sse-push.md`](reports/completed/2026-07-22-sse-push.md) | SSE 实时推送（daemon 实时性优势） |
 | 2026-07-22 | [`jit-content-api.md`](reports/completed/2026-07-22-jit-content-api.md) | JIT 渲染 + 内容查询 REST API |
 | 2026-07-21 | [`plugin-architecture-incremental.md`](reports/completed/2026-07-21-plugin-architecture-incremental.md) | 插件化架构 + 增量构建 |

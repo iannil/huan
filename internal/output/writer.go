@@ -24,6 +24,7 @@ type Writer struct {
 	publishDir string
 	minifier   *Minifier
 	canonOpts  *CanonifyOptions
+	dirs       sync.Map // directories already created by MkdirAll
 	written    int
 	bytes      int64
 }
@@ -83,7 +84,7 @@ func (w *Writer) Write(relPath, content string) error {
 
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := w.ensureDir(dir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
@@ -92,6 +93,20 @@ func (w *Writer) Write(relPath, content string) error {
 	}
 
 	w.recordWrite(int64(len(content)))
+	return nil
+}
+
+// ensureDir creates dir once per Writer lifetime; subsequent calls with the
+// same dir skip the MkdirAll syscall chain. Directories are never removed
+// during a build, so a created dir stays valid for the Writer's lifetime.
+func (w *Writer) ensureDir(dir string) error {
+	if _, ok := w.dirs.Load(dir); ok {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	w.dirs.Store(dir, struct{}{})
 	return nil
 }
 
@@ -116,7 +131,7 @@ func (w *Writer) WriteBytesPath(relPath string, data []byte) error {
 	defer lock.Unlock()
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := w.ensureDir(dir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	if err := os.WriteFile(fullPath, data, 0644); err != nil {
@@ -138,7 +153,7 @@ func (w *Writer) WriteBytes(relPath string, data []byte) error {
 
 	fullPath := PathToFilePath(relPath, w.publishDir)
 	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := w.ensureDir(dir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	if err := os.WriteFile(fullPath, data, 0644); err != nil {
@@ -195,7 +210,7 @@ func (w *Writer) copyFile(src, relPath string) error {
 	defer in.Close()
 
 	dst := PathToFilePath(relPath, w.publishDir)
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := w.ensureDir(filepath.Dir(dst)); err != nil {
 		return err
 	}
 

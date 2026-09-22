@@ -5,6 +5,8 @@ package build
 
 import (
 	"fmt"
+	"runtime"
+	"sync"
 
 	"github.com/iannil/huan/internal/output"
 	tmpl "github.com/iannil/huan/internal/template"
@@ -18,13 +20,13 @@ import (
 // categories, paginated home (/page/N/), 404, sitemap, search.json,
 // llms.txt, and /api/{section}.json.
 func (p *pipeline) renderFeedsAndSpecials() {
-	p.renderTaxonomyPages()
-	p.renderEmptyCategories()
-	p.renderPaginatedHome()
-	p.render404()
-	p.renderSitemap()
-	p.renderSearchIndex()
-	p.renderAIOutputs()
+	p.measureVoid("feeds/taxonomy", p.renderTaxonomyPages)
+	p.measureVoid("feeds/empty categories", p.renderEmptyCategories)
+	p.measureVoid("feeds/paginated home", p.renderPaginatedHome)
+	p.measureVoid("feeds/404", p.render404)
+	p.measureVoid("feeds/sitemap", p.renderSitemap)
+	p.measureVoid("feeds/search index", p.renderSearchIndex)
+	p.measureVoid("feeds/ai outputs", p.renderAIOutputs)
 }
 
 // renderTaxonomyPages emits /tags/ (terms listing) + /tags/{tag}/ per term
@@ -47,21 +49,33 @@ func (p *pipeline) renderTaxonomyPages() {
 		_ = p.writer.Write("tags/index.xml", html)
 	}
 
-	// /tags/{tag}/ — one page per term (HTML + RSS).
+	// /tags/{tag}/ — one page per term (HTML + RSS). Terms are independent:
+	// BuildTermContext only reads the shared lookup/site, and renderer/writer
+	// are goroutine-safe (as in renderPages), so render terms concurrently.
 	if termsTmpl := p.tmpls.Lookup("_default/list.html"); termsTmpl != nil {
+		maxWorkers := runtime.GOMAXPROCS(0)
+		sem := make(chan struct{}, maxWorkers)
+		var wg sync.WaitGroup
 		for _, term := range taxCtx.DataTerms {
 			termCtx := BuildTermContext(p.siteCtx, p.lookup, p.site, p.cfg, term.Name, term.Pages)
 			if termCtx == nil {
 				continue
 			}
-			tagSlug := URLEscape(term.Name)
-			if html, err := p.renderer.Render("_default/list.html", termCtx); err == nil {
-				_ = p.writer.Write("tags/"+tagSlug+"/index.html", html)
-			}
-			if html, err := p.renderer.Render("_default/rss.xml", termCtx); err == nil {
-				_ = p.writer.Write("tags/"+tagSlug+"/index.xml", html)
-			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(termName string, termCtx *tmpl.Context) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				tagSlug := URLEscape(termName)
+				if html, err := p.renderer.Render("_default/list.html", termCtx); err == nil {
+					_ = p.writer.Write("tags/"+tagSlug+"/index.html", html)
+				}
+				if html, err := p.renderer.Render("_default/rss.xml", termCtx); err == nil {
+					_ = p.writer.Write("tags/"+tagSlug+"/index.xml", html)
+				}
+			}(term.Name, termCtx)
 		}
+		wg.Wait()
 	}
 }
 

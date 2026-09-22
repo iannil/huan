@@ -6,10 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/iannil/huan/pkg/plugin"
-	"golang.org/x/net/html"
 )
 
 // collectHTMLFiles walks outputDir recursively and returns every .html file at
@@ -147,18 +148,31 @@ func (p *SEOInjector) OnOutputWritten(ctx context.Context, outputDir string) err
 		return nil // collection-not-interruption: log warning, don't abort
 	}
 
+	// Files are independent read-modify-write units; process concurrently.
+	maxWorkers := runtime.GOMAXPROCS(0)
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+
 	for _, filePath := range entries {
 		select {
 		case <-ctx.Done():
 			p.logf("seo-injector: cancelled\n")
+			wg.Wait()
 			return nil
 		default:
 		}
 
-		if err := p.processFile(filePath, outputDir); err != nil {
-			p.logf("seo-injector: %s: %v\n", filePath, err)
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(filePath string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := p.processFile(filePath, outputDir); err != nil {
+				p.logf("seo-injector: %s: %v\n", filePath, err)
+			}
+		}(filePath)
 	}
+	wg.Wait()
 	return nil
 }
 
@@ -177,6 +191,10 @@ func (p *SEOInjector) processFile(filePath, outputDir string) error {
 	// Convert filesystem path to URL path. On Windows, use ToSlash.
 	urlPath := "/" + strings.ReplaceAll(rel, string(filepath.Separator), "/")
 
+	// One parse per file: meta tags, title and body text come from the same
+	// analysis pass (previously three separate html.Parse calls).
+	analysis := analyzeHTML(string(data))
+
 	opts := &InjectOptions{
 		DescriptionMaxLength: p.cfg.DescriptionMaxLength,
 		DefaultOGImage:       p.cfg.DefaultOGImage,
@@ -184,10 +202,10 @@ func (p *SEOInjector) processFile(filePath, outputDir string) error {
 		InjectTwitter:        p.cfg.InjectTwitter,
 		PageURL:              urlPath, // relative to site root; caller should prepend baseURL if needed
 		PageKind:             p.guessKind(rel),
-		PageTitle:            p.extractTitle(string(data)),
+		PageTitle:            analysis.title,
 	}
 
-	result, err := InjectHTML(string(data), opts)
+	result, err := injectHTML(string(data), opts, analysis)
 	if err != nil {
 		return fmt.Errorf("inject: %w", err)
 	}
@@ -215,28 +233,4 @@ func (p *SEOInjector) guessKind(relPath string) string {
 	}
 	// Everything else is a page
 	return "page"
-}
-
-// extractTitle extracts the <title> from HTML.
-func (p *SEOInjector) extractTitle(htmlSrc string) string {
-	doc, err := html.Parse(strings.NewReader(htmlSrc))
-	if err != nil {
-		return ""
-	}
-	var title string
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n == nil || title != "" {
-			return
-		}
-		if n.Type == html.ElementNode && n.Data == "title" && n.FirstChild != nil {
-			title = strings.TrimSpace(n.FirstChild.Data)
-			return
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
-	return title
 }

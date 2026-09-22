@@ -8,6 +8,8 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/iannil/huan/internal/build/cache"
 	"github.com/iannil/huan/internal/content"
@@ -37,7 +39,7 @@ func sameDir(a, b string) bool {
 // `i18n` is executed.
 func (p *pipeline) setupTemplatesAndWriter() error {
 	if p.cfg.ShouldCleanPublishDir() && !sameDir(p.opts.OutputDir, p.opts.SourceDir) {
-		if err := p.opts.Timings.Measure(p.timingScope, "setup templates + writer/cleanup", func() error { return output.CleanPublishDir(p.opts.OutputDir) }); err != nil {
+		if err := p.opts.Timings.Measure(p.timingScope, "setup templates + writer/cleanup", func() error { return p.cleanPublishDir() }); err != nil {
 			return fmt.Errorf("clean publish dir: %w", err)
 		}
 	}
@@ -71,6 +73,36 @@ func (p *pipeline) setupTemplatesAndWriter() error {
 	// Enable canonifyURLs to rewrite root-relative paths to absolute URLs.
 	p.writer.SetCanonify(output.CanonifyOptions{BaseURL: p.cfg.BaseURL})
 	return nil
+}
+
+// cleanPublishDir removes prior output without blocking the build: the
+// publish dir is renamed aside (instant) and deleted by a background
+// goroutine while rendering proceeds into a fresh directory. waitCleanup
+// must run before the build returns so no trash survives process exit.
+// Falls back to synchronous removal when the rename fails.
+func (p *pipeline) cleanPublishDir() error {
+	if _, err := os.Stat(p.opts.OutputDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	trash := fmt.Sprintf("%s.trash-%d",
+		strings.TrimRight(p.opts.OutputDir, string(filepath.Separator)), time.Now().UnixNano())
+	if err := os.Rename(p.opts.OutputDir, trash); err != nil {
+		return output.CleanPublishDir(p.opts.OutputDir)
+	}
+	p.cleanupWg.Add(1)
+	go func() {
+		defer p.cleanupWg.Done()
+		_ = os.RemoveAll(trash)
+	}()
+	return nil
+}
+
+// waitCleanup blocks until any background publish-dir deletion finishes.
+func (p *pipeline) waitCleanup() {
+	p.cleanupWg.Wait()
 }
 
 // loadI18nBundle loads translations for the current language. Multi-language
