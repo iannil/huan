@@ -216,11 +216,33 @@ func reflectField(item interface{}, name string) interface{} {
 	return f.Interface()
 }
 
-var stripTagsRE = regexp.MustCompile(`<[^>]*>`)
-
-// stripTags removes all HTML tags from a string.
+// stripTags preserves the historical <[^>]*> semantics, including malformed
+// markup, without the regexp engine or repeated output-buffer growth.
 func stripTags(s string) string {
-	return stripTagsRE.ReplaceAllString(s, "")
+	start := strings.IndexByte(s, '<')
+	if start < 0 {
+		return s
+	}
+	end := strings.IndexByte(s[start+1:], '>')
+	if end < 0 {
+		return s
+	}
+	var buf strings.Builder
+	buf.Grow(len(s))
+	for {
+		buf.WriteString(s[:start])
+		s = s[start+end+2:]
+		start = strings.IndexByte(s, '<')
+		if start < 0 {
+			break
+		}
+		end = strings.IndexByte(s[start+1:], '>')
+		if end < 0 {
+			break
+		}
+	}
+	buf.WriteString(s)
+	return buf.String()
 }
 
 // hugoNewLinePlaceholder mirrors Hugo's `tpl/template.go` constant. Used by
@@ -273,6 +295,7 @@ func plainify(v interface{}) template.HTML {
 
 	var wasSpace bool
 	var buf strings.Builder
+	buf.Grow(len(s))
 	for _, r := range s {
 		isSpace := unicode.IsSpace(r)
 		if !(isSpace && wasSpace) {
@@ -1029,11 +1052,23 @@ func echoParamFunc(m interface{}, key string) interface{} {
 }
 
 func truncateFunc(length int, s string) string {
-	runes := []rune(s)
-	if len(runes) <= length {
-		return s
+	if length < 0 {
+		// Preserve the existing invalid-length error raised by templates.
+		panic("truncate: negative length")
 	}
-	return string(runes[:length]) + "…"
+	n := 0
+	for i := range s {
+		if n == length {
+			prefix := s[:i]
+			if !utf8.ValidString(prefix) {
+				// []rune used to replace each invalid byte in a truncated prefix.
+				prefix = string([]rune(prefix))
+			}
+			return prefix + "…"
+		}
+		n++
+	}
+	return s
 }
 
 func dictFunc(args ...interface{}) (map[string]interface{}, error) {

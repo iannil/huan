@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iannil/huan/internal/config"
@@ -899,11 +900,17 @@ func buildTaxonomyContexts(taxonomies map[string]content.Taxonomy) map[string]Ta
 }
 
 // Renderer handles executing templates with context data.
-// It keeps a "factory" template (never executed) and clones it for each render,
-// so context-specific functions like `site` can be injected per-call.
+// It keeps a factory template and pools independent execution instances.
+// Each instance is exclusively owned by one Render call, including partials.
 type Renderer struct {
 	tmpl    *template.Template // factory, never executed directly
 	funcMap template.FuncMap
+	workers sync.Pool
+}
+
+type renderWorker struct {
+	tmpl *template.Template
+	site *SiteContext
 }
 
 // NewRenderer creates a new template renderer.
@@ -912,20 +919,43 @@ func NewRenderer(tmpl *template.Template, funcMap template.FuncMap) *Renderer {
 }
 
 // Render executes a named template with the given context.
-// For each render, it clones the factory template and injects
-// the `site` function returning the current Site context. The `partial`
-// and `partialCached` functions are also overridden on the clone to close
-// over the cloned template directly, avoiding a global variable race.
+// Reusing a worker amortizes cloning and HTML escape analysis across pages.
+// Page data is never cached, and site is cleared before returning the worker.
 func (r *Renderer) Render(templateName string, ctx *Context) (string, error) {
 	t := r.tmpl.Lookup(templateName)
 	if t == nil {
 		return "", fmt.Errorf("template not found: %s", templateName)
 	}
 
+	var worker *renderWorker
+	if cached := r.workers.Get(); cached != nil {
+		worker = cached.(*renderWorker)
+	} else {
+		var err error
+		worker, err = r.newWorker()
+		if err != nil {
+			return "", err
+		}
+	}
+	worker.site = ctx.Site
+	defer func() {
+		worker.site = nil
+		r.workers.Put(worker)
+	}()
+
+	var buf strings.Builder
+	if err := worker.tmpl.ExecuteTemplate(&buf, templateName, ctx); err != nil {
+		return "", fmt.Errorf("execute %s: %w", templateName, err)
+	}
+	return buf.String(), nil
+}
+
+func (r *Renderer) newWorker() (*renderWorker, error) {
 	cloned, err := r.tmpl.Clone()
 	if err != nil {
-		return "", fmt.Errorf("clone template: %w", err)
+		return nil, fmt.Errorf("clone template: %w", err)
 	}
+	worker := &renderWorker{tmpl: cloned}
 
 	// Override partial/partialCached on the clone so they close over the
 	// cloned template directly. This avoids the race from concurrent calls
@@ -945,20 +975,9 @@ func (r *Renderer) Render(templateName string, ctx *Context) (string, error) {
 	cloned.Funcs(template.FuncMap{
 		"partial":       partialFunc,
 		"partialCached": func(name string, ctx interface{}) (template.HTML, error) { return partialFunc(name, ctx) },
-		"site":          func() *SiteContext { return ctx.Site },
+		"site":          func() *SiteContext { return worker.site },
 	})
-
-	ct := cloned.Lookup(templateName)
-	if ct == nil {
-		return "", fmt.Errorf("cloned template not found: %s", templateName)
-	}
-
-	var buf strings.Builder
-	if err := ct.Execute(&buf, ctx); err != nil {
-		return "", fmt.Errorf("execute %s: %w", templateName, err)
-	}
-
-	return buf.String(), nil
+	return worker, nil
 }
 
 // LoadAllTemplates is a convenience function that loads all templates.
