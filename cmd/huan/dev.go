@@ -211,11 +211,18 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 	}
 
 	if !disableWatch {
-		watcher, err := dev.NewWatcher(dev.WatcherOptions{
+		watcherOpts := dev.WatcherOptions{
 			SourceDir: sourceDir,
 			Debounce:  debounce,
 			OnChange:  doRebuild,
-		})
+			Logf:      func(format string, a ...any) { fmt.Printf(format, a...) },
+		}
+		// The publish dir is build output, not input: a concurrent
+		// `huan build` / deploy rewriting it must not loop dev rebuilds.
+		if dir := filepath.Clean(cfg.PublishDir); dir != "" && dir != "." && !filepath.IsAbs(dir) {
+			watcherOpts.IgnoreDirs = []string{dir}
+		}
+		watcher, err := dev.NewWatcher(watcherOpts)
 		if err != nil {
 			fmt.Printf("WARNING: file watcher unavailable: %v\n", err)
 			fmt.Println("WARNING: use --disableWatch to suppress this message")

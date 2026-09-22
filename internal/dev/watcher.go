@@ -17,16 +17,22 @@ type WatcherOptions struct {
 	Debounce  time.Duration
 	OnChange  func()
 	Logf      func(format string, args ...any)
+	// IgnoreDirs lists directories (relative to SourceDir, or absolute) that
+	// are neither watched nor able to trigger rebuilds — e.g. the publish
+	// output dir, which a concurrent `huan build` may rewrite.
+	IgnoreDirs []string
 }
 
 // Watcher recursively watches SourceDir for changes and invokes OnChange
 // after a debounce delay.
 type Watcher struct {
-	opts   WatcherOptions
-	fsw    *fsnotify.Watcher
-	mu     sync.Mutex
-	timer  *time.Timer
-	logf   func(string, ...any)
+	opts      WatcherOptions
+	fsw       *fsnotify.Watcher
+	mu        sync.Mutex
+	timer     *time.Timer
+	logf      func(string, ...any)
+	ignoreAbs map[string]bool
+	pending   []string
 }
 
 func NewWatcher(opts WatcherOptions) (*Watcher, error) {
@@ -40,7 +46,19 @@ func NewWatcher(opts WatcherOptions) (*Watcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &Watcher{opts: opts, fsw: fsw, logf: opts.Logf}
+	w := &Watcher{opts: opts, fsw: fsw, logf: opts.Logf, ignoreAbs: map[string]bool{}}
+	rootAbs, err := filepath.Abs(opts.SourceDir)
+	if err != nil {
+		_ = fsw.Close()
+		return nil, err
+	}
+	for _, d := range opts.IgnoreDirs {
+		abs := d
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(rootAbs, abs)
+		}
+		w.ignoreAbs[filepath.Clean(abs)] = true
+	}
 	if err := w.addRecursive(opts.SourceDir); err != nil {
 		_ = fsw.Close()
 		return nil, err
@@ -59,7 +77,7 @@ func (w *Watcher) addRecursive(root string) error {
 		// The walk root itself is always watched: `huan dev`'s default
 		// --source is ".", whose base name starts with a dot and would
 		// otherwise SkipDir the whole tree before anything is added.
-		if path != root && w.isIgnored(path) {
+		if path != root && (w.isIgnored(path) || w.isIgnoredDir(path)) {
 			return filepath.SkipDir
 		}
 		return w.fsw.Add(path)
@@ -95,6 +113,28 @@ func (w *Watcher) isIgnored(path string) bool {
 	return false
 }
 
+// isIgnoredDir reports whether path is inside one of the configured
+// IgnoreDirs. Events under an ignored directory never schedule a rebuild.
+func (w *Watcher) isIgnoredDir(path string) bool {
+	if len(w.ignoreAbs) == 0 {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	for d := filepath.Clean(abs); ; {
+		if w.ignoreAbs[d] {
+			return true
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return false
+		}
+		d = parent
+	}
+}
+
 func (w *Watcher) Run(ctx context.Context) error {
 	defer w.fsw.Close()
 	for {
@@ -105,7 +145,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			if w.isIgnored(ev.Name) {
+			// Metadata-only events (e.g. atime updates fired as Chmod when
+			// the build reads files back) never change build output.
+			if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
+				continue
+			}
+			if w.isIgnored(ev.Name) || w.isIgnoredDir(ev.Name) {
 				continue
 			}
 			// If a new dir was created, watch it too
@@ -114,7 +159,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 					_ = w.addRecursive(ev.Name)
 				}
 			}
-			w.schedule()
+			w.schedule(ev.Name)
 		case err, ok := <-w.fsw.Errors:
 			if !ok {
 				return nil
@@ -124,15 +169,38 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-func (w *Watcher) schedule() {
+// maxPendingPaths caps how many changed paths are remembered between
+// rebuilds; beyond that only the count is reported.
+const maxPendingPaths = 5
+
+func (w *Watcher) schedule(changedPath string) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
+	if changedPath != "" && len(w.pending) < maxPendingPaths {
+		seen := false
+		for _, p := range w.pending {
+			if p == changedPath {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			w.pending = append(w.pending, changedPath)
+		}
+	}
 	if w.timer != nil {
 		w.timer.Stop()
 	}
 	w.timer = time.AfterFunc(w.opts.Debounce, func() {
+		w.mu.Lock()
+		paths := w.pending
+		w.pending = nil
+		w.mu.Unlock()
+		if len(paths) > 0 {
+			w.logf("[watch] changed: %s\n", strings.Join(paths, ", "))
+		}
 		if w.opts.OnChange != nil {
 			w.opts.OnChange()
 		}
 	})
+	w.mu.Unlock()
 }

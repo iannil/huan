@@ -2,8 +2,10 @@ package dev
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -251,5 +253,124 @@ func TestWatcherRelativeSourceDir(t *testing.T) {
 
 	if got := atomic.LoadInt32(&calls); got < 1 {
 		t.Errorf("OnChange called %d times with relative source dir, want >= 1", got)
+	}
+}
+
+func TestWatcherIgnoresConfiguredDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int32
+	w, err := NewWatcher(WatcherOptions{
+		SourceDir:  dir,
+		Debounce:   50 * time.Millisecond,
+		IgnoreDirs: []string{"docs"},
+		OnChange: func() {
+			atomic.AddInt32(&calls, 1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx) //nolint:errcheck
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Writes inside the ignored dir must not trigger a rebuild
+	_ = os.WriteFile(filepath.Join(dir, "docs", "index.html"), []byte("x"), 0o644)
+	time.Sleep(300 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Errorf("OnChange called %d times for ignored dir, want 0", got)
+	}
+
+	// Writes outside it still trigger
+	_ = os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644)
+	time.Sleep(300 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got < 1 {
+		t.Errorf("OnChange called %d times for normal file, want >= 1", got)
+	}
+}
+
+func TestWatcherIgnoresChmodOnlyEvents(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "post.md")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int32
+	w, err := NewWatcher(WatcherOptions{
+		SourceDir: dir,
+		Debounce:  50 * time.Millisecond,
+		OnChange: func() {
+			atomic.AddInt32(&calls, 1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx) //nolint:errcheck
+
+	time.Sleep(100 * time.Millisecond)
+
+	if err := os.Chmod(target, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Errorf("OnChange called %d times for chmod-only event, want 0", got)
+	}
+}
+
+func TestWatcherLogsChangedPaths(t *testing.T) {
+	dir := t.TempDir()
+
+	var calls int32
+	logs := make(chan string, 4)
+	w, err := NewWatcher(WatcherOptions{
+		SourceDir: dir,
+		Debounce:  50 * time.Millisecond,
+		OnChange: func() {
+			atomic.AddInt32(&calls, 1)
+		},
+		Logf: func(format string, args ...any) {
+			logs <- fmt.Sprintf(format, args...)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx) //nolint:errcheck
+
+	time.Sleep(100 * time.Millisecond)
+
+	target := filepath.Join(dir, "post.md")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if got := atomic.LoadInt32(&calls); got < 1 {
+		t.Fatalf("OnChange called %d times, want >= 1", got)
+	}
+	select {
+	case msg := <-logs:
+		if !strings.Contains(msg, "post.md") {
+			t.Errorf("log %q does not mention changed path %q", msg, target)
+		}
+	default:
+		t.Error("no changed-path log emitted")
 	}
 }
