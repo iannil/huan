@@ -16,6 +16,9 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
+| [`reports/2026-09-23-build-dev-performance-verification.md`](reports/2026-09-23-build-dev-performance-verification.md) | build/dev 持续性能优化：最终实测、内存代价与兼容验收 | 验收通过 |
+| [`progress/2026-09-23-build-dev-performance-goal.md`](progress/2026-09-23-build-dev-performance-goal.md) | build/dev 持续性能目标：实验记录，源码验收完成 | 待提交 |
+| [`reports/completed/2026-09-23-build-dev-performance.md`](reports/completed/2026-09-23-build-dev-performance.md) | build/dev 性能第一批：Markdown 缓存、变更队列、共享输入、后台清理；实测与验收 | 完成 |
 | [`../CLAUDE.md`](../CLAUDE.md) | 项目根指南（语言/发布/记忆/可观测性约定） | 永久 |
 | [`progress/CURRENT_STATE.md`](progress/CURRENT_STATE.md) | **当前实际进展** — daemon 时代完整状态、功能列表、版本演进 | 持续更新 |
 | [`adr/0001-redefine-equivalence.md`](adr/0001-redefine-equivalence.md) | **ADR 0001：重新界定「100% 还原」为三维度等价** | Accepted |

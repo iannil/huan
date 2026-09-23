@@ -13,7 +13,7 @@ import (
 func TestRenderer_RendersFootnotes(t *testing.T) {
 	cfg := &config.MarkupConfig{Goldmark: config.GoldmarkConfig{Extensions: config.GoldmarkExtensionsConfig{Typographer: false}}}
 	md := NewRenderer(cfg)
-	src := "Hello[^1] world.\n\n[^1]: Footnote text here."
+	src := "Hello[^1] world. Again[^1].\n\n[^1]: Footnote text here."
 	html, err := md.Render(src)
 	if err != nil {
 		t.Fatalf("Render error: %v", err)
@@ -23,6 +23,14 @@ func TestRenderer_RendersFootnotes(t *testing.T) {
 	}
 	if !strings.Contains(html, "class=footnotes") && !strings.Contains(html, "class=\"footnotes\"") {
 		t.Errorf("Footnotes section not generated; output:\n%s", html)
+	}
+	for _, want := range []string{
+		`id="fnref:1"`, `id="fnref1:1"`, `href="#fn:1"`,
+		`id="fn:1"`, `href="#fnref:1"`, `href="#fnref1:1"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Footnote navigation missing %q; output:\n%s", want, html)
+		}
 	}
 }
 

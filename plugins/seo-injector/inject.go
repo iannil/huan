@@ -33,20 +33,19 @@ func (o *InjectOptions) setDefaults() {
 }
 
 // htmlAnalysis holds the result of a single html.Parse pass over a document:
-// existing meta tag identifiers, the <title> text, and the plain text of
-// <body>. Collecting all three from one parse replaces the previous three
-// full parses per file (title + existing tags + plain text).
+// existing meta tag identifiers, title text, and the first body node. Body
+// text is extracted only when missing descriptions actually need it. The
+// analysis is local to one document; no state is retained between builds.
 type htmlAnalysis struct {
 	existing map[string]bool
 	title    string
-	bodyText string
+	body     *html.Node
 }
 
 // analyzeHTML parses src once and collects meta tag identifiers (whole
-// document), the first non-empty <title> text, and the plain text of the
-// first <body> (skipping style/script/nav/header/footer subtrees) — matching
-// what ExtractExistingTags, extractTitle and ExtractPlainText produced from
-// separate parses.
+// document), the first non-empty <title> text, and the first <body> node.
+// Keeping html.Parse preserves its correction of malformed HTML and the
+// existing whole-document meta-tag lookup semantics.
 func analyzeHTML(src string) *htmlAnalysis {
 	a := &htmlAnalysis{existing: make(map[string]bool)}
 	doc, err := html.Parse(strings.NewReader(src))
@@ -56,7 +55,6 @@ func analyzeHTML(src string) *htmlAnalysis {
 
 	// Single walk: collect meta identifiers and the title.
 	var walk func(*html.Node)
-	var body *html.Node
 	walk = func(n *html.Node) {
 		if n == nil {
 			return
@@ -75,8 +73,8 @@ func analyzeHTML(src string) *htmlAnalysis {
 					a.title = strings.TrimSpace(n.FirstChild.Data)
 				}
 			case "body":
-				if body == nil {
-					body = n
+				if a.body == nil {
+					a.body = n
 				}
 			}
 		}
@@ -86,35 +84,41 @@ func analyzeHTML(src string) *htmlAnalysis {
 	}
 	walk(doc)
 
-	if body != nil {
-		var buf strings.Builder
-		var extract func(*html.Node)
-		extract = func(n *html.Node) {
-			if n == nil {
+	return a
+}
+
+// plainText follows the original DOM walk, including ignored subtrees and
+// trimmed text-node boundaries. Callers requesting descriptions invoke it once.
+func (a *htmlAnalysis) plainText() string {
+	if a.body == nil {
+		return ""
+	}
+	var buf strings.Builder
+	var extract func(*html.Node)
+	extract = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "style", "script", "nav", "header", "footer":
 				return
 			}
-			if n.Type == html.ElementNode {
-				switch n.Data {
-				case "style", "script", "nav", "header", "footer":
-					return
+		}
+		if n.Type == html.TextNode {
+			if text := strings.TrimSpace(n.Data); text != "" {
+				if buf.Len() > 0 {
+					buf.WriteString(" ")
 				}
-			}
-			if n.Type == html.TextNode {
-				if text := strings.TrimSpace(n.Data); text != "" {
-					if buf.Len() > 0 {
-						buf.WriteString(" ")
-					}
-					buf.WriteString(text)
-				}
-			}
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				extract(c)
+				buf.WriteString(text)
 			}
 		}
-		extract(body)
-		a.bodyText = strings.TrimSpace(buf.String())
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extract(c)
+		}
 	}
-	return a
+	extract(a.body)
+	return strings.TrimSpace(buf.String())
 }
 
 // InjectHTML scans HTML <head>, checks existing tags, and injects missing ones.
@@ -141,8 +145,8 @@ func injectHTML(src string, opts *InjectOptions, a *htmlAnalysis) (string, error
 	description := func() string {
 		if !descDone {
 			descDone = true
-			if a.bodyText != "" {
-				descText = TruncateToWordBoundary(a.bodyText, opts.DescriptionMaxLength)
+			if bodyText := a.plainText(); bodyText != "" {
+				descText = TruncateToWordBoundary(bodyText, opts.DescriptionMaxLength)
 			}
 		}
 		return descText
@@ -233,7 +237,7 @@ func ExtractExistingTags(htmlSrc string) map[string]bool {
 
 // ExtractPlainText extracts all text content from <body> of an HTML document.
 func ExtractPlainText(htmlSrc string) string {
-	return analyzeHTML(htmlSrc).bodyText
+	return analyzeHTML(htmlSrc).plainText()
 }
 
 // TruncateToWordBoundary truncates text to maxLen characters at the last word boundary.

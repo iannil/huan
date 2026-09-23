@@ -1,7 +1,6 @@
 package output
 
 import (
-	"bytes"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -13,11 +12,7 @@ type CanonifyOptions struct {
 	IsHome  bool   // if true, inject Hugo generator meta
 }
 
-// canonifyQuotedPattern matches href="/..." and src="/..." with double quotes.
-// canonifyBarePattern matches href=/... and src=/... without quotes (after minify).
-// canonifyBareRootPattern matches href=/ and src=/ (bare root path).
-var canonifyQuotedPattern = regexp.MustCompile(`((?:href|src)\s*=\s*")(/[^"]*")`)
-var canonifyBarePattern = regexp.MustCompile(`((?:href|src)=)(/[^\s"/>]+)`)
+// Keep the root regex for unusual base URLs containing regexp replacement expansions.
 var canonifyBareRootPattern = regexp.MustCompile(`((?:href|src)=)/([\s>])`)
 var canonifyCodeRegionPattern = regexp.MustCompile(`(?s)<(?:code|pre)(?:\s[^>]*)?>.*?</(?:code|pre)>`)
 
@@ -61,68 +56,158 @@ func Canonify(html string, opts CanonifyOptions) string {
 // at their boundaries, which is fine since the bare/quoted patterns don't
 // match the tags themselves).
 func applyCanonifyOutsideCode(html, base string) string {
+	if !strings.Contains(html, "href") && !strings.Contains(html, "src") {
+		return html
+	}
+	if !strings.Contains(html, "<code") && !strings.Contains(html, "<pre") {
+		return canonifySegment(html, base)
+	}
+	regions := canonifyCodeRegionPattern.FindAllStringIndex(html, -1)
+	if len(regions) == 0 {
+		return canonifySegment(html, base)
+	}
 	var sb strings.Builder
-	lastEnd := 0
-	for _, m := range canonifyCodeRegionPattern.FindAllStringIndex(html, -1) {
-		start, end := m[0], m[1]
-		// Canonify the outside text before this region.
-		if start > lastEnd {
-			sb.WriteString(canonifySegment(html[lastEnd:start], base))
+	lastEnd, copied := 0, 0
+	changed := false
+	rewrite := func(start, end int) {
+		segment := html[start:end]
+		out := canonifySegment(segment, base)
+		if out != segment {
+			if !changed {
+				sb.Grow(len(html))
+				changed = true
+			}
+			sb.WriteString(html[copied:start])
+			sb.WriteString(out)
+			copied = end
 		}
-		// Emit the code/pre region verbatim.
-		sb.WriteString(html[start:end])
-		lastEnd = end
 	}
-	// Canonify any trailing outside text.
-	if lastEnd < len(html) {
-		sb.WriteString(canonifySegment(html[lastEnd:], base))
+	for _, region := range regions {
+		rewrite(lastEnd, region[0])
+		lastEnd = region[1]
 	}
+	rewrite(lastEnd, len(html))
+	if !changed {
+		return html
+	}
+	sb.WriteString(html[copied:])
 	return sb.String()
 }
 
-// canonifySegment applies the three canonify patterns to a code-free HTML segment.
+// Preserve the original three passes: a quoted value can contain a bare
+// attribute, and the base URL inserted by one pass can match a later pass.
 func canonifySegment(html, base string) string {
-	html = rewriteCanonifyMatches(html, base, canonifyQuotedPattern)
-	html = rewriteCanonifyMatches(html, base, canonifyBarePattern)
-
-	html = canonifyBareRootPattern.ReplaceAllString(html, "${1}"+base+"/${2}")
-	return html
+	html = rewriteCanonifyAttributes(html, base, canonifyQuoted)
+	html = rewriteCanonifyAttributes(html, base, canonifyBare)
+	if strings.Contains(base, "$") {
+		// ReplaceAllString historically expands $ captures in the base URL.
+		return canonifyBareRootPattern.ReplaceAllString(html, "${1}"+base+"/${2}")
+	}
+	return rewriteCanonifyAttributes(html, base, canonifyRoot)
 }
 
-// rewriteCanonifyMatches rewrites matching attributes from capture offsets
-// produced by one regex scan. Both patterns expose the prefix and URL in
-// groups 1 and 2 respectively.
-func rewriteCanonifyMatches(html, base string, pattern *regexp.Regexp) string {
-	matches := pattern.FindAllStringSubmatchIndex(html, -1)
-	if len(matches) == 0 {
-		return html
-	}
+type canonifyMode uint8
 
+const (
+	canonifyQuoted canonifyMode = iota
+	canonifyBare
+	canonifyRoot
+)
+
+// rewriteCanonifyAttributes scans exactly the old regex language, without an
+// HTML parser (which would change malformed markup and attribute boundaries).
+// Modes are quoted URLs, bare non-root URLs, and bare root URLs respectively.
+func rewriteCanonifyAttributes(html, base string, mode canonifyMode) string {
 	var sb strings.Builder
-	lastEnd := 0
+	copied := 0
 	changed := false
-	for _, match := range matches {
-		pathStart, pathEnd := match[4], match[5]
-		// A second leading slash is a protocol-relative URL.
-		if pathStart < 0 || pathEnd <= pathStart+1 || html[pathStart+1] == '/' {
+	for pos := 0; pos < len(html); {
+		offset := strings.IndexAny(html[pos:], "hs")
+		if offset < 0 {
+			break
+		}
+		start := pos + offset
+		pos = start + 1
+		cursor := start
+		switch {
+		case strings.HasPrefix(html[start:], "href"):
+			cursor += 4
+		case strings.HasPrefix(html[start:], "src"):
+			cursor += 3
+		default:
 			continue
 		}
+		if mode == canonifyQuoted {
+			for cursor < len(html) && canonifySpace(html[cursor]) {
+				cursor++
+			}
+		}
+		if cursor >= len(html) || html[cursor] != '=' {
+			continue
+		}
+		cursor++
+		if mode == canonifyQuoted {
+			for cursor < len(html) && canonifySpace(html[cursor]) {
+				cursor++
+			}
+			if cursor >= len(html) || html[cursor] != '"' {
+				continue
+			}
+			cursor++
+		}
+		if cursor >= len(html) || html[cursor] != '/' {
+			continue
+		}
+		pathStart := cursor
+		cursor++
+		switch mode {
+		case canonifyQuoted:
+			end := strings.IndexByte(html[cursor:], '"')
+			if end < 0 {
+				// No later quoted match can end either. Avoid rescanning a
+				// long malformed value for every subsequent attribute name.
+				pos = len(html)
+				continue
+			}
+			cursor += end + 1
+			pos = cursor
+			if html[pathStart+1] == '/' {
+				continue
+			}
+		case canonifyBare:
+			for cursor < len(html) && !canonifySpace(html[cursor]) && html[cursor] != '"' && html[cursor] != '/' && html[cursor] != '>' {
+				cursor++
+			}
+			if cursor == pathStart+1 {
+				continue
+			}
+			pos = cursor
+		case canonifyRoot:
+			if cursor >= len(html) || (!canonifySpace(html[cursor]) && html[cursor] != '>') {
+				continue
+			}
+			cursor++
+			pos = cursor
+		}
 		if !changed {
-			sb.Grow(len(html) + len(matches)*(len(base)+1))
+			sb.Grow(len(html) + len(base))
 			changed = true
 		}
-		sb.WriteString(html[lastEnd:match[0]])
-		sb.WriteString(html[match[2]:match[3]])
+		sb.WriteString(html[copied:pathStart])
 		sb.WriteString(base)
-		sb.WriteByte('/')
-		sb.WriteString(html[pathStart+1 : pathEnd])
-		lastEnd = match[1]
+		sb.WriteString(html[pathStart:cursor])
+		copied = cursor
 	}
 	if !changed {
 		return html
 	}
-	sb.WriteString(html[lastEnd:])
+	sb.WriteString(html[copied:])
 	return sb.String()
+}
+
+// Go regexp \s is ASCII whitespace, deliberately excluding vertical tab.
+func canonifySpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
 }
 
 // injectGenerator inserts `<meta name=generator content="Hugo X.Y">` immediately
@@ -156,61 +241,92 @@ func uppercasePercentEncoding(html string) string {
 // single-line minified JSON, matching Hugo's output. It preserves field order
 // by stripping whitespace rather than re-encoding.
 func minifyJSONLD(html string) string {
-	return jsonLDPattern.ReplaceAllStringFunc(html, func(match string) string {
-		parts := jsonLDPattern.FindStringSubmatch(match)
-		if parts == nil {
-			return match
-		}
-		body := strings.TrimSpace(parts[2])
+	if !strings.Contains(html, "application/ld+json") {
+		return html
+	}
+	matches := jsonLDPattern.FindAllStringSubmatchIndex(html, -1)
+	var sb strings.Builder
+	copied := 0
+	changed := false
+	for _, match := range matches {
+		bodyStart, bodyEnd := match[4], match[5]
+		original := html[bodyStart:bodyEnd]
+		body := strings.TrimSpace(original)
 		if body == "" {
-			return match
+			continue
 		}
-
-		// Validate JSON first; if invalid, leave it untouched.
+		compact := compactJSONPreservingOrder(body)
+		if compact == original {
+			continue
+		}
+		// Keep Unmarshal rather than json.Valid: the old implementation leaves
+		// overflowing JSON numbers such as 1e999 unchanged.
 		var data interface{}
 		if err := json.Unmarshal([]byte(body), &data); err != nil {
-			return match
+			continue
 		}
-
-		// Compact whitespace-only removal: collapse runs of whitespace to a single
-		// space inside strings, and remove all whitespace between tokens.
-		compact := compactJSONPreservingOrder(body)
-		return parts[1] + compact + parts[3]
-	})
+		if !changed {
+			sb.Grow(len(html))
+			changed = true
+		}
+		sb.WriteString(html[copied:bodyStart])
+		sb.WriteString(compact)
+		copied = bodyEnd
+	}
+	if !changed {
+		return html
+	}
+	sb.WriteString(html[copied:])
+	return sb.String()
 }
 
 // compactJSONPreservingOrder strips insignificant whitespace from a JSON string
 // while preserving field order and original string escaping.
 func compactJSONPreservingOrder(s string) string {
-	var out bytes.Buffer
+	var out strings.Builder
+	changed := false
 	inString := false
 	i := 0
 	for i < len(s) {
 		c := s[i]
 		if inString {
 			if c == '\\' && i+1 < len(s) {
-				out.WriteByte(c)
-				out.WriteByte(s[i+1])
+				if changed {
+					out.WriteString(s[i : i+2])
+				}
 				i += 2
 				continue
 			}
 			if c == '"' {
 				inString = false
 			}
-			out.WriteByte(c)
+			if changed {
+				out.WriteByte(c)
+			}
 			i++
 			continue
 		}
 		switch c {
 		case '"':
 			inString = true
-			out.WriteByte(c)
+			if changed {
+				out.WriteByte(c)
+			}
 		case ' ', '\t', '\n', '\r':
-			// skip whitespace outside strings
+			if !changed {
+				out.Grow(len(s))
+				out.WriteString(s[:i])
+				changed = true
+			}
 		default:
-			out.WriteByte(c)
+			if changed {
+				out.WriteByte(c)
+			}
 		}
 		i++
+	}
+	if !changed {
+		return s
 	}
 	return out.String()
 }

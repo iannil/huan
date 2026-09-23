@@ -1,0 +1,252 @@
+{
+  "date": "2026-09-23",
+  "hardware": "Apple M5 Max",
+  "go": "go1.27.1 darwin/arm64",
+  "baseline": "7609eef + pre-existing uncommitted footnote and theme CSS changes",
+  "build": {
+    "records": [
+      {
+        "variant": "baseline",
+        "round": 0,
+        "warmup": true,
+        "seconds": 2.137249375
+      },
+      {
+        "variant": "candidate",
+        "round": 0,
+        "warmup": true,
+        "seconds": 2.1012949580000004
+      },
+      {
+        "variant": "baseline",
+        "round": 1,
+        "warmup": false,
+        "seconds": 2.239181875
+      },
+      {
+        "variant": "candidate",
+        "round": 1,
+        "warmup": false,
+        "seconds": 2.204934625000001
+      },
+      {
+        "variant": "baseline",
+        "round": 2,
+        "warmup": false,
+        "seconds": 2.2720779170000007
+      },
+      {
+        "variant": "candidate",
+        "round": 2,
+        "warmup": false,
+        "seconds": 2.2637835839999987
+      },
+      {
+        "variant": "baseline",
+        "round": 3,
+        "warmup": false,
+        "seconds": 2.3006681250000014
+      },
+      {
+        "variant": "candidate",
+        "round": 3,
+        "warmup": false,
+        "seconds": 2.2589798330000015
+      },
+      {
+        "variant": "baseline",
+        "round": 4,
+        "warmup": false,
+        "seconds": 2.296515082999999
+      },
+      {
+        "variant": "candidate",
+        "round": 4,
+        "warmup": false,
+        "seconds": 2.287628250000001
+      },
+      {
+        "variant": "baseline",
+        "round": 5,
+        "warmup": false,
+        "seconds": 2.29644025
+      },
+      {
+        "variant": "candidate",
+        "round": 5,
+        "warmup": false,
+        "seconds": 2.335317791999998
+      }
+    ],
+    "files": 7245,
+    "baseline_unstable": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml",
+      "posts/2023/04/1401/index.html",
+      "posts/2023/04/1401/index.md",
+      "posts/2025/02/2202/index.html",
+      "posts/2025/02/2202/index.md"
+    ],
+    "candidate_differences": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml",
+      "posts/2023/04/1401/index.html",
+      "posts/2023/04/1401/index.md",
+      "posts/2025/02/2202/index.html",
+      "posts/2025/02/2202/index.md"
+    ],
+    "unexpected_differences": [],
+    "median_seconds": {
+      "baseline": 2.29644025,
+      "candidate": 2.2637835839999987
+    }
+  },
+  "dev": {
+    "records": [
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 3.05627875,
+        "rebuild": "[watch] rebuild complete in 2.648094334s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 3.0787150000000008,
+        "rebuild": "[watch] rebuild complete in 2.676218167s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 3.1226372499999986,
+        "rebuild": "[watch] rebuild complete in 2.720098125s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 3.102179584,
+        "rebuild": "[watch] rebuild complete in 2.699509958s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 2.1796378329999975,
+        "rebuild": "[watch] rebuild complete in 1.7761455s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 2.245953374999999,
+        "rebuild": "[watch] rebuild complete in 1.843927958s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 2.288768083000001,
+        "rebuild": "[watch] rebuild complete in 1.886276541s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 2.227810584,
+        "rebuild": "[watch] rebuild complete in 1.825241125s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 3.1366412919999966,
+        "rebuild": "[watch] rebuild complete in 2.733345s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 3.150000624999997,
+        "rebuild": "[watch] rebuild complete in 2.747353791s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 3.188121209000002,
+        "rebuild": "[watch] rebuild complete in 2.786459333s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 3.174298207999996,
+        "rebuild": "[watch] rebuild complete in 2.77169625s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 2.260361959000001,
+        "rebuild": "[watch] rebuild complete in 1.857524875s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 2.3812202919999947,
+        "rebuild": "[watch] rebuild complete in 1.978604083s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 2.3406675830000054,
+        "rebuild": "[watch] rebuild complete in 1.938101833s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 2.3579284579999964,
+        "rebuild": "[watch] rebuild complete in 1.955969209s"
+      }
+    ],
+    "median_seconds": {
+      "baseline": 3.136318937499998,
+      "optimized": 2.314717833000003
+    }
+  },
+  "notes": [
+    "Build: one warmup per executable, five alternating measured runs; full plugins; no other benchmark running.",
+    "Dev: temporary copy of content/data/static/i18n plus huan.yaml, additional probe article, baseline/candidate/baseline/candidate sessions; one warmup then three measured edits each; default 400ms debounce; HTTP body checked after each rebuild.",
+    "Not a browser paint or WebSocket delivery benchmark; not an OS cold-cache benchmark.",
+    "Cache budget: 128 MiB; reported retained cache data + bookkeeping allowance 95.9 MiB, not process RSS."
+  ]
+}

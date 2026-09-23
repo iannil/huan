@@ -78,7 +78,7 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 	var inputs *buildInputs
 	err = opts.Timings.Measure("multi", "shared input preparation", func() error {
 		var err error
-		inputs, err = loadBuildInputs(opts.SourceDir, masterCfg, opts.Timings)
+		inputs, err = loadBuildInputsWithCache(opts.SourceDir, masterCfg, opts.Timings, opts.ParseCache)
 		return err
 	})
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	cjkfriendly "github.com/tats-u/goldmark-cjk-friendly/v2"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
 )
 
@@ -36,13 +37,14 @@ func FuncMap(baseURL string) template.FuncMap {
 		"safeURL":  func(v interface{}) template.URL { return template.URL(toString(v)) },
 
 		// Content helpers
-		"plainify":    plainify,
-		"markdownify": markdownifyFunc,
-		"jsonify":     jsonifyFunc,
-		"printf":      fmt.Sprintf,
-		"substr":      substrFunc,
-		"default":     defaultFunc,
-		"cond":        condFunc,
+		"plainify":      plainify,
+		"searchExcerpt": searchExcerpt,
+		"markdownify":   markdownifyFunc,
+		"jsonify":       jsonifyFunc,
+		"printf":        fmt.Sprintf,
+		"substr":        substrFunc,
+		"default":       defaultFunc,
+		"cond":          condFunc,
 		// rssLastBuildDate formats the most-recent Lastmod among ctx.RegularPages
 		// using Hugo's RSS date layout. Returns "" when RegularPages is empty so
 		// empty tag RSS produces <lastBuildDate></lastBuildDate> (compressed to
@@ -1243,8 +1245,8 @@ func mathDiv(a, b interface{}) interface{} {
 
 func compare(a, b interface{}) int {
 	// Simple string-based comparison
-	as := fmt.Sprintf("%v", a)
-	bs := fmt.Sprintf("%v", b)
+	as := comparisonText(a)
+	bs := comparisonText(b)
 	switch {
 	case as < bs:
 		return -1
@@ -1252,6 +1254,20 @@ func compare(a, b interface{}) int {
 		return 1
 	default:
 		return 0
+	}
+}
+
+// comparisonText avoids copying ordinary strings, including large HTML page
+// bodies. Exact types matter: defined string types may implement Formatter or
+// Stringer, and all other values must keep fmt's existing %v representation.
+func comparisonText(v interface{}) string {
+	switch text := v.(type) {
+	case string:
+		return text
+	case template.HTML:
+		return string(text)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
 }
 
@@ -1264,7 +1280,7 @@ func compare(a, b interface{}) int {
 // field or frontmatter).
 func markdownifyFunc(s string) (string, error) {
 	md := goldmark.New(
-		goldmark.WithExtensions(cjkfriendly.CJKFriendlyEmphasis),
+		goldmark.WithExtensions(cjkfriendly.CJKFriendlyEmphasis, extension.Footnote),
 		goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()),
 	)
 	var buf bytes.Buffer

@@ -5,18 +5,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/iannil/huan/internal/admin"
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/content"
 	"github.com/iannil/huan/internal/daemon/eventbus"
 	"github.com/iannil/huan/internal/dev"
 	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
 	"github.com/spf13/cobra"
 )
+
+// Bound retained Markdown data independently of the site size.
+const devMarkdownCacheBytes = 128 << 20
 
 var devCmd = &cobra.Command{
 	Use:   "dev",
@@ -27,6 +32,7 @@ var devCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(devCmd)
+	addBuildCacheFlags(devCmd)
 	devCmd.Flags().String("port", "1313", "port to serve on")
 	devCmd.Flags().String("bind", "127.0.0.1", "interface to bind")
 	devCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
@@ -102,6 +108,7 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 
 	buildOpts := build.Options{
 		Timings:          startupTimings,
+		MarkdownCache:    commandMarkdownCache(cmd, startupTimings),
 		SourceDir:        sourceDir,
 		OutputDir:        tmpDir,
 		IncludeDrafts:    includeDrafts,
@@ -109,6 +116,12 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 		LiveReloadURL:    lrURL,
 		BaseURLOverride:  devBaseURL,
 		Logf:             func(format string, a ...any) { fmt.Printf(format, a...) },
+	}
+
+	defer buildOpts.MarkdownCache.Close()
+
+	if disabled, _ := cmd.Flags().GetBool("noCache"); !disabled {
+		buildOpts.ParseCache = content.NewParseCache(128 << 20)
 	}
 
 	// Create PluginRegistry and ThemeManager, auto-activate from config
@@ -128,6 +141,7 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 	})
 
 	runBuild := func(opts build.Options) error {
+		defer pruneCommandCache(cmd, opts.MarkdownCache, opts.Timings)
 		if cfg.IsMultiLanguage() {
 			res, err := build.BuildMultiSite(opts)
 			if err != nil {
@@ -159,75 +173,74 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var (
-		rebuildBusy   atomic.Bool
-		rebuildPended atomic.Bool
-	)
+	var watcherWG sync.WaitGroup
+	var swapper build.BuildDirSwapper
 	nextDir := tmpDir + ".next"
-	doRebuild := func() {
-		if !rebuildBusy.CompareAndSwap(false, true) {
-			rebuildPended.Store(true)
+	defer os.RemoveAll(nextDir)
+	queue := dev.NewRebuildQueue(func(paths []string) {
+		if !devMarkdownOnlyChanges(sourceDir, paths) {
+			buildOpts.MarkdownCache.Clear()
+		}
+		fmt.Println("[watch] change detected, rebuilding...")
+		start := time.Now()
+		_ = os.RemoveAll(nextDir)
+		opts := buildOpts
+		opts.OutputDir = nextDir
+		opts.Timings = commandTimings(cmd)
+		before := opts.MarkdownCache.Stats()
+		rebuildErr := func() (err error) {
+			defer func() { reportTimings(cmd, opts.Timings, "rebuild total", start, err) }()
+			if err = runBuild(opts); err != nil {
+				return err
+			}
+			return opts.Timings.Measure("cli", "directory swap", func() error { return swapper.Swap(tmpDir, nextDir) })
+		}()
+		if rebuildErr != nil {
+			_ = os.RemoveAll(nextDir)
+			fmt.Printf("[watch] rebuild error: %v\n", rebuildErr)
+			if hub != nil {
+				hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", rebuildErr))
+			}
 			return
 		}
-		for {
-			fmt.Println("[watch] change detected, rebuilding...")
-			start := time.Now()
-			_ = os.RemoveAll(nextDir)
-			buildOpts.OutputDir = nextDir
-			buildOpts.Timings = commandTimings(cmd)
-			var swapErr error
-			rebuildErr := func() (err error) {
-				defer func() { reportTimings(cmd, buildOpts.Timings, "rebuild total", start, err) }()
-				if err = runBuild(buildOpts); err != nil {
-					return err
-				}
-				swapErr = buildOpts.Timings.Measure("cli", "directory swap", func() error { return build.SwapBuildDir(tmpDir, nextDir) })
-				return swapErr
-			}()
-			if err := rebuildErr; err != nil && swapErr == nil {
-				_ = os.RemoveAll(nextDir)
-				buildOpts.OutputDir = tmpDir
-				fmt.Printf("[watch] rebuild error: %v\n", err)
-				if hub != nil {
-					hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", err))
-				}
-				break
-			}
-			if swapErr != nil {
-				_ = os.RemoveAll(nextDir)
-				buildOpts.OutputDir = tmpDir
-				fmt.Printf("[watch] swap failed, kept old build: %v\n", swapErr)
-			}
-			buildOpts.OutputDir = tmpDir
-			fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
-			if hub != nil {
-				hub.BroadcastReload()
-			}
-			if !rebuildPended.CompareAndSwap(true, false) {
-				break
-			}
+		after := opts.MarkdownCache.Stats()
+		fmt.Printf("[watch] markdown cache: %d hits, %d misses, %.1f MiB\n", after.Hits-before.Hits, after.Misses-before.Misses, float64(after.Bytes)/(1<<20))
+		fmt.Printf("[watch] rebuild complete in %v\n", time.Since(start))
+		if hub != nil {
+			hub.BroadcastReload()
 		}
-		rebuildBusy.Store(false)
-	}
+	})
+	defer func() {
+		cancel()
+		queue.Close()
+		watcherWG.Wait()
+		queue.Wait()
+		swapper.Wait()
+	}()
+	doRebuild := func() { queue.Submit(nil) }
 
 	if !disableWatch {
 		watcherOpts := dev.WatcherOptions{
 			SourceDir: sourceDir,
 			Debounce:  debounce,
-			OnChange:  doRebuild,
+			OnChanges: queue.Submit,
 			Logf:      func(format string, a ...any) { fmt.Printf(format, a...) },
 		}
 		// The publish dir is build output, not input: a concurrent
 		// `huan build` / deploy rewriting it must not loop dev rebuilds.
 		if dir := filepath.Clean(cfg.PublishDir); dir != "" && dir != "." && !filepath.IsAbs(dir) {
-			watcherOpts.IgnoreDirs = []string{dir}
+			watcherOpts.IgnoreDirs = append(watcherOpts.IgnoreDirs, dir)
+		}
+		if dir := commandCacheDir(cmd); dir != "" {
+			watcherOpts.IgnoreDirs = append(watcherOpts.IgnoreDirs, dir)
 		}
 		watcher, err := dev.NewWatcher(watcherOpts)
 		if err != nil {
 			fmt.Printf("WARNING: file watcher unavailable: %v\n", err)
 			fmt.Println("WARNING: use --disableWatch to suppress this message")
 		} else {
-			go watcher.Run(ctx)
+			watcherWG.Add(1)
+			go func() { defer watcherWG.Done(); _ = watcher.Run(ctx) }()
 		}
 	}
 
@@ -268,4 +281,28 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 		Logf:         func(format string, a ...any) { fmt.Printf(format, a...) },
 	})
 	return srv.Run(ctx)
+}
+
+// devMarkdownOnlyChanges keeps pure Markdown results for content edits. Unknown
+// inputs conservatively invalidate them; no filesystem stat is needed, so
+// deletions and editor atomic-save renames are classified the same as writes.
+func devMarkdownOnlyChanges(source string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	root, err := filepath.Abs(filepath.Join(source, "content"))
+	if err != nil {
+		return false
+	}
+	for _, path := range paths {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return false
+		}
+		rel, err := filepath.Rel(root, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.Ext(rel) != ".md" {
+			return false
+		}
+	}
+	return true
 }

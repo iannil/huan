@@ -1,7 +1,6 @@
 package template
 
 import (
-	"bytes"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -101,7 +100,7 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 		if t == nil {
 			return "", fmt.Errorf("partial not found: %s", name)
 		}
-		var buf bytes.Buffer
+		var buf strings.Builder
 		if err := t.Execute(&buf, ctx); err != nil {
 			return "", err
 		}
@@ -117,12 +116,12 @@ func (l *Loader) LoadAll() (*template.Template, error) {
 
 	// Register Hugo internal templates as empty stubs (not used by this site).
 	internalTemplates := map[string]string{
-		"_internal/disqus.html":          `<!-- disqus disabled -->`,
-		"_internal/google_analytics.html": ``,
+		"_internal/disqus.html":                 `<!-- disqus disabled -->`,
+		"_internal/google_analytics.html":       ``,
 		"_internal/google_analytics_async.html": ``,
-		"_internal/opengraph.html":       ``,
-		"_internal/schema.html":          ``,
-		"_internal/twitter_cards.html":   ``,
+		"_internal/opengraph.html":              ``,
+		"_internal/schema.html":                 ``,
+		"_internal/twitter_cards.html":          ``,
 	}
 
 	// Override RSS template: Hugo's rss.xml does `$pctx := . ; if .IsHome { $pctx = .Site }`,
@@ -305,6 +304,7 @@ type Map map[string]interface{}
 //   - CJK and other Unicode characters are URL-encoded with UPPERCASE hex
 //     (matching Hugo's urlize output, e.g. 书稿 → %E4%B9%A6%E7%A8%BF)
 //   - other special chars (parens, etc.) are URL-encoded with UPPERCASE hex
+//
 // Note: this differs from html/template's auto-URL-escaping (lowercase hex)
 // used when templates emit raw CJK in href/src attributes.
 func ToURLize(s string) string {

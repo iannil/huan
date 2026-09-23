@@ -1,0 +1,138 @@
+{
+  "records": [
+    {
+      "variant": "baseline",
+      "session": 0,
+      "round": 0,
+      "warmup": true,
+      "save_to_http_seconds": 2.3670163329999996,
+      "rebuild": "[watch] rebuild complete in 1.957512041s"
+    },
+    {
+      "variant": "baseline",
+      "session": 0,
+      "round": 1,
+      "warmup": false,
+      "save_to_http_seconds": 2.3587862919999996,
+      "rebuild": "[watch] rebuild complete in 1.956648709s"
+    },
+    {
+      "variant": "baseline",
+      "session": 0,
+      "round": 2,
+      "warmup": false,
+      "save_to_http_seconds": 2.276802332999999,
+      "rebuild": "[watch] rebuild complete in 1.874719208s"
+    },
+    {
+      "variant": "baseline",
+      "session": 0,
+      "round": 3,
+      "warmup": false,
+      "save_to_http_seconds": 2.3456068329999997,
+      "rebuild": "[watch] rebuild complete in 1.944176709s"
+    },
+    {
+      "variant": "optimized",
+      "session": 1,
+      "round": 0,
+      "warmup": true,
+      "save_to_http_seconds": 1.6090465000000016,
+      "rebuild": "[watch] rebuild complete in 1.205877875s"
+    },
+    {
+      "variant": "optimized",
+      "session": 1,
+      "round": 1,
+      "warmup": false,
+      "save_to_http_seconds": 1.6444407089999977,
+      "rebuild": "[watch] rebuild complete in 1.242578083s"
+    },
+    {
+      "variant": "optimized",
+      "session": 1,
+      "round": 2,
+      "warmup": false,
+      "save_to_http_seconds": 1.6361937920000003,
+      "rebuild": "[watch] rebuild complete in 1.234047s"
+    },
+    {
+      "variant": "optimized",
+      "session": 1,
+      "round": 3,
+      "warmup": false,
+      "save_to_http_seconds": 1.6879534159999992,
+      "rebuild": "[watch] rebuild complete in 1.28646875s"
+    },
+    {
+      "variant": "baseline",
+      "session": 2,
+      "round": 0,
+      "warmup": true,
+      "save_to_http_seconds": 2.4037970830000006,
+      "rebuild": "[watch] rebuild complete in 2.00090825s"
+    },
+    {
+      "variant": "baseline",
+      "session": 2,
+      "round": 1,
+      "warmup": false,
+      "save_to_http_seconds": 2.4879378749999965,
+      "rebuild": "[watch] rebuild complete in 2.085271583s"
+    },
+    {
+      "variant": "baseline",
+      "session": 2,
+      "round": 2,
+      "warmup": false,
+      "save_to_http_seconds": 2.4891443329999987,
+      "rebuild": "[watch] rebuild complete in 2.086821792s"
+    },
+    {
+      "variant": "baseline",
+      "session": 2,
+      "round": 3,
+      "warmup": false,
+      "save_to_http_seconds": 2.525607583000003,
+      "rebuild": "[watch] rebuild complete in 2.1234905s"
+    },
+    {
+      "variant": "optimized",
+      "session": 3,
+      "round": 0,
+      "warmup": true,
+      "save_to_http_seconds": 1.654373624999998,
+      "rebuild": "[watch] rebuild complete in 1.251420667s"
+    },
+    {
+      "variant": "optimized",
+      "session": 3,
+      "round": 1,
+      "warmup": false,
+      "save_to_http_seconds": 1.6669748329999976,
+      "rebuild": "[watch] rebuild complete in 1.265440708s"
+    },
+    {
+      "variant": "optimized",
+      "session": 3,
+      "round": 2,
+      "warmup": false,
+      "save_to_http_seconds": 1.6855202919999996,
+      "rebuild": "[watch] rebuild complete in 1.28334925s"
+    },
+    {
+      "variant": "optimized",
+      "session": 3,
+      "round": 3,
+      "warmup": false,
+      "save_to_http_seconds": 1.7022037500000025,
+      "rebuild": "[watch] rebuild complete in 1.300034542s"
+    }
+  ],
+  "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo",
+  "port": 18573,
+  "median_seconds": {
+    "baseline": 2.423362083499998,
+    "optimized": 1.6762475624999986
+  }
+}

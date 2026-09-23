@@ -851,6 +851,63 @@ html[lang="en"] .markdown em {
   text-decoration: none;
 }
 
+/* Native fragment links work without JavaScript, including return links.
+   Leave room above targets for the fixed mobile navigation. */
+.markdown sup[id^="fnref"] {
+  font-size: 0.75em;
+  line-height: 0;
+  vertical-align: baseline;
+  position: relative;
+  top: -0.5em;
+  scroll-margin-top: 6rem;
+}
+
+.markdown .footnote-ref,
+.markdown .footnote-backref {
+  padding: 0.15em 0.25em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.markdown .footnotes {
+  margin-top: 3em;
+  font-size: 0.875em;
+  line-height: 1.7;
+  color: #555555;
+}
+
+.markdown .footnotes hr {
+  width: 4rem;
+  margin: 0 0 1.25em;
+  border: 0;
+  border-top: 1px solid #d8d5cf;
+}
+
+.markdown .footnotes ol {
+  padding-left: 1.75em;
+}
+
+.markdown .footnotes li {
+  margin: 0.75em 0;
+  scroll-margin-top: 6rem;
+}
+
+.markdown .footnotes p {
+  margin: 0.5em 0;
+}
+
+.markdown .footnotes li:target,
+.markdown sup[id^="fnref"]:target {
+  background-color: #f4f0e6;
+  outline: 2px solid #f4f0e6;
+}
+
+.markdown .footnote-ref:focus-visible,
+.markdown .footnote-backref:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .markdown .fancybox {
   text-align: center;
 }

@@ -16,6 +16,8 @@ type WatcherOptions struct {
 	SourceDir string
 	Debounce  time.Duration
 	OnChange  func()
+	// OnChanges receives all unique changed paths and takes precedence over OnChange.
+	OnChanges func([]string)
 	Logf      func(format string, args ...any)
 	// IgnoreDirs lists directories (relative to SourceDir, or absolute) that
 	// are neither watched nor able to trigger rebuilds — e.g. the publish
@@ -26,13 +28,18 @@ type WatcherOptions struct {
 // Watcher recursively watches SourceDir for changes and invokes OnChange
 // after a debounce delay.
 type Watcher struct {
-	opts      WatcherOptions
-	fsw       *fsnotify.Watcher
-	mu        sync.Mutex
-	timer     *time.Timer
-	logf      func(string, ...any)
-	ignoreAbs map[string]bool
-	pending   []string
+	opts       WatcherOptions
+	fsw        *fsnotify.Watcher
+	mu         sync.Mutex
+	timer      *time.Timer
+	logf       func(string, ...any)
+	ignoreAbs  map[string]bool
+	pending    []string
+	seen       map[string]bool
+	generation uint64
+	stopped    bool
+	ctx        context.Context
+	callbacks  sync.WaitGroup
 }
 
 func NewWatcher(opts WatcherOptions) (*Watcher, error) {
@@ -52,18 +59,53 @@ func NewWatcher(opts WatcherOptions) (*Watcher, error) {
 		_ = fsw.Close()
 		return nil, err
 	}
+	rootReal := resolveWatcherDirectory(rootAbs)
 	for _, d := range opts.IgnoreDirs {
 		abs := d
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(rootAbs, abs)
 		}
 		w.ignoreAbs[filepath.Clean(abs)] = true
+		real := resolveWatcherDirectory(abs)
+		w.ignoreAbs[real] = true
+		// fsnotify reports paths using the registered source spelling. Map
+		// canonical exclusions back onto that spelling once, not per event.
+		if rel, ok := watcherRelativeWithin(rootReal, real); ok {
+			w.ignoreAbs[filepath.Join(rootAbs, rel)] = true
+		} else if _, ok := watcherRelativeWithin(real, rootReal); ok {
+			w.ignoreAbs[rootAbs] = true
+		}
 	}
 	if err := w.addRecursive(opts.SourceDir); err != nil {
 		_ = fsw.Close()
 		return nil, err
 	}
 	return w, nil
+}
+
+func watcherRelativeWithin(root, path string) (string, bool) {
+	rel, err := filepath.Rel(root, path)
+	return rel, err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveWatcherDirectory resolves existing parent aliases even when a cache
+// directory has not been created yet. It only runs during watcher setup.
+func resolveWatcherDirectory(path string) string {
+	original := filepath.Clean(path)
+	current, tail := original, ""
+	for {
+		if real, err := filepath.EvalSymlinks(current); err == nil {
+			return filepath.Join(real, tail)
+		} else if !os.IsNotExist(err) {
+			return original
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return original
+		}
+		tail = filepath.Join(filepath.Base(current), tail)
+		current = parent
+	}
 }
 
 func (w *Watcher) addRecursive(root string) error {
@@ -98,9 +140,9 @@ func (w *Watcher) isIgnored(path string) bool {
 	}
 	switch {
 	case strings.HasSuffix(base, ".swp"), // vim swap
-		strings.HasSuffix(base, ".swo"), // vim swap (overflow)
-		strings.HasSuffix(base, ".swn"), // vim swap (overflow)
-		strings.HasSuffix(base, "~"),    // vim/emacs backup
+		strings.HasSuffix(base, ".swo"),  // vim swap (overflow)
+		strings.HasSuffix(base, ".swn"),  // vim swap (overflow)
+		strings.HasSuffix(base, "~"),     // vim/emacs backup
 		strings.HasSuffix(base, ".orig"), // merge backup
 		strings.HasSuffix(base, ".rej"),  // merge reject
 		strings.HasSuffix(base, ".bak"):  // generic backup
@@ -137,6 +179,19 @@ func (w *Watcher) isIgnoredDir(path string) bool {
 
 func (w *Watcher) Run(ctx context.Context) error {
 	defer w.fsw.Close()
+	w.mu.Lock()
+	w.ctx = ctx
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		w.stopped = true
+		if w.timer != nil {
+			w.timer.Stop()
+		}
+		w.pending, w.seen = nil, nil
+		w.mu.Unlock()
+		w.callbacks.Wait()
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -169,36 +224,48 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-// maxPendingPaths caps how many changed paths are remembered between
-// rebuilds; beyond that only the count is reported.
-const maxPendingPaths = 5
+// Only logs are abbreviated; callbacks always receive the complete batch.
+const maxLoggedPaths = 5
 
 func (w *Watcher) schedule(changedPath string) {
 	w.mu.Lock()
-	if changedPath != "" && len(w.pending) < maxPendingPaths {
-		seen := false
-		for _, p := range w.pending {
-			if p == changedPath {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			w.pending = append(w.pending, changedPath)
-		}
+	if w.stopped {
+		w.mu.Unlock()
+		return
+	}
+	if w.seen == nil {
+		w.seen = make(map[string]bool)
+	}
+	if changedPath != "" && !w.seen[changedPath] {
+		w.seen[changedPath] = true
+		w.pending = append(w.pending, changedPath)
 	}
 	if w.timer != nil {
 		w.timer.Stop()
 	}
+	w.generation++
+	generation := w.generation
 	w.timer = time.AfterFunc(w.opts.Debounce, func() {
 		w.mu.Lock()
-		paths := w.pending
-		w.pending = nil
-		w.mu.Unlock()
-		if len(paths) > 0 {
-			w.logf("[watch] changed: %s\n", strings.Join(paths, ", "))
+		if w.stopped || generation != w.generation || (w.ctx != nil && w.ctx.Err() != nil) {
+			w.mu.Unlock()
+			return
 		}
-		if w.opts.OnChange != nil {
+		paths := w.pending
+		w.pending, w.seen = nil, nil
+		w.callbacks.Add(1)
+		w.mu.Unlock()
+		defer w.callbacks.Done()
+		if len(paths) > 0 {
+			logged := paths
+			if len(logged) > maxLoggedPaths {
+				logged = logged[:maxLoggedPaths]
+			}
+			w.logf("[watch] changed (%d): %s\n", len(paths), strings.Join(logged, ", "))
+		}
+		if w.opts.OnChanges != nil {
+			w.opts.OnChanges(paths)
+		} else if w.opts.OnChange != nil {
 			w.opts.OnChange()
 		}
 	})

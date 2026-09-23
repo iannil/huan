@@ -1,0 +1,84 @@
+{
+  "rows": [
+    {
+      "mode": "before",
+      "iteration": 0,
+      "seconds": 2.704161875,
+      "code": 0,
+      "rss_bytes": 755449856
+    },
+    {
+      "mode": "after",
+      "iteration": 0,
+      "seconds": 2.12724125,
+      "code": 0,
+      "rss_bytes": 719814656
+    },
+    {
+      "mode": "before",
+      "iteration": 1,
+      "seconds": 1.6653440000000002,
+      "code": 0,
+      "rss_bytes": 577863680
+    },
+    {
+      "mode": "after",
+      "iteration": 1,
+      "seconds": 1.6416875830000004,
+      "code": 0,
+      "rss_bytes": 622067712
+    },
+    {
+      "mode": "before",
+      "iteration": 2,
+      "seconds": 1.6184527499999994,
+      "code": 0,
+      "rss_bytes": 573407232
+    },
+    {
+      "mode": "after",
+      "iteration": 2,
+      "seconds": 1.5986515000000008,
+      "code": 0,
+      "rss_bytes": 601030656
+    },
+    {
+      "mode": "before",
+      "iteration": 3,
+      "seconds": 1.597079667000001,
+      "code": 0,
+      "rss_bytes": 601915392
+    },
+    {
+      "mode": "after",
+      "iteration": 3,
+      "seconds": 1.6076590419999999,
+      "code": 0,
+      "rss_bytes": 600834048
+    },
+    {
+      "mode": "before",
+      "iteration": 4,
+      "seconds": 1.6153553339999984,
+      "code": 0,
+      "rss_bytes": 577093632
+    },
+    {
+      "mode": "after",
+      "iteration": 4,
+      "seconds": 1.6218777499999995,
+      "code": 0,
+      "rss_bytes": 593100800
+    }
+  ],
+  "median": {
+    "before": {
+      "seconds": 1.616904041999999,
+      "rss_bytes": 577478656.0
+    },
+    "after": {
+      "seconds": 1.6147683959999997,
+      "rss_bytes": 600932352.0
+    }
+  }
+}

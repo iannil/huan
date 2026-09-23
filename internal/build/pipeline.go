@@ -5,6 +5,7 @@ package build
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"html/template"
 	"os"
@@ -61,6 +62,7 @@ type pipeline struct {
 	// Stage 3 (setupRendering)
 	scRegistry *shortcode.Registry
 	md         *markdown.Renderer
+	markupHash [sha256.Size]byte
 	tmpls      *template.Template
 	i18nBundle *i18n.Bundle
 	renderer   *tmpl.Renderer
@@ -253,7 +255,7 @@ func (p *pipeline) loadContent() error {
 			})
 		}
 	} else {
-		pages, err := content.LoadDir(contentDir)
+		pages, err := content.LoadDirWithCache(contentDir, p.opts.ParseCache, nil)
 		if err != nil {
 			return fmt.Errorf("load content: %w", err)
 		}
@@ -306,7 +308,7 @@ func (p *pipeline) loadContent() error {
 // and incremental builds always see fresh content from disk, while
 // JITRenderFast benefits from cached content.
 func (p *pipeline) loadContentWithCache(contentDir string, contentCache *cache.ContentCache) ([]*content.Page, error) {
-	allPages, err := content.LoadDir(contentDir)
+	allPages, err := content.LoadDirWithCache(contentDir, p.opts.ParseCache, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -368,6 +370,13 @@ func (p *pipeline) reportStaleTranslations(report *I18nStaleReport, err error) e
 func (p *pipeline) renderMarkdownAndTree() error {
 	p.scRegistry = shortcode.NewRegistry()
 	p.md = markdown.NewRenderer(&p.cfg.Markup)
+	if p.opts.MarkdownCache != nil {
+		var err error
+		p.markupHash, err = markdownConfigDigest(p.cfg.Markup)
+		if err != nil {
+			return fmt.Errorf("hash markup config: %w", err)
+		}
+	}
 
 	// Register theme shortcodes if the active theme provides them.
 	if p.themeManager != nil {
@@ -447,6 +456,17 @@ func (p *pipeline) renderPageMarkdown(pg *content.Page) error {
 	if err != nil {
 		return fmt.Errorf("shortcode %s: %w", pg.RelPath, err)
 	}
+	var key markdownKey
+	if p.opts.MarkdownCache != nil {
+		key = markdownContentKey(pg.RawContent, expanded, p.markupHash)
+		if cached, ok := p.opts.MarkdownCache.get(key); ok {
+			pg.Content = template.HTML(cached.HTML)
+			pg.Plain = cached.Plain
+			pg.Summary = template.HTML(cached.Summary)
+			pg.WordCount = cached.WordCount
+			return nil
+		}
+	}
 	html, err := p.md.Render(expanded)
 	if err != nil {
 		return fmt.Errorf("render %s: %w", pg.RelPath, err)
@@ -464,11 +484,27 @@ func (p *pipeline) renderPageMarkdown(pg *content.Page) error {
 		before := pg.RawContent[:idx]
 		if beforeHTML, err := p.md.Render(before); err == nil {
 			pg.Summary = template.HTML(beforeHTML)
+		} else {
+			// Preserve the previous behavior: summary failures are ignored and
+			// leave the page's summary untouched, but must never be cached.
+			return nil
 		}
 	} else {
 		pg.Summary = template.HTML(TruncateHTMLToBlockBoundary(string(pg.Content), 120))
 	}
+	p.opts.MarkdownCache.put(key, markdownValue{HTML: html, Plain: pg.Plain, Summary: string(pg.Summary), WordCount: pg.WordCount})
 	return nil
+}
+
+// Most pages contain no shortcodes, so their raw and expanded bodies are equal.
+// Reuse that digest without a second full-body byte allocation and hash.
+func markdownContentKey(raw, expanded string, markup [sha256.Size]byte) markdownKey {
+	rawHash := sha256.Sum256([]byte(raw))
+	expandedHash := rawHash
+	if expanded != raw {
+		expandedHash = sha256.Sum256([]byte(expanded))
+	}
+	return markdownKey{Raw: rawHash, Expanded: expandedHash, Markup: markup}
 }
 
 // buildTaxonomies constructs the tag taxonomy from site.Pages (all non-draft

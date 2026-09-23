@@ -188,7 +188,7 @@
 
                     {{ range $practice := $volumeData.practices }}
                         {{ $practicePage := index $allPracticesBySlug $practice.slug }}
-                        {{ $exists := ne $practicePage nil }}
+                        {{ $exists := not (not $practicePage) }}
 
                         {{/* Get version from YAML data */}}
                         {{ $version := $practice.version }}

@@ -1,6 +1,38 @@
 package build
 
-import "os"
+import (
+	"os"
+	"sync"
+)
+
+// BuildDirSwapper publishes complete builds while deleting the old output in
+// the background. Its zero value is ready to use. Call Swap serially and stop
+// calling Swap before the final Wait. Do not copy after use.
+type BuildDirSwapper struct {
+	workers sync.WaitGroup
+	cleanup func(string)
+}
+
+// Swap waits for the previous cleanup before reusing liveDir+".old", then
+// publishes nextDir. A successful swap starts at most one background cleanup.
+// Failed swaps retain the same best-effort rollback as SwapBuildDir.
+func (s *BuildDirSwapper) Swap(liveDir, nextDir string) error {
+	s.Wait()
+	return swapBuildDir(liveDir, nextDir, func(oldDir string) {
+		cleanup := s.cleanup
+		if cleanup == nil {
+			cleanup = func(path string) { _ = os.RemoveAll(path) }
+		}
+		s.workers.Add(1)
+		go func() {
+			defer s.workers.Done()
+			cleanup(oldDir)
+		}()
+	})
+}
+
+// Wait waits for the most recent old-output cleanup to finish.
+func (s *BuildDirSwapper) Wait() { s.workers.Wait() }
 
 // SwapBuildDir atomically (enough) replaces liveDir's contents with nextDir's.
 //
@@ -18,6 +50,10 @@ import "os"
 // disappeared between caller creating it and us renaming it), we attempt to
 // restore the original liveDir before returning the error.
 func SwapBuildDir(liveDir, nextDir string) error {
+	return swapBuildDir(liveDir, nextDir, func(path string) { _ = os.RemoveAll(path) })
+}
+
+func swapBuildDir(liveDir, nextDir string, cleanup func(string)) error {
 	oldDir := liveDir + ".old"
 	// Clean any leftover .old from a previous crashed swap.
 	_ = os.RemoveAll(oldDir)
@@ -30,6 +66,6 @@ func SwapBuildDir(liveDir, nextDir string) error {
 		_ = os.Rename(oldDir, liveDir)
 		return err
 	}
-	_ = os.RemoveAll(oldDir)
+	cleanup(oldDir)
 	return nil
 }

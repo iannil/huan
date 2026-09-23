@@ -145,3 +145,17 @@
 - 入口索引：[`docs/INDEX.md`](../docs/INDEX.md)
 - 当前项目状态：[`docs/progress/CURRENT_STATE.md`](../docs/progress/CURRENT_STATE.md)
 - 已归档的旧计划：[`docs/archived/`](../docs/archived/)
+
+### 2026-09-23 build / dev 性能第一批
+
+- dev 跨构建使用有界 Markdown 值缓存（128MiB 预算），短代码每轮仍展开，配置/原文/展开结果参与缓存键。该缓存不是旧 ContentCache，也未实现页面级增量。
+- Watcher 传完整路径集合，串行 RebuildQueue 合并在途事件；BuildDirSwapper 后台清理旧输出，退出时等待。
+- 多语言输入加载共享原始读取与 stale 检查快照。
+- 实测保存到 HTTP 新内容 3.136s → 2.315s（含 400ms 防抖）；全量 build 2.296s → 2.264s，收益小。报告：docs/reports/completed/2026-09-23-build-dev-performance.md。
+
+### 2026-09-23 持续性能优化验收
+
+- 第二阶段完成：持久Markdown缓存、dev解析缓存、摘要/Canonify/SEO与复制消除；默认完整输出及400ms防抖不变。新增--noCache、--cacheDir。
+- 同组最终实测：热build 2.274→1.648s；保存到HTTP 2.272→1.633s。默认缓存build峰值RSS约增加86MiB，--noCache可关闭。
+- 7,236稳定文件完全一致，9个历史不稳定路径全部候选hash经旧基线验证。无效worker/Minifier/head-only实验已回退。
+- 源码验收完成，2026-09-24 纳入 v0.11.20 发布提交。验收报告：docs/reports/2026-09-23-build-dev-performance-verification.md；过程记录保留在progress待提交归档。

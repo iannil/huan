@@ -5,11 +5,64 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestWatcherDeliversCompleteUniqueBurst(t *testing.T) {
+	changes := make(chan []string, 2)
+	var legacy atomic.Int32
+	w, err := NewWatcher(WatcherOptions{
+		SourceDir: t.TempDir(), Debounce: 20 * time.Millisecond,
+		OnChange:  func() { legacy.Add(1) },
+		OnChanges: func(paths []string) { changes <- paths },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.fsw.Close()
+	want := []string{"a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md"}
+	for _, path := range want {
+		w.schedule(path)
+		w.schedule(path)
+	}
+	select {
+	case got := <-changes:
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("paths = %v, want %v", got, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no changes delivered")
+	}
+	if legacy.Load() != 0 {
+		t.Fatal("legacy callback called when OnChanges is configured")
+	}
+}
+
+func TestWatcherCancelDiscardsPendingCallback(t *testing.T) {
+	called := make(chan struct{}, 1)
+	w, err := NewWatcher(WatcherOptions{
+		SourceDir: t.TempDir(), Debounce: 50 * time.Millisecond,
+		OnChange: func() { called <- struct{}{} },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.schedule("pending.md")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := w.Run(ctx); err != context.Canceled {
+		t.Fatalf("Run = %v", err)
+	}
+	select {
+	case <-called:
+		t.Fatal("callback fired after cancellation")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
 
 func TestWatcherFiresOnChange(t *testing.T) {
 	dir, err := os.MkdirTemp("", "huan-watch-test-*")
@@ -151,13 +204,13 @@ func TestWatcherIgnoresEditorArtifacts(t *testing.T) {
 
 	// Editor temp/swap/backup files — all should be ignored
 	artifacts := []string{
-		"post.md.swp",   // vim swap
-		"post.md.swo",   // vim swap (overflow)
-		"post.md~",      // vim/emacs backup
-		"post.md.orig",  // merge backup
-		"4913",          // vim's write-test probe
-		".#post.md",     // emacs lock (also caught by dotfile rule)
-		"#post.md#",     // emacs auto-save
+		"post.md.swp",  // vim swap
+		"post.md.swo",  // vim swap (overflow)
+		"post.md~",     // vim/emacs backup
+		"post.md.orig", // merge backup
+		"4913",         // vim's write-test probe
+		".#post.md",    // emacs lock (also caught by dotfile rule)
+		"#post.md#",    // emacs auto-save
 	}
 	for _, name := range artifacts {
 		_ = os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644)

@@ -3,7 +3,9 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 // TestSwapBuildDirReplacesContents verifies the happy path:
@@ -76,19 +78,148 @@ func TestSwapBuildDirRollsBackOnError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(liveDir, "original.txt"), []byte("preserved"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Populate next
-	if err := os.MkdirAll(nextDir, 0o755); err != nil {
-		t.Fatal(err)
+	// Missing nextDir makes the second rename fail after live was moved.
+	if err := SwapBuildDir(liveDir, nextDir); err == nil {
+		t.Fatal("expected rename failure")
 	}
-	if err := os.WriteFile(filepath.Join(nextDir, "fresh.txt"), []byte("new"), 0o644); err != nil {
-		t.Fatal(err)
+	if data, err := os.ReadFile(filepath.Join(liveDir, "original.txt")); err != nil || string(data) != "preserved" {
+		t.Fatalf("rollback lost live content: %q, %v", data, err)
 	}
+}
 
-	// Make the second rename fail by replacing nextDir with a file after the
-	// first rename but before the second. We can't easily inject a fault mid-
-	// function, so instead test the simpler case: nextDir doesn't exist.
-	// (Simulates a previous cleanup racing.) Easiest way: delete nextDir then
-	// re-create it as something un-renamable... hard to do portably.
-	// Skip this test instead — we verify rollback via code inspection.
-	t.Skip("rollback path requires fault injection; covered by code inspection")
+func writeSwapVersion(t *testing.T, dir, version string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "version"), []byte(version), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertSwapVersion(t *testing.T, dir, version string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "version"))
+	if err != nil || string(data) != version {
+		t.Fatalf("%s version = %q, %v; want %q", dir, data, err, version)
+	}
+}
+
+func TestBuildDirSwapperPublishesBeforeCleanupAndWaits(t *testing.T) {
+	live, next := filepath.Join(t.TempDir(), "live"), filepath.Join(t.TempDir(), "next")
+	writeSwapVersion(t, live, "old")
+	writeSwapVersion(t, next, "new")
+	started, release := make(chan struct{}), make(chan struct{})
+	var unblock sync.Once
+	s := &BuildDirSwapper{cleanup: func(path string) { close(started); <-release; _ = os.RemoveAll(path) }}
+	defer func() { unblock.Do(func() { close(release) }); s.Wait() }()
+	swapped := make(chan error, 1)
+	go func() { swapped <- s.Swap(live, next) }()
+	select {
+	case err := <-swapped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Swap blocked on cleanup")
+	}
+	<-started
+	assertSwapVersion(t, live, "new")
+	assertSwapVersion(t, live+".old", "old")
+	waited := make(chan struct{})
+	go func() { s.Wait(); close(waited) }()
+	select {
+	case <-waited:
+		t.Fatal("Wait returned before cleanup")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unblock.Do(func() { close(release) })
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("Wait did not finish")
+	}
+	if _, err := os.Stat(live + ".old"); !os.IsNotExist(err) {
+		t.Fatalf("old directory remains: %v", err)
+	}
+	assertSwapVersion(t, live, "new")
+}
+
+func TestBuildDirSwapperWaitsBeforeReusingOldDirectory(t *testing.T) {
+	root := t.TempDir()
+	live, next := filepath.Join(root, "live"), filepath.Join(root, "next")
+	writeSwapVersion(t, live, "v1")
+	writeSwapVersion(t, next, "v2")
+	started, release := make(chan struct{}), make(chan struct{})
+	var unblock sync.Once
+	var calls int
+	s := &BuildDirSwapper{cleanup: func(path string) {
+		calls++
+		if calls == 1 {
+			close(started)
+			<-release
+		}
+		_ = os.RemoveAll(path)
+	}}
+	defer func() { unblock.Do(func() { close(release) }); s.Wait() }()
+	if err := s.Swap(live, next); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	writeSwapVersion(t, next, "v3")
+	swapped := make(chan error, 1)
+	go func() { swapped <- s.Swap(live, next) }()
+	select {
+	case err := <-swapped:
+		t.Fatalf("second swap overtook cleanup: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	assertSwapVersion(t, live, "v2")
+	assertSwapVersion(t, live+".old", "v1")
+	unblock.Do(func() { close(release) })
+	select {
+	case err := <-swapped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second swap did not finish")
+	}
+	s.Wait()
+	assertSwapVersion(t, live, "v3")
+	if calls != 2 {
+		t.Fatalf("cleanup called %d times", calls)
+	}
+}
+
+func TestBuildDirSwapperFailurePreservesLiveWithoutCleanup(t *testing.T) {
+	root := t.TempDir()
+	live, next := filepath.Join(root, "live"), filepath.Join(root, "missing")
+	writeSwapVersion(t, live, "preserved")
+	var calls int
+	s := &BuildDirSwapper{cleanup: func(path string) { calls++; _ = os.RemoveAll(path) }}
+	if err := s.Swap(live, next); err == nil {
+		t.Fatal("expected missing next directory failure")
+	}
+	s.Wait()
+	assertSwapVersion(t, live, "preserved")
+	if calls != 0 {
+		t.Fatalf("failed swap scheduled %d cleanups", calls)
+	}
+}
+
+func TestBuildDirSwapperZeroValueCleansOldOutput(t *testing.T) {
+	root := t.TempDir()
+	live, next := filepath.Join(root, "live"), filepath.Join(root, "next")
+	writeSwapVersion(t, live, "old")
+	writeSwapVersion(t, next, "new")
+	var s BuildDirSwapper
+	if err := s.Swap(live, next); err != nil {
+		t.Fatal(err)
+	}
+	s.Wait()
+	assertSwapVersion(t, live, "new")
+	if _, err := os.Stat(live + ".old"); !os.IsNotExist(err) {
+		t.Fatalf("old directory remains: %v", err)
+	}
 }

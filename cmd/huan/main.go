@@ -32,6 +32,7 @@ func main() {
 		Short: "Build the site",
 		RunE:  runBuild,
 	}
+	addBuildCacheFlags(buildCmd)
 	buildCmd.Flags().BoolP("buildDrafts", "D", false, "include draft content")
 	buildCmd.Flags().BoolP("buildFuture", "F", false, "include content with publishDate in the future")
 	buildCmd.Flags().BoolP("buildExpired", "E", false, "include expired content")
@@ -52,6 +53,8 @@ func main() {
 			return runDev(cmd, args)
 		},
 	}
+
+	serveCmd.Flags().AddFlagSet(devCmd.Flags())
 
 	rootCmd.AddCommand(buildCmd, serveCmd, newDeployCmd(), newPluginCmd(), newReleaseCmd(), newVersionCmd(), newEnvCmd(), newConfigCmd(), newListCmd(), newNewCmd(), newSyncCmd(), newTocCmd(), newExportCmd(), newThemeCmd())
 
@@ -110,12 +113,16 @@ func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
 		return nil
 	})
 
+	markdownCache := commandMarkdownCache(cmd, timings)
+	defer func() { pruneCommandCache(cmd, markdownCache, timings); markdownCache.Close() }()
+
 	// Multi-language dispatch: when huan.yaml declares a languages: block,
 	// route through BuildMultiSite which renders each language under its
 	// baseURL prefix. Single-language configs use the existing BuildSite path.
 	if cfg.IsMultiLanguage() {
 		multiResult, err := build.BuildMultiSite(build.Options{
 			Timings:         timings,
+			MarkdownCache:   markdownCache,
 			Logf:            func(format string, args ...any) { fmt.Fprintf(cmd.OutOrStdout(), format, args...) },
 			SourceDir:       sourceDir,
 			OutputDir:       outputDir,
@@ -141,6 +148,7 @@ func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
 
 	_, err = build.BuildSite(build.Options{
 		Timings:         timings,
+		MarkdownCache:   markdownCache,
 		Logf:            func(format string, args ...any) { fmt.Fprintf(cmd.OutOrStdout(), format, args...) },
 		SourceDir:       sourceDir,
 		OutputDir:       outputDir,

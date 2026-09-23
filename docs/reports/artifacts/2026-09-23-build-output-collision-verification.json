@@ -1,0 +1,192 @@
+{
+  "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo",
+  "records": [
+    {
+      "round": 0,
+      "files": 7245,
+      "differences": [
+        "en/posts/2025/02/2202/index.html",
+        "en/posts/2025/02/2202/index.md",
+        "en/sitemap.xml",
+        "posts/2023/04/1401/index.html",
+        "posts/2023/04/1401/index.md"
+      ],
+      "unexpected": [],
+      "chinese_2202": {
+        "posts/2025/02/2202/index.html": "03a152a835f206483619d958439d9175f42e1775dbdafe09741ba7a7c460b6f7",
+        "posts/2025/02/2202/index.md": "39b992d7af85820c38f9d137a3eab97d384bb3ea52888dfc214633ffc8b4fb29"
+      }
+    },
+    {
+      "round": 1,
+      "files": 7245,
+      "differences": [
+        "en/posts/2023/04/1401/index.html",
+        "en/posts/2023/04/1401/index.md",
+        "en/posts/2025/02/2202/index.html",
+        "en/posts/2025/02/2202/index.md",
+        "en/sitemap.xml"
+      ],
+      "unexpected": [],
+      "chinese_2202": {
+        "posts/2025/02/2202/index.html": "03a152a835f206483619d958439d9175f42e1775dbdafe09741ba7a7c460b6f7",
+        "posts/2025/02/2202/index.md": "39b992d7af85820c38f9d137a3eab97d384bb3ea52888dfc214633ffc8b4fb29"
+      }
+    },
+    {
+      "round": 2,
+      "files": 7245,
+      "differences": [
+        "en/posts/2023/04/1401/index.html",
+        "en/posts/2023/04/1401/index.md",
+        "en/posts/2025/02/2202/index.html",
+        "en/posts/2025/02/2202/index.md",
+        "en/sitemap.xml",
+        "posts/2023/04/1401/index.html",
+        "posts/2023/04/1401/index.md",
+        "posts/2025/02/2202/index.html",
+        "posts/2025/02/2202/index.md"
+      ],
+      "unexpected": [],
+      "chinese_2202": {
+        "posts/2025/02/2202/index.html": "dfb5cc5cc6e245966c897dc4175d1d7ddd3b6b2f500050028c962e940c59bef2",
+        "posts/2025/02/2202/index.md": "5821ac609c2edc1009006cfc88b44549b313fdfcf28af36885b19138c4f289d7"
+      }
+    },
+    {
+      "round": 3,
+      "GOMAXPROCS": "default",
+      "files": 7245,
+      "differences": [
+        "posts/2023/04/1401/index.html",
+        "posts/2023/04/1401/index.md"
+      ],
+      "unexpected": []
+    }
+  ],
+  "known_instability": [
+    "en/posts/2023/04/1401/index.html",
+    "en/posts/2023/04/1401/index.md",
+    "en/posts/2025/02/2202/index.html",
+    "en/posts/2025/02/2202/index.md",
+    "en/sitemap.xml",
+    "posts/2023/04/1401/index.html",
+    "posts/2023/04/1401/index.md",
+    "posts/2025/02/2202/index.html",
+    "posts/2025/02/2202/index.md"
+  ],
+  "stable_file_count": 7236,
+  "baseline_hash_values": {
+    "en/posts/2023/04/1401/index.html": [
+      "2cc539370b63be5bd28d5c112d0af7061af2e10386ee83d4c3642bf363276814",
+      "d2857e326fdd8a88a59519bdda804cf8cd46b087027dd27b82c6242dea484b31"
+    ],
+    "en/posts/2023/04/1401/index.md": [
+      "1e5cd69f2fe60c568e07b6822a5d260449228aa5ad1f32370979de29bef7b776",
+      "6578cb420c6494b3a373897f61a8941b144622b5362081ef82b6f62b42be1f93"
+    ],
+    "en/posts/2025/02/2202/index.html": [
+      "5cb7e0c4404bc43d654f50b232e34ff9e044940fd113fcef74e723bb3a05a449",
+      "ce149ec8e329ea798601caa32ce0a0b45c53d1fe1c4c07663dd00894ddcf80fc"
+    ],
+    "en/posts/2025/02/2202/index.md": [
+      "2b183e196fe78ae3e565448f002567add76250f4029e0078969eb87a5be2b334",
+      "a7b9fe26f3319d9859a82b3905f421bbf160fc62bdf761c8204ecd016ded53aa"
+    ],
+    "en/sitemap.xml": [
+      "40d1d16e121f0299d516bc18e3fb97aacbe4778ba4ed57bff13bf057d75a335e",
+      "cb7b6bba8365ce5f190ef05345ce4ccaaf6390d4bd618d3f675844ec4b27514c"
+    ],
+    "posts/2023/04/1401/index.html": [
+      "0d3cadba71661511984ce56446e2634c1832a91c87b09eb69d6157f83470b60b",
+      "156bec8f75e30e9c4a297903557f24ef167ef8ca16ee78a452a44f1f08e3c575"
+    ],
+    "posts/2023/04/1401/index.md": [
+      "91159df121341dadf971b07cd26490df09f292ac2ab84dad869baf173b1abf93",
+      "9dfe48060bdff4f2412822fa6d2d1c889f95d82846fd949417870f80af2029bd"
+    ],
+    "posts/2025/02/2202/index.html": [
+      "03a152a835f206483619d958439d9175f42e1775dbdafe09741ba7a7c460b6f7",
+      "dfb5cc5cc6e245966c897dc4175d1d7ddd3b6b2f500050028c962e940c59bef2"
+    ],
+    "posts/2025/02/2202/index.md": [
+      "39b992d7af85820c38f9d137a3eab97d384bb3ea52888dfc214633ffc8b4fb29",
+      "5821ac609c2edc1009006cfc88b44549b313fdfcf28af36885b19138c4f289d7"
+    ]
+  },
+  "candidate_unobserved_values": [],
+  "candidate_hash_values": {
+    "en/posts/2023/04/1401/index.html": "2cc539370b63be5bd28d5c112d0af7061af2e10386ee83d4c3642bf363276814",
+    "en/posts/2023/04/1401/index.md": "6578cb420c6494b3a373897f61a8941b144622b5362081ef82b6f62b42be1f93",
+    "en/posts/2025/02/2202/index.html": "5cb7e0c4404bc43d654f50b232e34ff9e044940fd113fcef74e723bb3a05a449",
+    "en/posts/2025/02/2202/index.md": "a7b9fe26f3319d9859a82b3905f421bbf160fc62bdf761c8204ecd016ded53aa",
+    "en/sitemap.xml": "cb7b6bba8365ce5f190ef05345ce4ccaaf6390d4bd618d3f675844ec4b27514c",
+    "posts/2023/04/1401/index.html": "156bec8f75e30e9c4a297903557f24ef167ef8ca16ee78a452a44f1f08e3c575",
+    "posts/2023/04/1401/index.md": "91159df121341dadf971b07cd26490df09f292ac2ab84dad869baf173b1abf93",
+    "posts/2025/02/2202/index.html": "03a152a835f206483619d958439d9175f42e1775dbdafe09741ba7a7c460b6f7",
+    "posts/2025/02/2202/index.md": "39b992d7af85820c38f9d137a3eab97d384bb3ea52888dfc214633ffc8b4fb29"
+  },
+  "stable_manifest_hashes": {
+    "baseline-0-manifest.json": "cdb8c22cdf635702630cd47077f42e403018c7166f4140faea75dd9aee8d895a",
+    "baseline-1-manifest.json": "cdb8c22cdf635702630cd47077f42e403018c7166f4140faea75dd9aee8d895a",
+    "baseline-2-manifest.json": "cdb8c22cdf635702630cd47077f42e403018c7166f4140faea75dd9aee8d895a",
+    "baseline-3-manifest.json": "cdb8c22cdf635702630cd47077f42e403018c7166f4140faea75dd9aee8d895a",
+    "baseline-preserved-manifest.json": "cdb8c22cdf635702630cd47077f42e403018c7166f4140faea75dd9aee8d895a",
+    "candidate-preserved-manifest.json": "cdb8c22cdf635702630cd47077f42e403018c7166f4140faea75dd9aee8d895a"
+  },
+  "source_collision_proof": [
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2025/02/2202.md",
+      "sha256": "5821ac609c2edc1009006cfc88b44549b313fdfcf28af36885b19138c4f289d7",
+      "slug": "\"2202\"",
+      "title": "\"某种意识以某种方式持续观察物质会得到某种确定的结果，即为「因果」。\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2025/02/2203.md",
+      "sha256": "39b992d7af85820c38f9d137a3eab97d384bb3ea52888dfc214633ffc8b4fb29",
+      "slug": "\"2202\"",
+      "title": "\"微观上粒子层面的确定因果，宏观上物质层面的确定因果，即自然科学所研究的规律。\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2025/02/2202.en.md",
+      "sha256": "a7b9fe26f3319d9859a82b3905f421bbf160fc62bdf761c8204ecd016ded53aa",
+      "slug": "\"2202\"",
+      "title": "\"When a certain consciousness observes matter in a certain way over time, a certain certainty arises—that is *‘karma’*.\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2025/02/2203.en.md",
+      "sha256": "2b183e196fe78ae3e565448f002567add76250f4029e0078969eb87a5be2b334",
+      "slug": "\"2202\"",
+      "title": "\"Deterministic karma at the micro level of particles, deterministic karma at the macro level of matter—that is the law studied by natural science.\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2023/04/1401.md",
+      "sha256": "9dfe48060bdff4f2412822fa6d2d1c889f95d82846fd949417870f80af2029bd",
+      "slug": "\"1401\"",
+      "title": "\"选择权。\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2023/04/1402.md",
+      "sha256": "91159df121341dadf971b07cd26490df09f292ac2ab84dad869baf173b1abf93",
+      "slug": "\"1401\"",
+      "title": "\"有选择权才有发展权。\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2023/04/1401.en.md",
+      "sha256": "1e5cd69f2fe60c568e07b6822a5d260449228aa5ad1f32370979de29bef7b776",
+      "slug": "\"1401\"",
+      "title": "\"Choice. Choice. And choice again.\""
+    },
+    {
+      "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo/content/posts/2023/04/1402.en.md",
+      "sha256": "6578cb420c6494b3a373897f61a8941b144622b5362081ef82b6f62b42be1f93",
+      "slug": "\"1401\"",
+      "title": "\"Only with the right to choose can there be the right to develop.\""
+    }
+  ],
+  "notes": [
+    "Four new baseline builds used default GOMAXPROCS; source content was not changed.",
+    "Historical phase2 intermediate-round bytes were not retained by the old benchmark script; this verification checks the preserved final candidate against independently observed baseline values.",
+    "en/sitemap.xml differs only in the ordering of en/products and en/posts URL entries, not content."
+  ]
+}

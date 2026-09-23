@@ -1,0 +1,323 @@
+{
+  "build": {
+    "records": [
+      {
+        "variant": "baseline",
+        "round": 0,
+        "warmup": true,
+        "seconds": 2.61919325
+      },
+      {
+        "variant": "candidate",
+        "round": 0,
+        "warmup": true,
+        "seconds": 3.9898445
+      },
+      {
+        "variant": "baseline",
+        "round": 1,
+        "warmup": false,
+        "seconds": 2.3733540420000008
+      },
+      {
+        "variant": "candidate",
+        "round": 1,
+        "warmup": false,
+        "seconds": 1.6525616660000004
+      },
+      {
+        "variant": "baseline",
+        "round": 2,
+        "warmup": false,
+        "seconds": 2.234045457999999
+      },
+      {
+        "variant": "candidate",
+        "round": 2,
+        "warmup": false,
+        "seconds": 1.6700594580000008
+      },
+      {
+        "variant": "baseline",
+        "round": 3,
+        "warmup": false,
+        "seconds": 2.2421676659999967
+      },
+      {
+        "variant": "candidate",
+        "round": 3,
+        "warmup": false,
+        "seconds": 1.6646744170000005
+      },
+      {
+        "variant": "baseline",
+        "round": 4,
+        "warmup": false,
+        "seconds": 2.265262374999999
+      },
+      {
+        "variant": "candidate",
+        "round": 4,
+        "warmup": false,
+        "seconds": 1.6561664580000013
+      },
+      {
+        "variant": "baseline",
+        "round": 5,
+        "warmup": false,
+        "seconds": 2.2919117910000004
+      },
+      {
+        "variant": "candidate",
+        "round": 5,
+        "warmup": false,
+        "seconds": 1.6726379999999992
+      }
+    ],
+    "files": 7245,
+    "baseline_unstable": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml"
+    ],
+    "candidate_differences": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml",
+      "posts/2025/02/2202/index.html",
+      "posts/2025/02/2202/index.md"
+    ],
+    "unexpected_differences": [
+      "posts/2025/02/2202/index.html",
+      "posts/2025/02/2202/index.md"
+    ],
+    "median_seconds": {
+      "baseline": 2.265262374999999,
+      "candidate": 1.6646744170000005
+    }
+  },
+  "dev": {
+    "records": [
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 2.2028812910000006,
+        "rebuild": "[watch] rebuild complete in 1.793007458s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 2.2687086669999994,
+        "rebuild": "[watch] rebuild complete in 1.8665085s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 2.2643052079999997,
+        "rebuild": "[watch] rebuild complete in 1.862207083s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 2.2674185,
+        "rebuild": "[watch] rebuild complete in 1.865238833s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 1.6071115410000019,
+        "rebuild": "[watch] rebuild complete in 1.203964042s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 1.6281210000000002,
+        "rebuild": "[watch] rebuild complete in 1.227037166s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 1.634230542000001,
+        "rebuild": "[watch] rebuild complete in 1.23285925s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 1.6458334999999984,
+        "rebuild": "[watch] rebuild complete in 1.243717583s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 2.227157000000002,
+        "rebuild": "[watch] rebuild complete in 1.824305958s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 2.321621167,
+        "rebuild": "[watch] rebuild complete in 1.920242833s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 2.226143000000004,
+        "rebuild": "[watch] rebuild complete in 1.824076167s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 2.3370663339999993,
+        "rebuild": "[watch] rebuild complete in 1.934985042s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 1.653159916,
+        "rebuild": "[watch] rebuild complete in 1.250036667s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 1.6890624159999987,
+        "rebuild": "[watch] rebuild complete in 1.286892083s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 1.6845129579999991,
+        "rebuild": "[watch] rebuild complete in 1.282312375s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 1.650313208,
+        "rebuild": "[watch] rebuild complete in 1.248120375s"
+      }
+    ],
+    "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo",
+    "port": 18573,
+    "median_seconds": {
+      "baseline": 2.2680635834999996,
+      "optimized": 1.6480733539999992
+    }
+  },
+  "status": "intermediate; build output differences pending duplicate slug verification; candidate predates directory/SEO optimizations",
+  "cache_modes": {
+    "rows": [
+      {
+        "mode": "noCache",
+        "iteration": 0,
+        "seconds": 1.576524375,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 0,
+        "seconds": 1.9877156669999998,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 0,
+        "seconds": 1.7170286669999997,
+        "code": 0
+      },
+      {
+        "mode": "noCache",
+        "iteration": 1,
+        "seconds": 1.9366352499999993,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 1,
+        "seconds": 2.041954917,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 1,
+        "seconds": 1.7392155000000002,
+        "code": 0
+      },
+      {
+        "mode": "noCache",
+        "iteration": 2,
+        "seconds": 1.9196786669999995,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 2,
+        "seconds": 2.074549416,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 2,
+        "seconds": 1.7481604170000011,
+        "code": 0
+      },
+      {
+        "mode": "noCache",
+        "iteration": 3,
+        "seconds": 1.9777371660000007,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 3,
+        "seconds": 2.097934917,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 3,
+        "seconds": 1.7323869169999995,
+        "code": 0
+      }
+    ],
+    "median": {
+      "noCache": 1.9366352499999993,
+      "cold": 2.074549416,
+      "warm": 1.7392155000000002
+    }
+  }
+}

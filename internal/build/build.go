@@ -20,7 +20,12 @@ import (
 
 // Options controls a single BuildSite invocation.
 type Options struct {
-	Timings          *Timings
+	Timings *Timings
+	// MarkdownCache optionally reuses Markdown results across full builds.
+	// Nil keeps rendering uncached. Share one instance for a dev lifecycle.
+	MarkdownCache *MarkdownCache
+	// ParseCache reuses frontmatter parsed from identical freshly read bytes.
+	ParseCache       *content.ParseCache
 	SourceDir        string
 	OutputDir        string // absolute path
 	IncludeDrafts    bool

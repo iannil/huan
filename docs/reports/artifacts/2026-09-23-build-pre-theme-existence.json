@@ -1,0 +1,126 @@
+{
+  "records": [
+    {
+      "variant": "baseline",
+      "round": 0,
+      "warmup": true,
+      "seconds": 2.15102925
+    },
+    {
+      "variant": "candidate",
+      "round": 0,
+      "warmup": true,
+      "seconds": 1.7997008749999996
+    },
+    {
+      "variant": "baseline",
+      "round": 1,
+      "warmup": false,
+      "seconds": 2.2156098340000003
+    },
+    {
+      "variant": "candidate",
+      "round": 1,
+      "warmup": false,
+      "seconds": 1.612837332999999
+    },
+    {
+      "variant": "baseline",
+      "round": 2,
+      "warmup": false,
+      "seconds": 2.2558624170000012
+    },
+    {
+      "variant": "candidate",
+      "round": 2,
+      "warmup": false,
+      "seconds": 1.6380532919999986
+    },
+    {
+      "variant": "baseline",
+      "round": 3,
+      "warmup": false,
+      "seconds": 2.2451222920000014
+    },
+    {
+      "variant": "candidate",
+      "round": 3,
+      "warmup": false,
+      "seconds": 1.6507478750000004
+    },
+    {
+      "variant": "baseline",
+      "round": 4,
+      "warmup": false,
+      "seconds": 2.258431584
+    },
+    {
+      "variant": "candidate",
+      "round": 4,
+      "warmup": false,
+      "seconds": 1.639462708
+    },
+    {
+      "variant": "baseline",
+      "round": 5,
+      "warmup": false,
+      "seconds": 2.335574790999999
+    },
+    {
+      "variant": "candidate",
+      "round": 5,
+      "warmup": false,
+      "seconds": 1.632775291999998
+    }
+  ],
+  "files": 7245,
+  "baseline_unstable": [
+    "en/posts/2023/04/1401/index.html",
+    "en/posts/2023/04/1401/index.md",
+    "en/sitemap.xml",
+    "posts/2023/04/1401/index.html",
+    "posts/2023/04/1401/index.md",
+    "posts/2025/02/2202/index.html",
+    "posts/2025/02/2202/index.md"
+  ],
+  "known_baseline_unstable": [
+    "en/posts/2023/04/1401/index.html",
+    "en/posts/2023/04/1401/index.md",
+    "en/posts/2025/02/2202/index.html",
+    "en/posts/2025/02/2202/index.md",
+    "en/sitemap.xml",
+    "posts/2023/04/1401/index.html",
+    "posts/2023/04/1401/index.md",
+    "posts/2025/02/2202/index.html",
+    "posts/2025/02/2202/index.md"
+  ],
+  "known_instability_artifacts": [
+    "/Users/rong.zhu/Code/zhurong/huan/docs/reports/artifacts/2026-09-23-build-dev-performance.json"
+  ],
+  "candidate_differences": [
+    "en/posts/2023/04/1401/index.html",
+    "en/posts/2023/04/1401/index.md",
+    "en/posts/2025/02/2202/index.html",
+    "en/posts/2025/02/2202/index.md",
+    "en/sitemap.xml",
+    "posts/2023/04/1401/index.html",
+    "posts/2023/04/1401/index.md",
+    "posts/2025/02/2202/index.html",
+    "posts/2025/02/2202/index.md"
+  ],
+  "missing_or_extra_files": [],
+  "unobserved_candidate_values": {
+    "en/posts/2025/02/2202/index.html": [
+      "5cb7e0c4404bc43d654f50b232e34ff9e044940fd113fcef74e723bb3a05a449"
+    ],
+    "en/posts/2025/02/2202/index.md": [
+      "a7b9fe26f3319d9859a82b3905f421bbf160fc62bdf761c8204ecd016ded53aa"
+    ]
+  },
+  "unexpected_differences": [],
+  "median_seconds": {
+    "baseline": 2.2558624170000012,
+    "candidate": 1.6380532919999986
+  },
+  "unobserved_after_historical_baseline_values": {}
+}

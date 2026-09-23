@@ -1,7 +1,6 @@
 package template
 
 import (
-	"bytes"
 	"fmt"
 	"html/template"
 	"os"
@@ -38,56 +37,56 @@ type Context struct {
 	WordCount     int
 	ReadingTime   int
 
-	Content         template.HTML
-	Summary         template.HTML
-	Plain           string
-	RawContent      string
-	RelPermalink    string
-	Permalink       string
+	Content      template.HTML
+	Summary      template.HTML
+	Plain        string
+	RawContent   string
+	RelPermalink string
+	Permalink    string
 
-	Params          map[string]interface{}
-	Build           config.BuildConfig
-	Cascade         config.CascadeConfig
-	Sitemap         config.SitemapPageConfig
+	Params  map[string]interface{}
+	Build   config.BuildConfig
+	Cascade config.CascadeConfig
+	Sitemap config.SitemapPageConfig
 
-	File            *FileInfo
-	Site            *SiteContext
-	Pages           PageSlice
-	RegularPages    PageSlice
+	File                  *FileInfo
+	Site                  *SiteContext
+	Pages                 PageSlice
+	RegularPages          PageSlice
 	RegularPagesRecursive PageSlice
-	Parent          *Context
+	Parent                *Context
 
 	// Pagination
-	paginatorCache  *PaginatorContext // populated by Paginator() on first access
-	Paginated       bool               // true if this context is itself a paginated result
+	paginatorCache *PaginatorContext // populated by Paginator() on first access
+	Paginated      bool              // true if this context is itself a paginated result
 
 	// Output formats
-	OutputFormats   *PageOutputFormats
+	OutputFormats *PageOutputFormats
 
 	// Data from data files (or a DataAccessor for taxonomy pages)
-	Data           interface{}
+	Data interface{}
 
 	// Scratch for template-scoped variables
-	Scratch        *Scratch
+	Scratch *Scratch
 
 	// Taxonomy data: term listing (for /tags/) and current term info (for /tags/X/)
-	DataTerms     []TermSummaryExternal
-	DataPlural    string
+	DataTerms  []TermSummaryExternal
+	DataPlural string
 
 	// For taxonomy pages
-	Data_          *TaxonomyDataContext
+	Data_ *TaxonomyDataContext
 
 	// i18n fields (populated by NewContext from page.Language + cfg.Languages)
 	// Language is the current page's language code (e.g. "zh-cn", "en").
 	// Empty string means default language (backward-compat with single-lang builds).
-	PageLanguage       string
+	PageLanguage string
 	// IsDefaultLanguage is true when PageLanguage matches cfg.DefaultLanguageCode.
-	IsDefaultLanguage  bool
+	IsDefaultLanguage bool
 	// LanguagePrefix is the URL prefix for the current language ("" or "/en").
-	LanguagePrefix     string
+	LanguagePrefix string
 	// TranslationLinks lists all configured language variants for this page,
 	// including the current language. Empty when single-language build.
-	TranslationLinks   []TranslationLink
+	TranslationLinks []TranslationLink
 }
 
 // TranslationLink pairs a language code with its URL for the current page.
@@ -107,8 +106,8 @@ type TranslationLink struct {
 
 // FileInfo mirrors Hugo's .File object.
 type FileInfo struct {
-	Path          string
-	Dir           string
+	Path         string
+	Dir          string
 	BaseFileName string
 }
 
@@ -146,8 +145,8 @@ type SiteContext struct {
 
 // LanguageContext mirrors Hugo's .Site.Language object.
 type LanguageContext struct {
-	LanguageCode string
-	LanguageName string
+	LanguageCode      string
+	LanguageName      string
 	LanguageDirection string
 }
 
@@ -359,36 +358,36 @@ func DefaultPageOutputFormats(permalink, relPermalink string) *PageOutputFormats
 // The site context must be built once via NewSiteContext() and passed in.
 func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Context {
 	ctx := &Context{
-		Title:           p.Title,
-		Date:            p.DateParsed,
-		Lastmod:         p.LastmodParsed,
-		Draft:           p.Draft,
-		Hidden:          p.Hidden,
-		Type:            pageType(p),
-		Slug:            p.Slug,
-		Tags:            p.Tags,
-		Keywords:        p.Keywords,
-		Description:     p.Description,
-		Author:          p.Author,
-		Image:           p.Image,
-		FeaturedImage:   p.FeaturedImage,
-		Section:         p.Section,
-		Kind:            p.Kind,
-		Weight:          p.Weight,
-		WordCount:       p.WordCount,
-		Content:         p.Content,
-		Summary:         p.Summary,
-		Plain:           p.Plain,
-		RawContent:      p.RawContent,
-		RelPermalink:    permalinkEncode(p.URL),
-		Permalink:       permalinkEncode(cfg.BaseURL + strings.TrimPrefix(p.URL, "/")),
-		Params:          pageParams(p),
-		Build:           p.Build,
-		Cascade:         p.Cascade,
-		Sitemap:         mergeSitemap(cfg.Sitemap, p.Sitemap),
-		Data:           siteCtx.Data,
-		Site:           siteCtx,
-		Scratch:        NewScratch(),
+		Title:         p.Title,
+		Date:          p.DateParsed,
+		Lastmod:       p.LastmodParsed,
+		Draft:         p.Draft,
+		Hidden:        p.Hidden,
+		Type:          pageType(p),
+		Slug:          p.Slug,
+		Tags:          p.Tags,
+		Keywords:      p.Keywords,
+		Description:   p.Description,
+		Author:        p.Author,
+		Image:         p.Image,
+		FeaturedImage: p.FeaturedImage,
+		Section:       p.Section,
+		Kind:          p.Kind,
+		Weight:        p.Weight,
+		WordCount:     p.WordCount,
+		Content:       p.Content,
+		Summary:       p.Summary,
+		Plain:         p.Plain,
+		RawContent:    p.RawContent,
+		RelPermalink:  permalinkEncode(p.URL),
+		Permalink:     permalinkEncode(cfg.BaseURL + strings.TrimPrefix(p.URL, "/")),
+		Params:        pageParams(p),
+		Build:         p.Build,
+		Cascade:       p.Cascade,
+		Sitemap:       mergeSitemap(cfg.Sitemap, p.Sitemap),
+		Data:          siteCtx.Data,
+		Site:          siteCtx,
+		Scratch:       NewScratch(),
 	}
 
 	// i18n: populate Language / IsDefaultLanguage / LanguagePrefix / TranslationLinks.
@@ -411,9 +410,9 @@ func NewContext(p *content.Page, siteCtx *SiteContext, cfg *config.Config) *Cont
 
 	if p.FilePath != "" {
 		ctx.File = &FileInfo{
-			Path:          p.RelPath,
-			Dir:           filepath.Dir(p.RelPath) + "/",
-			BaseFileName:  strings.TrimSuffix(filepath.Base(p.RelPath), ".md"),
+			Path:         p.RelPath,
+			Dir:          filepath.Dir(p.RelPath) + "/",
+			BaseFileName: strings.TrimSuffix(filepath.Base(p.RelPath), ".md"),
 		}
 	}
 
@@ -543,8 +542,8 @@ func NewSiteContext(site *content.Site, cfg *config.Config) *SiteContext {
 		// config field, not params. zhurongshuo doesn't set it, so leave empty
 		// to match Hugo's behavior (RSS template's `{{ with .Site.Copyright }}`
 		// then skips the <copyright> element).
-		Author:       &AuthorContext{Name: cfg.Author.Name},
-		Taxonomies:   buildTaxonomyContexts(site.Taxonomies),
+		Author:        &AuthorContext{Name: cfg.Author.Name},
+		Taxonomies:    buildTaxonomyContexts(site.Taxonomies),
 		OutputFormats: &OutputFormatsContext{},
 	}
 }
@@ -564,6 +563,7 @@ func mergeSitemap(siteDefault config.SitemapConfig, page config.SitemapPageConfi
 	}
 	return result
 }
+
 // PopulateSitePages fills siteCtx.Pages/RegularPages from the page→context
 // lookup. When includeDrafts is false, draft pages are excluded so they
 // cannot leak into aggregations (sitemap/RSS/home/section/tag lists) —
@@ -678,6 +678,7 @@ func (c *Context) Paginator() *PaginatorContext {
 func SetPaginator(c *Context, p *PaginatorContext) {
 	c.paginatorCache = p
 }
+
 // pages of cfg.Paginate size and returns the first pager as PaginatorContext.
 // Hugo variadic: .Paginate, .Paginate pages, .Paginate pages size.
 // If a paginator is already cached (e.g., for /page/N/ rendering), returns it.
@@ -965,7 +966,7 @@ func (r *Renderer) newWorker() (*renderWorker, error) {
 		if t == nil {
 			return "", fmt.Errorf("partial not found: %s", name)
 		}
-		var buf bytes.Buffer
+		var buf strings.Builder
 		if err := t.Execute(&buf, ctx); err != nil {
 			return "", err
 		}

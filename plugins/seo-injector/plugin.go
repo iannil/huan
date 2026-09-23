@@ -191,9 +191,10 @@ func (p *SEOInjector) processFile(filePath, outputDir string) error {
 	// Convert filesystem path to URL path. On Windows, use ToSlash.
 	urlPath := "/" + strings.ReplaceAll(rel, string(filepath.Separator), "/")
 
-	// One parse per file: meta tags, title and body text come from the same
-	// analysis pass (previously three separate html.Parse calls).
-	analysis := analyzeHTML(string(data))
+	// Own one string for parsing and injection; converting twice copies the
+	// whole document twice. Description text is extracted only when needed.
+	src := string(data)
+	analysis := analyzeHTML(src)
 
 	opts := &InjectOptions{
 		DescriptionMaxLength: p.cfg.DescriptionMaxLength,
@@ -205,12 +206,12 @@ func (p *SEOInjector) processFile(filePath, outputDir string) error {
 		PageTitle:            analysis.title,
 	}
 
-	result, err := injectHTML(string(data), opts, analysis)
+	result, err := injectHTML(src, opts, analysis)
 	if err != nil {
 		return fmt.Errorf("inject: %w", err)
 	}
 
-	if result == string(data) {
+	if result == src {
 		return nil // no changes
 	}
 

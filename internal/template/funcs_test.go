@@ -269,6 +269,24 @@ func TestMarkdownify_RendersMarkdownToHTML(t *testing.T) {
 	}
 }
 
+// Footnotes rendered through templates must link both ways, including repeated references.
+func TestMarkdownify_FootnoteNavigation(t *testing.T) {
+	fn := getFunc(t, "markdownify").(func(string) (string, error))
+	out, err := fn("正文[^note]，再次引用[^note]。\n\n[^note]: 中文注释，含 **强调**。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`id="fnref:1"`, `id="fnref1:1"`, `href="#fn:1"`,
+		`id="fn:1"`, `href="#fnref:1"`, `href="#fnref1:1"`,
+		`class="footnotes"`, "中文注释，含 <strong>强调</strong>。",
+	} {
+		if !contains(out, want) {
+			t.Errorf("missing %q in rendered footnotes:\n%s", want, out)
+		}
+	}
+}
+
 // TestMarkdownify_EmptyInputReturnsEmpty verifies the boundary case.
 func TestMarkdownify_EmptyInputReturnsEmpty(t *testing.T) {
 	fn := getFunc(t, "markdownify").(func(string) (string, error))
@@ -431,7 +449,7 @@ var testedFuncs = map[string]bool{
 	// Math (covered above)
 	"add": true, "sub": true, "mul": true, "div": true, "mod": true,
 	// String / content helpers
-	"plainify": true, "markdownify": true, "jsonify": true, "substr": true,
+	"plainify": true, "searchExcerpt": true, "markdownify": true, "jsonify": true, "substr": true,
 	"default": true, "cond": true, "urlize": true,
 	"absURL": true, "relURL": true, "absLangURL": true, "relLangURL": true,
 	"safeHTML": true, "safeJS": true, "safeURL": true,

@@ -20,20 +20,30 @@ type buildInputs struct {
 }
 
 func loadBuildInputs(sourceDir string, cfg *config.Config, timings *Timings) (*buildInputs, error) {
+	return loadBuildInputsWithCache(sourceDir, cfg, timings, nil)
+}
+
+func loadBuildInputsWithCache(sourceDir string, cfg *config.Config, timings *Timings, parseCache *content.ParseCache) (*buildInputs, error) {
 	in := &buildInputs{}
 	contentDir := filepath.Join(sourceDir, "content")
+	var snapshot *staleTranslationSnapshot
+	var observe func(string, []byte)
 	if cfg.IsMultiLanguage() {
-		_ = timings.Measure("multi", "shared input preparation/stale check", func() error {
-			in.stale, in.staleErr = checkStaleTranslations(contentDir)
-			return in.staleErr
-		})
+		snapshot = newStaleTranslationSnapshot()
+		observe = snapshot.observe
 	}
 	if err := timings.Measure("multi", "shared input preparation/content", func() error {
 		var err error
-		in.pages, err = content.LoadDir(contentDir)
+		in.pages, err = content.LoadDirWithCache(contentDir, parseCache, observe)
 		return err
 	}); err != nil {
 		return nil, fmt.Errorf("load content: %w", err)
+	}
+	if snapshot != nil {
+		_ = timings.Measure("multi", "shared input preparation/stale check", func() error {
+			in.stale = snapshot.report(contentDir)
+			return nil
+		})
 	}
 	if err := timings.Measure("multi", "shared input preparation/data", func() error {
 		var err error

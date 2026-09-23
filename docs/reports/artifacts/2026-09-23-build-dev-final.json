@@ -1,0 +1,478 @@
+{
+  "build": {
+    "records": [
+      {
+        "variant": "baseline",
+        "round": 0,
+        "warmup": true,
+        "seconds": 2.154493042
+      },
+      {
+        "variant": "candidate",
+        "round": 0,
+        "warmup": true,
+        "seconds": 3.5628542089999997
+      },
+      {
+        "variant": "baseline",
+        "round": 1,
+        "warmup": false,
+        "seconds": 2.2335070000000004
+      },
+      {
+        "variant": "candidate",
+        "round": 1,
+        "warmup": false,
+        "seconds": 1.6443329580000015
+      },
+      {
+        "variant": "baseline",
+        "round": 2,
+        "warmup": false,
+        "seconds": 2.2741773750000007
+      },
+      {
+        "variant": "candidate",
+        "round": 2,
+        "warmup": false,
+        "seconds": 1.658623209
+      },
+      {
+        "variant": "baseline",
+        "round": 3,
+        "warmup": false,
+        "seconds": 2.2487885829999996
+      },
+      {
+        "variant": "candidate",
+        "round": 3,
+        "warmup": false,
+        "seconds": 1.6492284999999995
+      },
+      {
+        "variant": "baseline",
+        "round": 4,
+        "warmup": false,
+        "seconds": 2.3431820000000023
+      },
+      {
+        "variant": "candidate",
+        "round": 4,
+        "warmup": false,
+        "seconds": 1.64788875
+      },
+      {
+        "variant": "baseline",
+        "round": 5,
+        "warmup": false,
+        "seconds": 2.3169956250000006
+      },
+      {
+        "variant": "candidate",
+        "round": 5,
+        "warmup": false,
+        "seconds": 1.6380729169999988
+      }
+    ],
+    "files": 7245,
+    "baseline_unstable": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml",
+      "posts/2023/04/1401/index.html",
+      "posts/2023/04/1401/index.md"
+    ],
+    "known_baseline_unstable": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml",
+      "posts/2023/04/1401/index.html",
+      "posts/2023/04/1401/index.md",
+      "posts/2025/02/2202/index.html",
+      "posts/2025/02/2202/index.md"
+    ],
+    "known_instability_artifacts": [
+      "/Users/rong.zhu/Code/zhurong/huan/docs/reports/artifacts/2026-09-23-build-dev-performance.json"
+    ],
+    "candidate_differences": [
+      "en/posts/2023/04/1401/index.html",
+      "en/posts/2023/04/1401/index.md",
+      "en/posts/2025/02/2202/index.html",
+      "en/posts/2025/02/2202/index.md",
+      "en/sitemap.xml",
+      "posts/2023/04/1401/index.html",
+      "posts/2023/04/1401/index.md",
+      "posts/2025/02/2202/index.html",
+      "posts/2025/02/2202/index.md"
+    ],
+    "missing_or_extra_files": [],
+    "unobserved_candidate_values": {
+      "posts/2025/02/2202/index.html": [
+        "dfb5cc5cc6e245966c897dc4175d1d7ddd3b6b2f500050028c962e940c59bef2"
+      ],
+      "posts/2025/02/2202/index.md": [
+        "5821ac609c2edc1009006cfc88b44549b313fdfcf28af36885b19138c4f289d7"
+      ]
+    },
+    "unexpected_differences": [],
+    "median_seconds": {
+      "baseline": 2.2741773750000007,
+      "candidate": 1.64788875
+    },
+    "unobserved_after_historical_baseline_values": {}
+  },
+  "status": "verified",
+  "memory": {
+    "rows": [
+      {
+        "mode": "baseline",
+        "iteration": 0,
+        "seconds": 2.171324292,
+        "code": 0,
+        "rss_bytes": 546275328
+      },
+      {
+        "mode": "candidate",
+        "iteration": 0,
+        "seconds": 1.6319452079999999,
+        "code": 0,
+        "rss_bytes": 710918144
+      },
+      {
+        "mode": "noCache",
+        "iteration": 0,
+        "seconds": 1.514101583,
+        "code": 0,
+        "rss_bytes": 534102016
+      },
+      {
+        "mode": "baseline",
+        "iteration": 1,
+        "seconds": 2.2533385829999997,
+        "code": 0,
+        "rss_bytes": 487342080
+      },
+      {
+        "mode": "candidate",
+        "iteration": 1,
+        "seconds": 1.6107235000000006,
+        "code": 0,
+        "rss_bytes": 591036416
+      },
+      {
+        "mode": "noCache",
+        "iteration": 1,
+        "seconds": 1.8279290830000008,
+        "code": 0,
+        "rss_bytes": 472317952
+      },
+      {
+        "mode": "baseline",
+        "iteration": 2,
+        "seconds": 2.323762833,
+        "code": 0,
+        "rss_bytes": 500940800
+      },
+      {
+        "mode": "candidate",
+        "iteration": 2,
+        "seconds": 1.6462204160000002,
+        "code": 0,
+        "rss_bytes": 558415872
+      },
+      {
+        "mode": "noCache",
+        "iteration": 2,
+        "seconds": 1.8372204169999993,
+        "code": 0,
+        "rss_bytes": 490569728
+      },
+      {
+        "mode": "baseline",
+        "iteration": 3,
+        "seconds": 2.323029250000001,
+        "code": 0,
+        "rss_bytes": 510951424
+      },
+      {
+        "mode": "candidate",
+        "iteration": 3,
+        "seconds": 1.6789776670000016,
+        "code": 0,
+        "rss_bytes": 610598912
+      },
+      {
+        "mode": "noCache",
+        "iteration": 3,
+        "seconds": 1.8647230829999977,
+        "code": 0,
+        "rss_bytes": 473251840
+      }
+    ],
+    "median": {
+      "baseline": {
+        "seconds": 2.323029250000001,
+        "rss_bytes": 500940800
+      },
+      "candidate": {
+        "seconds": 1.6462204160000002,
+        "rss_bytes": 591036416
+      },
+      "noCache": {
+        "seconds": 1.8372204169999993,
+        "rss_bytes": 473251840
+      }
+    }
+  },
+  "dev": {
+    "records": [
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 2.271172625,
+        "rebuild": "[watch] rebuild complete in 1.86201525s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 2.271511084,
+        "rebuild": "[watch] rebuild complete in 1.869382834s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 2.308042041,
+        "rebuild": "[watch] rebuild complete in 1.906416583s"
+      },
+      {
+        "variant": "baseline",
+        "session": 0,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 2.2454606250000015,
+        "rebuild": "[watch] rebuild complete in 1.843611625s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 1.5681852080000027,
+        "rebuild": "[watch] rebuild complete in 1.165321292s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 1.6244147499999997,
+        "rebuild": "[watch] rebuild complete in 1.222500792s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 1.6085207499999967,
+        "rebuild": "[watch] rebuild complete in 1.206406042s"
+      },
+      {
+        "variant": "optimized",
+        "session": 1,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 1.6043710000000004,
+        "rebuild": "[watch] rebuild complete in 1.202251958s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 2.219646292,
+        "rebuild": "[watch] rebuild complete in 1.81676475s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 2.2476061670000007,
+        "rebuild": "[watch] rebuild complete in 1.845408875s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 2.2998411250000004,
+        "rebuild": "[watch] rebuild complete in 1.897766584s"
+      },
+      {
+        "variant": "baseline",
+        "session": 2,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 2.2723837919999994,
+        "rebuild": "[watch] rebuild complete in 1.870262459s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 0,
+        "warmup": true,
+        "save_to_http_seconds": 1.5725898749999985,
+        "rebuild": "[watch] rebuild complete in 1.169749583s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 1,
+        "warmup": false,
+        "save_to_http_seconds": 1.6417754170000052,
+        "rebuild": "[watch] rebuild complete in 1.239718667s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 2,
+        "warmup": false,
+        "save_to_http_seconds": 1.6454509170000051,
+        "rebuild": "[watch] rebuild complete in 1.24335275s"
+      },
+      {
+        "variant": "optimized",
+        "session": 3,
+        "round": 3,
+        "warmup": false,
+        "save_to_http_seconds": 1.6526541669999943,
+        "rebuild": "[watch] rebuild complete in 1.25056375s"
+      }
+    ],
+    "source": "/Users/rong.zhu/Code/zhurong/zhurongshuo",
+    "port": 18573,
+    "median_seconds": {
+      "baseline": 2.2719474379999998,
+      "optimized": 1.6330950835000024
+    },
+    "median_rebuild_seconds": {
+      "baseline": 1.8698226465,
+      "optimized": 1.2311097295
+    }
+  },
+  "cache_modes": {
+    "rows": [
+      {
+        "mode": "noCache",
+        "iteration": 0,
+        "seconds": 1.5063181250000002,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 0,
+        "seconds": 1.958722625,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 0,
+        "seconds": 1.6701307909999996,
+        "code": 0
+      },
+      {
+        "mode": "noCache",
+        "iteration": 1,
+        "seconds": 1.8549116249999997,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 1,
+        "seconds": 1.9671369160000003,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 1,
+        "seconds": 1.6413964579999991,
+        "code": 0
+      },
+      {
+        "mode": "noCache",
+        "iteration": 2,
+        "seconds": 1.859695499999999,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 2,
+        "seconds": 2.053172332999999,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 2,
+        "seconds": 1.687302583000001,
+        "code": 0
+      },
+      {
+        "mode": "noCache",
+        "iteration": 3,
+        "seconds": 1.8516549170000012,
+        "code": 0
+      },
+      {
+        "mode": "cold",
+        "iteration": 3,
+        "seconds": 1.9865476249999965,
+        "code": 0
+      },
+      {
+        "mode": "warm",
+        "iteration": 3,
+        "seconds": 1.702772417000002,
+        "code": 0
+      }
+    ],
+    "median": {
+      "noCache": 1.8549116249999997,
+      "cold": 1.9865476249999965,
+      "warm": 1.687302583000001
+    }
+  },
+  "environment": {
+    "hardware": "Apple M5 Max",
+    "go": "go1.27.1 darwin/arm64",
+    "markdown_files": 2959,
+    "outputs": 7245,
+    "baseline": "phase1 optimized workspace snapshot",
+    "default_debounce_ms": 400
+  },
+  "verification": {
+    "full_go_tests": "passed",
+    "race_packages": [
+      "internal/build",
+      "internal/content",
+      "internal/dev",
+      "internal/output",
+      "internal/template",
+      "cmd/huan"
+    ],
+    "seo_plugin_race": "passed",
+    "stable_outputs_equal": 7236,
+    "new_or_missing_outputs": 0,
+    "all_collision_hashes_previously_observed": true,
+    "serve_custom_cache_smoke": "passed; one edit, one rebuild, fresh HTTP marker"
+  }
+}

@@ -76,12 +76,71 @@ func (r *I18nStaleReport) Error() string {
 	return b.String()
 }
 
+// staleTranslationSnapshot keeps only comparison metadata, not markdown bytes.
+// Sidecars retain the loader's walk order for deterministic diagnostics.
+type staleTranslationSnapshot struct {
+	files    map[string]staleTranslationFile
+	sidecars []string
+}
+
+type staleTranslationFile struct {
+	hash          string
+	bodyEmpty     bool
+	sourceHash    string
+	hasSourceHash bool
+}
+
+func newStaleTranslationSnapshot() *staleTranslationSnapshot {
+	return &staleTranslationSnapshot{files: make(map[string]staleTranslationFile)}
+}
+
+func (s *staleTranslationSnapshot) observe(path string, data []byte) {
+	sum := sha256.Sum256(data)
+	markdown := string(data)
+	file := staleTranslationFile{hash: hex.EncodeToString(sum[:]), bodyEmpty: markdownBodyIsEmpty(markdown)}
+	if detectSidecarLang(filepath.Base(path)) != "" {
+		file.sourceHash, file.hasSourceHash = extractSourceHash(markdown)
+		s.sidecars = append(s.sidecars, path)
+	}
+	s.files[path] = file
+}
+
+func (s *staleTranslationSnapshot) report(contentDir string) *I18nStaleReport {
+	report := &I18nStaleReport{}
+	for _, path := range s.sidecars {
+		lang := detectSidecarLang(filepath.Base(path))
+		source, ok := s.files[stripSidecarLangSuffix(path, lang)]
+		if !ok || source.bodyEmpty {
+			continue
+		}
+		sidecar := s.files[path]
+		recordStaleTranslation(report, contentDir, path, source.hash, sidecar.sourceHash, sidecar.hasSourceHash)
+	}
+	return report
+}
+
+func recordStaleTranslation(report *I18nStaleReport, contentDir, path, currentHash, sidecarHash string, hasHash bool) {
+	if !hasHash {
+		report.Missing++
+		rel, _ := filepath.Rel(contentDir, path)
+		report.MissingHashFiles = append(report.MissingHashFiles, rel)
+		return
+	}
+	report.Checked++
+	if currentHash != sidecarHash {
+		report.Stale++
+		rel, _ := filepath.Rel(contentDir, path)
+		report.StaleFiles = append(report.StaleFiles, rel)
+	}
+}
+
 // checkStaleTranslations scans content/ for .<lang>.md sidecars and verifies
 // each sidecar's frontmatter source_hash matches the current source markdown
 // sha256. Returns a report describing what was found.
 //
 // Source markdown is the corresponding file without the language suffix:
-//   "posts/foo.en.md" → "posts/foo.md"
+//
+//	"posts/foo.en.md" → "posts/foo.md"
 //
 // Sidecars without a corresponding source file are skipped (the source may
 // have been deleted; that's a separate concern).
@@ -127,23 +186,12 @@ func checkStaleTranslations(contentDir string) (*I18nStaleReport, error) {
 			return nil // skip unreadable sidecars
 		}
 		sidecarHash, hasHash := extractSourceHash(string(data))
-		if !hasHash {
-			report.Missing++
-			rel, _ := filepath.Rel(contentDir, path)
-			report.MissingHashFiles = append(report.MissingHashFiles, rel)
-			return nil
+		var currentHash string
+		if hasHash {
+			sum := sha256.Sum256(srcData)
+			currentHash = hex.EncodeToString(sum[:])
 		}
-
-		// Compute current source hash (srcData already read above).
-		sum := sha256.Sum256(srcData)
-		currentHash := hex.EncodeToString(sum[:])
-
-		report.Checked++
-		if currentHash != sidecarHash {
-			report.Stale++
-			rel, _ := filepath.Rel(contentDir, path)
-			report.StaleFiles = append(report.StaleFiles, rel)
-		}
+		recordStaleTranslation(report, contentDir, path, currentHash, sidecarHash, hasHash)
 		return nil
 	})
 	return report, err

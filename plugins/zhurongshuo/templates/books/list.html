@@ -188,7 +188,7 @@
 
                     {{ range $book := $volumeData.books }}
                         {{ $bookPage := index $allBooksBySlug $book.slug }}
-                        {{ $exists := ne $bookPage nil }}
+                        {{ $exists := not (not $bookPage) }}
 
                         {{/* Get version from YAML data */}}
                         {{ $version := $book.version }}

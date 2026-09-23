@@ -192,7 +192,7 @@
 
                     {{ range $product := $categoryData.products }}
                         {{ $productPage := $.Site.GetPage (printf "/products/%s" $product.slug) }}
-                        {{ $hasPage := ne $productPage nil }}
+                        {{ $hasPage := not (not $productPage) }}
 
                         <div class="listing_item">
                             <div class="product-info">

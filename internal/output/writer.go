@@ -88,12 +88,26 @@ func (w *Writer) Write(relPath, content string) error {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+	if err := writeStringFile(fullPath, content, 0644); err != nil {
 		return fmt.Errorf("write %s: %w", fullPath, err)
 	}
 
 	w.recordWrite(int64(len(content)))
 	return nil
+}
+
+// writeStringFile follows os.WriteFile's create/truncate and error semantics,
+// using File.WriteString to avoid allocating a full copy of rendered output.
+func writeStringFile(path, content string, perm fs.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(content)
+	if closeErr := f.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 // ensureDir creates dir once per Writer lifetime; subsequent calls with the
@@ -103,8 +117,13 @@ func (w *Writer) ensureDir(dir string) error {
 	if _, ok := w.dirs.Load(dir); ok {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	// Most output paths are new leaves under a parent created by an earlier
+	// page. Mkdir avoids MkdirAll's leaf and parent Stat calls in that case.
+	// Fall back unchanged for missing parents, existing paths and all errors.
+	if err := os.Mkdir(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
 	}
 	w.dirs.Store(dir, struct{}{})
 	return nil

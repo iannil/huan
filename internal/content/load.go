@@ -2,6 +2,7 @@ package content
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,6 +151,22 @@ func loadPageFromFrontmatter(fm map[string]interface{}, body, relPath string) (*
 // files; callers comparing languages should treat empty Language as the
 // default. Use Page.IsDefaultLanguage(defaultCode) for that check.
 func LoadDir(contentDir string) ([]*Page, error) {
+	return LoadDirWithObserver(contentDir, nil)
+}
+
+// LoadDirWithObserver loads pages like LoadDir and calls observe, when non-nil,
+// with each markdown file's path and raw bytes after reading and before parsing.
+// The callback must not modify data; it should copy any bytes it retains.
+func LoadDirWithObserver(contentDir string, observe func(path string, data []byte)) ([]*Page, error) {
+	return LoadDirWithCache(contentDir, nil, observe)
+}
+
+// LoadDirWithCache loads all current Markdown files and optionally reuses parsed
+// inputs. Every file is read and observed before any cache lookup, so edits with
+// unchanged size/mtime and observer-dependent checks see the current bytes.
+// Returned pages have independent mutable state and newly assigned versions.
+// As with LoadDirWithObserver, observe must not modify the supplied bytes.
+func LoadDirWithCache(contentDir string, cache *ParseCache, observe func(path string, data []byte)) ([]*Page, error) {
 	var pages []*Page
 
 	err := filepath.Walk(contentDir, func(path string, info os.FileInfo, err error) error {
@@ -167,6 +184,9 @@ func LoadDir(contentDir string) ([]*Page, error) {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
+		if observe != nil {
+			observe(path, data)
+		}
 
 		relPath, err := filepath.Rel(contentDir, path)
 		if err != nil {
@@ -175,13 +195,32 @@ func LoadDir(contentDir string) ([]*Page, error) {
 		// Normalize to forward slashes
 		relPath = filepath.ToSlash(relPath)
 
-		fm, body, err := ParseFrontmatter(data)
-		if err != nil {
-			return fmt.Errorf("parse %s: %w", path, err)
+		var page *Page
+		var key parseCacheKey
+		if cache != nil {
+			absolutePath, err := filepath.Abs(path)
+			if err != nil {
+				return fmt.Errorf("abspath %s: %w", path, err)
+			}
+			key = parseCacheKey{path: absolutePath, hash: sha256.Sum256(data)}
+			page, _ = cache.get(key)
+		}
+		if page == nil {
+			fm, body, err := ParseFrontmatter(data)
+			if err != nil {
+				return fmt.Errorf("parse %s: %w", path, err)
+			}
+			page, err = loadPageFromFrontmatter(fm, body, "")
+			if err != nil {
+				return fmt.Errorf("load %s: %w", path, err)
+			}
+			if cache != nil {
+				cache.put(key, page)
+			}
 		}
 
 		// Detect language from filename suffix: foo.<lang>.md → page.Language = <lang>
-		// Strip the language suffix from RelPath BEFORE creating the page so
+		// Strip the language suffix from RelPath so
 		// paired sidecars (foo.md + foo.en.md) share identical RelPath
 		// ("posts/foo.md"). The Language field preserves sidecar identity;
 		// downstream URL/Section/sort logic uses the language-neutral RelPath
@@ -191,10 +230,7 @@ func LoadDir(contentDir string) ([]*Page, error) {
 			relPath = stripLanguageSuffix(relPath, langCode)
 		}
 
-		page, err := loadPageFromFrontmatter(fm, body, relPath)
-		if err != nil {
-			return fmt.Errorf("load %s: %w", path, err)
-		}
+		page.RelPath = relPath
 		page.FilePath = path
 		page.Language = langCode
 
@@ -218,16 +254,18 @@ func stripLanguageSuffix(relPath, langCode string) string {
 	}
 	return relPath
 }
+
 // filename's `.<lang>.md` suffix. Returns empty string when no language
 // suffix is present (the file belongs to the default language).
 //
 // Examples:
-//   "foo.md"         → ""
-//   "foo.en.md"      → "en"
-//   "foo.zh-cn.md"   → "zh-cn"
-//   "_index.en.md"   → "en"
-//   "index.md"       → ""
-//   "foo.bar.md"     → "bar"  (any 2-3 letter suffix is treated as lang)
+//
+//	"foo.md"         → ""
+//	"foo.en.md"      → "en"
+//	"foo.zh-cn.md"   → "zh-cn"
+//	"_index.en.md"   → "en"
+//	"index.md"       → ""
+//	"foo.bar.md"     → "bar"  (any 2-3 letter suffix is treated as lang)
 //
 // The heuristic is: if the filename without `.md` ends with `.<2-8 lowercase
 // alphanumeric + dash chars>`, treat that suffix as the language code.
