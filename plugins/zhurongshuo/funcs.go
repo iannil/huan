@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -124,29 +125,49 @@ func svgTruncate(s string, maxWidth float64, fontSize int) string {
 	return s
 }
 
-// svgWrap breaks s into lines each fitting maxWidth (CJK char-by-char,
-// ASCII on spaces). The last line may keep a long unbreakable word.
+// svgWrap prefers word boundaries for Latin text and character boundaries
+// for CJK. A word wider than the entire line is split as a last resort.
 func svgWrap(s string, maxWidth float64, fontSize int) []string {
 	var lines []string
-	var cur []rune
-	curW := 0.0
+	cur := ""
+	pendingSpace := false
 	flush := func() {
-		if len(cur) > 0 {
-			lines = append(lines, string(cur))
-			cur = nil
-			curW = 0.0
+		if cur != "" {
+			lines = append(lines, cur)
+			cur = ""
 		}
 	}
-	for _, r := range s {
-		rw := svgTextWidth(string(r), fontSize)
-		if r == ' ' && curW == 0 {
-			continue // skip leading spaces
+	runes := []rune(s)
+	for i := 0; i < len(runes); {
+		if unicode.IsSpace(runes[i]) {
+			pendingSpace = true
+			i++
+			continue
 		}
-		if curW+rw > maxWidth {
+		j := i + 1
+		if !isWideRune(runes[i]) {
+			for j < len(runes) && !unicode.IsSpace(runes[j]) && !isWideRune(runes[j]) {
+				j++
+			}
+		}
+		token := string(runes[i:j])
+		sep := ""
+		if pendingSpace && cur != "" {
+			sep = " "
+		}
+		if cur != "" && svgTextWidth(cur+sep+token, fontSize) > maxWidth {
 			flush()
+			sep = ""
 		}
-		cur = append(cur, r)
-		curW += rw
+		cur += sep
+		for _, r := range token {
+			if cur != "" && svgTextWidth(cur+string(r), fontSize) > maxWidth {
+				flush()
+			}
+			cur += string(r)
+		}
+		pendingSpace = false
+		i = j
 	}
 	flush()
 	return lines

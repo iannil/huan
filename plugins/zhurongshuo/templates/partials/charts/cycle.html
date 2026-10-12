@@ -35,7 +35,17 @@
 {{/* string compare vs "0": negative y ("-57.5") sorts before "0" */}}
 {{ $scratch.Set (printf "up%d" $i) (lt (string $u.y) "0") }}
 {{ end }}
-<svg viewBox="0 0 {{ $cfg.Width }} {{ $cfg.Height }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--cycle">
+{{/* Reserve space for the longest label block below the lowest circle.
+    node_text places a sublabel after all wrapped label lines. */}}
+{{ $maxLines := 1 }}
+{{ range $chart.nodes }}
+{{ $lines := len (svgWrap .label 120.0 $cfg.LabelSize) }}
+{{ if gt (printf "%06d" $lines) (printf "%06d" $maxLines) }}{{ $maxLines = $lines }}{{ end }}
+{{ end }}
+{{ $padding := add (mul $maxLines (add $cfg.LabelSize 5)) $cfg.SubLabelSize }}
+{{ $viewHeight := add $cfg.Height (mul $padding 2) }}
+{{ $viewWidth := cond (lt $cfg.Width $cfg.Height) $cfg.Width $cfg.Height }}
+<svg viewBox="{{ div (sub $cfg.Width $viewWidth) 2 }} {{ sub 0 $padding }} {{ $viewWidth }} {{ $viewHeight }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{{ $chart.title }}" class="guide-chart guide-chart--cycle">
 <defs>
 <marker id="guide-arrow--cycle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="guide-chart__arrow" /></marker>
 </defs>
@@ -53,7 +63,12 @@
 {{/* label offset: nodes on upper half get text above, lower half below */}}
 {{ $up := $scratch.Get (printf "up%d" $i) }}
 {{ $textY := add $p.y 58 }}
-{{ if $up }}{{ $textY = sub $p.y 46 }}{{ end }}
+{{ if $up }}
+{{ $lines := len (svgWrap $node.label 120.0 $cfg.LabelSize) }}
+{{ $blockOffset := mul (sub $lines 1) (add $cfg.LabelSize 4) }}
+{{ if $node.sublabel }}{{ $blockOffset = mul $lines (add $cfg.LabelSize 5) }}{{ end }}
+{{ $textY = sub (sub $p.y 46) $blockOffset }}
+{{ end }}
 {{ if $node.href }}<a href="{{ $node.href }}">{{ end }}
 <circle cx="{{ printf "%.1f" $p.x }}" cy="{{ printf "%.1f" $p.y }}" r="34" class="guide-chart__shape" />
 {{ if $node.href }}</a>{{ end }}

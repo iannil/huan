@@ -44,17 +44,22 @@ func chartTestFuncMap() template.FuncMap {
 			}
 			return toF(a) / bf
 		},
-		"mod":        func(a, b int) int { return a % b },
-		"dict":       chartDict,
-		"merge":      chartMerge,
-		"index":      func(item interface{}, key interface{}) interface{} { return chartIndex(item, key) },
-		"cond":       func(c bool, a, b interface{}) interface{} { if c { return a }; return b },
+		"mod":   func(a, b int) int { return a % b },
+		"dict":  chartDict,
+		"merge": chartMerge,
+		"index": func(item interface{}, key interface{}) interface{} { return chartIndex(item, key) },
+		"cond": func(c bool, a, b interface{}) interface{} {
+			if c {
+				return a
+			}
+			return b
+		},
 		// huan's lt/gt/eq compare via string coercion (never a type error);
 		// mirror that so templates can't rely on type-strict compare.
-		"lt": func(a, b interface{}) bool { return fmt.Sprintf("%v", a) < fmt.Sprintf("%v", b) },
-		"gt": func(a, b interface{}) bool { return fmt.Sprintf("%v", a) > fmt.Sprintf("%v", b) },
-		"eq": func(a, b interface{}) bool { return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b) },
-		"ge": func(a, b interface{}) bool { return fmt.Sprintf("%v", a) >= fmt.Sprintf("%v", b) },
+		"lt":         func(a, b interface{}) bool { return fmt.Sprintf("%v", a) < fmt.Sprintf("%v", b) },
+		"gt":         func(a, b interface{}) bool { return fmt.Sprintf("%v", a) > fmt.Sprintf("%v", b) },
+		"eq":         func(a, b interface{}) bool { return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b) },
+		"ge":         func(a, b interface{}) bool { return fmt.Sprintf("%v", a) >= fmt.Sprintf("%v", b) },
 		"newScratch": func() *chartScratch { return &chartScratch{m: map[string]interface{}{}} },
 		"string":     func(v interface{}) string { return fmt.Sprintf("%v", v) },
 		"int":        chartInt,
@@ -115,6 +120,8 @@ func chartLen(v interface{}) int {
 	case string:
 		return len([]rune(c))
 	case []interface{}:
+		return len(c)
+	case []string:
 		return len(c)
 	case map[string]interface{}:
 		return len(c)
@@ -467,5 +474,54 @@ func TestLadderStepsDoNotOverlap(t *testing.T) {
 		if boxes[i].h < 24.0-1e-9 {
 			t.Errorf("ladder: step %d height %.1f below floor 24", i, boxes[i].h)
 		}
+	}
+}
+
+// Every rendered text baseline plus its descent must fit in the SVG viewport.
+// Covers bottom nodes, wrapped labels and the smaller concept-card geometry.
+func TestCycleTextWithinViewport(t *testing.T) {
+	tmpl := parseChartPartials(t)
+	for _, cfg := range []map[string]interface{}{defaultCfg(), {"Width": 340, "Height": 220, "LabelSize": 12, "SubLabelSize": 10}} {
+		for n := 3; n <= 12; n++ {
+			for _, label := range []string{"New state", "Correct a previously published count", "核对旧计数并追踪后续材料"} {
+				nodes := make([]map[string]interface{}, n)
+				for i := range nodes {
+					nodes[i] = node(label, "Friday decision", "")
+				}
+				out := executeChart(t, tmpl, "cycle.html", map[string]interface{}{"chart": map[string]interface{}{"nodes": toIface(nodes), "title": "Cycle"}, "cfg": cfg})
+				var x, y, width, height float64
+				box := regexp.MustCompile(`viewBox="([^"]+)"`).FindStringSubmatch(out)
+				if len(box) != 2 {
+					t.Fatal("missing viewBox")
+				}
+				if _, err := fmt.Sscanf(box[1], "%f %f %f %f", &x, &y, &width, &height); err != nil {
+					t.Fatal(err)
+				}
+				texts := regexp.MustCompile(`<text[^>]* y="([0-9.-]+)" font-size="([0-9.]+)"`).FindAllStringSubmatch(out, -1)
+				if len(texts) < n*2 {
+					t.Fatal("missing node text")
+				}
+				for _, text := range texts {
+					var baseline, size float64
+					fmt.Sscanf(text[1], "%f", &baseline)
+					fmt.Sscanf(text[2], "%f", &size)
+					if baseline-size < y || baseline+size*0.3 > y+height {
+						t.Errorf("%d nodes, %q: text baseline %.1f (size %.1f) outside viewport %v", n, label, baseline, size, box[1])
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestCycleUpperSublabelClearsCircle(t *testing.T) {
+	tmpl := parseChartPartials(t)
+	chart := map[string]interface{}{"title": "Cycle", "nodes": toIface([]map[string]interface{}{
+		node("Grounds", "Receipt review", ""), node("Right", "", ""), node("Bottom", "", ""), node("Left", "", ""),
+	})}
+	out := executeChart(t, tmpl, "cycle.html", map[string]interface{}{"chart": chart, "cfg": defaultCfg()})
+	// The top circle is centered at 70 with radius 34. Include text descent.
+	if y := firstTextY(t, out, "Receipt review"); y+toF(defaultCfg()["SubLabelSize"])*0.3 >= 36 {
+		t.Errorf("upper sublabel overlaps circle: baseline %v", y)
 	}
 }

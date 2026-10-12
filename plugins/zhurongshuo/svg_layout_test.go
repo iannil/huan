@@ -2,6 +2,8 @@ package main
 
 import (
 	"math"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +54,36 @@ func TestSvgWrap(t *testing.T) {
 	for _, ln := range enLines {
 		if svgTextWidth(ln, 16) > 80+16 {
 			t.Errorf("en line %q too wide", ln)
+		}
+	}
+}
+
+func TestSvgWrapWordBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		text  string
+		width float64
+		want  []string
+	}{
+		{"Bound the good result", 120, []string{"Bound the", "good result"}},
+		{"Return feedback locally", 120, []string{"Return", "feedback", "locally"}},
+		{"Keep reopening conditions", 120, []string{"Keep", "reopening", "conditions"}},
+		{"  One   two  ", 120, []string{"One two"}},
+		{"中文 abc def", 64, []string{"中文", "abc def"}},
+	} {
+		got := svgWrap(tc.text, tc.width, 16)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%q: got %q, want %q", tc.text, got, tc.want)
+		}
+	}
+	for _, text := range []string{"UnbreakableLongIdentifier", "中文连续字符测试"} {
+		lines := svgWrap(text, 64, 16)
+		if strings.Join(lines, "") != text {
+			t.Errorf("lost text: %q => %q", text, lines)
+		}
+		for _, line := range lines {
+			if svgTextWidth(line, 16) > 64 {
+				t.Errorf("overflow: %q", line)
+			}
 		}
 	}
 }

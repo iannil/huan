@@ -32,16 +32,23 @@ body {
 }
 
 html[lang="en"] body {
-  font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  /* Share the base sans-serif stack with Chinese pages so navigation,
+     headings, body copy and guides keep the same visual character. */
   text-rendering: optimizeLegibility;
 }
 
-/* English reading rhythm — Latin serif wants a shorter measure, a tighter
-   leading, and no letter-spacing. CJK text keeps its own (wider) rhythm. */
+/* English reading rhythm — Latin text wants a shorter measure, a tighter
+   leading, and slightly tighter tracking. CJK keeps its own wider rhythm. */
+html[lang="en"] .post .post_title h2,
+html[lang="en"] .post .post_title a {
+  letter-spacing: -0.015em;
+}
+
 html[lang="en"] .post_content {
-  /* shorter measure for Latin serif; left edge stays aligned with the
+  /* shorter measure for Latin text; left edge stays aligned with the
      title / date / footer, which keep the full column width */
   max-width: 38em;
+  letter-spacing: -0.01em;
 }
 
 html[lang="en"] .markdown {
@@ -50,12 +57,16 @@ html[lang="en"] .markdown {
 
 html[lang="en"] .post_content p {
   line-height: 1.65em;
-  letter-spacing: normal;
+  letter-spacing: -0.01em;
   margin-bottom: 1.1em;
   text-wrap: pretty;
 }
 
 html[lang="en"] .post_content a {
+  letter-spacing: -0.01em;
+}
+
+html[lang="en"] .post_content :is(code, pre, kbd, samp) {
   letter-spacing: normal;
 }
 
@@ -397,7 +408,7 @@ hr {
 }
 
 .post .post_title a {
-  text-decoration: underline 3px solid transparent;
+  text-decoration: underline 1px solid transparent;
   text-underline-offset: 5px;
   letter-spacing: 1px;
   color: #1f1f1f;
@@ -408,7 +419,7 @@ hr {
 }
 
 .post .post_title a:hover {
-  text-decoration-color: #999999;
+  text-decoration-color: #d6d6d6;
 }
 
 .post .post_title span {
@@ -457,8 +468,8 @@ hr {
   bottom: -1px;
   left: 0;
   right: 0;
-  height: 3px;
-  background-color: #999999;
+  height: 1px;
+  background-color: #d6d6d6;
   -webkit-transform: scaleX(0);
   transform: scaleX(0);
   -webkit-transform-origin: center;
@@ -992,6 +1003,19 @@ a.back_to_top:hover span {
 }
 
 @media print, screen and (max-width: 680px) {
+  /* Keep body and guide fragments below the fixed language/menu controls. */
+  .markdown :is(h1, h2, h3, h4, h5, h6)[id],
+  .guide_chapter[id] {
+    scroll-margin-top: 4rem;
+  }
+
+  /* Wide comparison tables scroll locally instead of widening the page. */
+  .markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
   .nav_container {
     position: relative;
     z-index: 999;
