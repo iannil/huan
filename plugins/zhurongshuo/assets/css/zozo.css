@@ -93,8 +93,8 @@ a {
 
 a:link, a:visited {
   opacity: 1;
-  -webkit-transition: all 0.15s linear;
-  transition: all 0.15s linear;
+  -webkit-transition: color 0.15s linear;
+  transition: color 0.15s linear;
   color: #424242;
 }
 
@@ -177,25 +177,6 @@ hr {
   padding: 10px;
   font-size: 0.9rem;
   position: relative;
-}
-
-.nav_container .site_nav a::after {
-  content: '';
-  position: absolute;
-  bottom: 4px;
-  left: 10px;
-  right: 10px;
-  height: 3px;
-  background-color: #999999;
-  -webkit-transform: scaleX(0);
-  transform: scaleX(0);
-  -webkit-transition: transform 0.2s ease;
-  transition: transform 0.2s ease;
-}
-
-.nav_container .site_nav a:hover::after {
-  -webkit-transform: scaleX(1);
-  transform: scaleX(1);
 }
 
 /* Language dropdown — sits to the left of .menu_icon via float:right stacking */
@@ -460,27 +441,6 @@ hr {
   letter-spacing: 1px;
   color: #424242;
   position: relative;
-}
-
-.post .post_content a::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background-color: #d6d6d6;
-  -webkit-transform: scaleX(0);
-  transform: scaleX(0);
-  -webkit-transform-origin: center;
-  transform-origin: center;
-  -webkit-transition: transform 0.2s ease;
-  transition: transform 0.2s ease;
-}
-
-.post .post_content a:hover::after {
-  -webkit-transform: scaleX(1);
-  transform: scaleX(1);
 }
 
 .post .post_content a:hover {

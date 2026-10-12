@@ -129,6 +129,10 @@
         href="/theme/zhurongshuo/css/guide.css" />
     {{ end }}
 
+    <!-- Shared link interactions follow component styles; custom CSS may override. -->
+    <link rel="stylesheet" type="text/css" media="screen"
+        href="/theme/zhurongshuo/css/links.css" />
+
     <!-- custom css -->
     {{ range .Site.Params.customCSS }}
     <link rel="stylesheet" href="{{ " css/" | absURL }}{{ . }}" />
