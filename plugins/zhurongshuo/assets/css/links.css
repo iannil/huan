@@ -16,7 +16,8 @@
   text-decoration-thickness: 1px;
   text-underline-offset: .22em;
   text-decoration-skip-ink: auto;
-  transition: color 160ms ease, text-decoration-color 160ms ease,
+  /* Switch decoration color with its geometry to avoid a thin fading rule on exit. */
+  transition: color 160ms ease,
               background-color 160ms ease, border-color 160ms ease;
 }
 
