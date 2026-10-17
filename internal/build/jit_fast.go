@@ -104,6 +104,7 @@ func JITRenderFast(opts Options, cache *PipelineCache, pageURL string) (string, 
 	// 6. Render the single page. Reuse cached renderer when available.
 	renderer := cache.Renderer
 	if renderer == nil {
+		_ = tmpl.SetPublicationRevisionNotice(cache.SiteCfg.Params.Extra)
 		renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(cache.SiteCfg.BaseURL))
 	}
 	out, err := renderer.Render(tmplName, ctx)

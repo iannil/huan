@@ -28,7 +28,7 @@ import (
 
 // FuncMap returns all custom template functions needed to render the site.
 func FuncMap(baseURL string) template.FuncMap {
-	return template.FuncMap{
+	fm := template.FuncMap{
 		// URL helpers
 		"absURL":   func(s string) string { return baseURL + strings.TrimPrefix(s, "/") },
 		"urlize":   ToURLize,
@@ -170,6 +170,17 @@ func FuncMap(baseURL string) template.FuncMap {
 		"safeCSS":                 func(v interface{}) template.CSS { return template.CSS(toString(v)) },
 		"safeHTMLAttr":            func(v interface{}) template.HTMLAttr { return template.HTMLAttr(toString(v)) },
 	}
+
+	// Site-theme functions (readingTime, parseGuideYAML, svg helpers,
+	// guideChartTypes, publicationRevisionNotice, ...) — promoted from the
+	// retired zhurongshuo theme plugin so layouts/ work plugin-free.
+	for name, fn := range ThemeFuncMap() {
+		if _, exists := fm[name]; !exists {
+			fm[name] = fn
+		}
+	}
+
+	return fm
 }
 
 // resolveSitePath guards template file access to site-relative paths:

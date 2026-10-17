@@ -56,6 +56,7 @@ func (p *pipeline) setupTemplatesAndWriter() error {
 
 	p.i18nBundle = p.loadI18nBundle()
 	tmpl.SetI18nBundle(p.i18nBundle)
+	_ = tmpl.SetPublicationRevisionNotice(p.cfg.Params.Extra)
 
 	templateCount := 0
 	for range tmpls.Templates() {
