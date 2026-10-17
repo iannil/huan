@@ -43,9 +43,15 @@ func NewLoader(sourceDir, themeName string, funcMap template.FuncMap) *Loader {
 // Theme plugin templates are loaded first, then theme directory, then layouts/
 // directory (highest priority). This mirrors the traditional override chain:
 // layouts/ overrides theme dir overrides theme plugin.
-func NewLoaderWithTheme(sourceDir, layoutsDir string, funcMap template.FuncMap, themeMgr *theme.Manager) *Loader {
+// themeName selects the disk theme dir (themes/<name>/layouts); empty disables
+// the disk-theme layer (e.g. when only a plugin theme is active).
+func NewLoaderWithTheme(sourceDir, layoutsDir string, funcMap template.FuncMap, themeMgr *theme.Manager, themeName ...string) *Loader {
+	name := ""
+	if len(themeName) > 0 {
+		name = themeName[0]
+	}
 	return &Loader{
-		themeDir:     filepath.Join(sourceDir, "themes", "", "layouts"),
+		themeDir:     filepath.Join(sourceDir, "themes", name, "layouts"),
 		layoutsDir:   layoutsDir,
 		funcMap:      funcMap,
 		themeManager: themeMgr,

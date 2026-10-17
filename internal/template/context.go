@@ -1002,7 +1002,7 @@ func LoadAllTemplates(sourceDir, baseURL string, themeMgr ...*theme.Manager) (*t
 	var loader *Loader
 	if len(themeMgr) > 0 && themeMgr[0] != nil {
 		layoutsDir := filepath.Join(sourceDir, "layouts")
-		loader = NewLoaderWithTheme(sourceDir, layoutsDir, funcMap, themeMgr[0])
+		loader = NewLoaderWithTheme(sourceDir, layoutsDir, funcMap, themeMgr[0], themeName)
 	} else {
 		loader = NewLoader(sourceDir, themeName, funcMap)
 	}
