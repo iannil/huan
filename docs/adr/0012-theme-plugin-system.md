@@ -1,6 +1,6 @@
 # ADR 0012: 主题插件系统
 
-- **状态**: Accepted
+- **状态**: Accepted（zhurongshuo 消费者已于 v0.12.1 迁回站点仓库，见 [ADR 0017](0017-theme-migration-to-site-repo.md)；机制本身仍有效）
 - **日期**: 2026-07-27
 - **决策者**: 用户 + Claude
 - **被引用**: [ADR 0003](0003-unified-plugin-system.md)（统一插件系统）、[主题插件系统设计](../../docs/superpowers/specs/2026-07-27-theme-plugin-system-design.md)

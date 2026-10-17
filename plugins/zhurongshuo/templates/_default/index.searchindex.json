@@ -1,7 +1,0 @@
-{{- $.Scratch.Add "index" slice -}}
-{{- range $page := where .Site.RegularPages "Kind" "page" -}}
-    {{- if ne $page.Kind "section" -}}
-        {{- $.Scratch.Add "index" (dict "title" $page.Title "url" $page.Permalink "content" ($page.Content | searchExcerpt 800) "tags" $page.Params.tags "date" ($page.Date.Format "2006-01-02")) -}}
-    {{- end -}}
-{{- end -}}
-{{- $.Scratch.Get "index" | uniq | jsonify -}}

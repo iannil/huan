@@ -67,7 +67,8 @@ jobs:
           # huan release writes to release/<version>/ (no 'v' prefix).
           # go run ensures we use the version pinned at the tag, not a stale local binary.
           go run ./cmd/huan release
-          # Build all eight plugins, including root-module diagram-renderer.
+          # Build all seven plugins, including root-module diagram-renderer
+          # (zhurongshuo.so removed with the theme migration — ADR 0017).
           # Use the same toolchain and normal flags as the Docker host.
           export CGO_ENABLED=1
           scripts/build-plugins.sh "$PWD/docker-plugins"

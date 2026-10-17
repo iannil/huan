@@ -1,8 +1,0 @@
-{{ with publicationRevisionNotice .RelPermalink .PageLanguage }}
-<aside class="publication-revision-notice" role="note" aria-label="{{ .AriaLabel }}">
-    <strong>{{ .Title }}</strong> {{ .Body }}
-</aside>
-<style>
-.publication-revision-notice{margin:1rem 0 1.5rem;padding:.85rem 1rem;border-left:3px solid #ad2f2e;background:#fcfbef;color:#4a4038;font-size:.92rem;line-height:1.7}.publication-revision-notice strong{color:#8f2726}
-</style>
-{{ end }}

@@ -4,7 +4,5 @@ languageCode: zh-cn
 publishDir: public
 paginate: 10
 hasCJKLanguage: true
-theme: zhurongshuo
-plugins:
-  zhurongshuo:
-    category: static
+# theme: zhurongshuo retired with the theme migration — the fixture renders
+# via its own disk layouts/; guide helper funcs are built into huan (≥v0.12).
