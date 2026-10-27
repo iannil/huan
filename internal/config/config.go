@@ -79,9 +79,7 @@ type ParamsConfig struct {
 	GoogleAnalytics string                     `yaml:"googleAnalytics"`
 	CDNURL        string                       `yaml:"cdnURL"`
 
-	// Extra absorbs any unrecognized keys under params: (e.g.
-	// publicationRevisionNotice), consumed by
-	// template.SetPublicationRevisionNotice at build setup.
+	// Extra absorbs unrecognized keys under params for configuration consumers.
 	Extra map[string]any `yaml:",inline"`
 
 	Author        AuthorConfig                 `yaml:"author"`

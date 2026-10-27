@@ -11,7 +11,7 @@ plugins:
   ebook_exporter:
     output_dir: "developer/export"   # 默认，可省略
     fonts_dir: ""                    # 可选：自定义字体目录（默认扫描系统字体目录）
-    cover: true                      # 统一品牌封面，默认开
+    cover: true                      # 保留配置；当前三个后端均生成封面
     pdf_font: ""                     # 可选：单独指定 PDF 正文 TrueType 字体
     cover_font: ""                   # 可选：封面中文字体
     cover_latin_font: ""             # 可选：封面英文衬线字体
@@ -74,9 +74,32 @@ huan export ebook --type all --format all --force
 - 英文导出在英文侧元数据缺失时，使用中文侧章节标题/标签
 - posts 年度合集（`--year`）未实现（P2）
 
-## 已确认的出版设计（2026-09-05）
+## 出版身份与封面
 
-三种格式共用 `render/publication_cover.go`：白底书名区、`#AD2F2E` 红色侧栏、三枚 `#FCFBEF` 竖排圆点，取自 zhurongshuo.com favicon；文字使用网站的深灰及辅助灰。封面以 300 dpi 生成，嵌入 EPUB、DOCX、PDF，避免不同阅读器替换封面字体。长书名按实际字宽换行，必要时缩小字号，完整保留标题。DOCX 封面有独立页面节，正文样式不变。
+三种格式共用 `render/publication_cover.go` 的通用文字排版：默认白底，无作者、出版社、版权声明或站点图形。封面以 300 dpi 生成，嵌入 EPUB、DOCX、PDF；长书名按实际字宽换行，必要时缩小字号。DOCX 封面有独立页面节。
+
+站点可在 `plugins.ebook_exporter.publication` 提供以下配置，语言键使用 `zh` / `en`，不在语言间隐式回退：
+
+```yaml
+publication:
+  base_url: "https://press.example" # EPUB 未收入书内的根路径链接；未配置则保留原链接
+  cover_background: "assets/ebook/background.png" # 相对站点根目录，PNG 铺满 A4 封面
+  languages:
+    en:
+      author: "Example Author" # EPUB/DOCX/PDF 作者元数据
+      metadata_author: "Example Author" # 可选 PDF 专用拼写，兼容 PDFDocEncoding
+      title_credit: "By Example Author"
+      publisher: "Example Press"
+      copyright: "Copyright © Example Author"
+      rights: "All rights reserved"
+      cover_brand: "Example Press"
+      cover_brand_latin: "EXAMPLE PRESS"
+      cover_tagline: ["A publisher's motto"]
+      cover_credit: "Example Author"
+      cover_footer: "press.example"
+```
+
+背景图形与上述文案由站点拥有。文字布局仍由插件提供，并非任意封面模板引擎。配置及加载的 PNG 字节参与缓存指纹，指定图片缺失或无效时导出报错。祝融说原封面背景的可复现生成器和可选字体子集工具已迁到站点仓库 `scripts/generate_ebook_cover_background.py` 与 `scripts/prepare_publication_fonts.py`。
 
 PDF 使用 A4、26 mm 页边距、12 pt 正文、22.2 pt 基线行距；引用与列表同步，代码 9.5 pt、表格 10.5 pt，均为 1.6 倍行距。EPUB、DOCX 正文延续原样式。设计版本、元数据与字体内容参与增量缓存键，避免更换封面后仍跳过旧产物。
 

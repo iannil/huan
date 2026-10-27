@@ -38,6 +38,11 @@ func FuncMap(baseURL string) template.FuncMap {
 		"safeURL":  func(v interface{}) template.URL { return template.URL(toString(v)) },
 
 		// Content helpers
+		"parseYAML":     parseYAML,
+		"errorf":        errorf,
+		"textWidth":     textWidth,
+		"textWrap":      textWrap,
+		"textTruncate":  textTruncate,
 		"plainify":      plainify,
 		"searchExcerpt": searchExcerpt,
 		"markdownify":   markdownifyFunc,
@@ -170,15 +175,6 @@ func FuncMap(baseURL string) template.FuncMap {
 		"readFile":                readFile,
 		"safeCSS":                 func(v interface{}) template.CSS { return template.CSS(toString(v)) },
 		"safeHTMLAttr":            func(v interface{}) template.HTMLAttr { return template.HTMLAttr(toString(v)) },
-	}
-
-	// Site-theme functions (readingTime, parseGuideYAML, svg helpers,
-	// guideChartTypes, publicationRevisionNotice, ...) — promoted from the
-	// retired zhurongshuo theme plugin so layouts/ work plugin-free.
-	for name, fn := range ThemeFuncMap() {
-		if _, exists := fm[name]; !exists {
-			fm[name] = fn
-		}
 	}
 
 	return fm

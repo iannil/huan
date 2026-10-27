@@ -4,11 +4,11 @@
 
 ## 项目概述
 
-huan 是一个用 Go 编写的一体化内容引擎（All-in-One Content Engine），基于文件管理内容，内置管理后台（huan serve 的 /admin 路由），替代所有 CMS。
+huan 是用 Go 编写的通用静态站点生成器，基于文件管理内容，包含开发服务、管理后台和可选插件。核心只承担通用解析、模板执行、数据加载与构建能力，不包含消费站点的主题内容、展示规则或品牌默认值。
 
 ## 关联项目
 
-- **zhurongshuo**（祝融说）—— 当前使用 Hugo 的内容站点，代码路径：`../zhurongshuo`（即 `/Users/rong.zhu/Code/zhurongshuo`）
+- **zhurongshuo**（祝融说）—— 使用 huan 的内容站点，代码路径：`../zhurongshuo`；主题模板、静态资源、导读规则、出版提示和品牌内容均属于该站点仓库。
 - 阶段一目标：huan 生成的站点输出与 Hugo 输出在「肉眼 / SEO / AI 三维度」无差异（甚至更好），详见 [`docs/standards/equivalence.md`](docs/standards/equivalence.md) 与 [ADR 0001](docs/adr/0001-redefine-equivalence.md)
 - hugo的源码路径：`/Users/rong.zhu/Downloads/hugo-master`
 

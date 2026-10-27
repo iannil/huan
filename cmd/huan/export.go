@@ -22,35 +22,44 @@ func newExportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export content (default: posts CSV archive; 'ebook' for ebook formats)",
-		Long: `Bare ` + "`huan export`" + ` keeps the legacy CSV behavior: walk content/posts/
-for .md files, extract the frontmatter date and the last body paragraph,
-and write a date-sorted (RFC 4180, UTF-8 BOM) CSV to
-developer/祝融说_副本YYYYMMDD.csv. Old CSVs in developer/ matching the same
-prefix are removed so only the latest is kept.
+		Long: `Bare ` + "`huan export`" + ` walks content/posts/ for .md files, extracts
+frontmatter dates and cleaned body text, and writes a date-sorted
+(RFC 4180, UTF-8 BOM) CSV to developer/posts-YYYYMMDD.csv by default.
+Use --output-dir and --filename-prefix to choose the archive location and name.
+Prior CSV archives with the same literal prefix and an eight-digit date are removed.
 
 Subcommands: csv (same as bare), ebook (offline document formats via an
 exporter plugin).`,
 		Args: cobra.NoArgs,
 		RunE: runExport,
 	}
+	addExportCSVFlags(cmd)
 	cmd.AddCommand(newExportCsvCmd())
 	cmd.AddCommand(newExportEbookCmd())
 	return cmd
 }
 
 func newExportCsvCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "csv",
-		Short: "Export content/posts/*.md to a CSV archive in developer/",
-		Long: `Walk content/posts/ for .md files, extract the frontmatter date and
-the last body paragraph, and write the result as a date-sorted
-(RFC 4180, UTF-8 BOM) CSV to developer/祝融说_副本YYYYMMDD.csv.
+		Short: "Export content/posts/*.md to a CSV archive",
+		Long: `Walk content/posts/ for .md files, extract frontmatter dates and
+cleaned body text, and write a date-sorted (RFC 4180, UTF-8 BOM) CSV to
+developer/posts-YYYYMMDD.csv by default.
 
-Old CSVs in developer/ matching the same prefix are removed so only the
-latest is kept.`,
+Use --output-dir and --filename-prefix to choose the archive location and name.
+Prior CSV archives with the same literal prefix and an eight-digit date are removed.`,
 		Args: cobra.NoArgs,
 		RunE: runExport,
 	}
+	addExportCSVFlags(cmd)
+	return cmd
+}
+
+func addExportCSVFlags(cmd *cobra.Command) {
+	// Local flags: ebook exports have their own output contract.
+	cmd.Flags().String("output-dir", "developer", "CSV output directory (relative to source, or absolute)")
+	cmd.Flags().String("filename-prefix", "posts-", "literal CSV filename prefix (non-empty, without path separators)")
 }
 
 func newExportEbookCmd() *cobra.Command {
@@ -164,14 +173,21 @@ func mustStringFlag(cmd *cobra.Command, name string) string {
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
+	prefix := mustStringFlag(cmd, "filename-prefix")
+	if strings.TrimSpace(prefix) == "" || strings.ContainsAny(prefix, "/\\\x00") {
+		return fmt.Errorf("filename-prefix must be non-empty and contain no path separators or NUL")
+	}
 	postsDir := filepath.Join(sourceDir, "content", "posts")
-	developerDir := filepath.Join(sourceDir, "developer")
+	outputDir := mustStringFlag(cmd, "output-dir")
+	if !filepath.IsAbs(outputDir) {
+		outputDir = filepath.Join(sourceDir, outputDir)
+	}
 
 	if _, err := os.Stat(postsDir); os.IsNotExist(err) {
 		return fmt.Errorf("posts directory does not exist: %s", postsDir)
 	}
-	if err := os.MkdirAll(developerDir, 0o755); err != nil {
-		return fmt.Errorf("create developer dir: %w", err)
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
 	}
 
 	rows, err := collectPostRows(postsDir)
@@ -194,13 +210,13 @@ func runExport(cmd *cobra.Command, args []string) error {
 		) > 0
 	})
 
-	csvName := fmt.Sprintf("祝融说_副本%s.csv", time.Now().Format("20060102"))
-	csvPath := filepath.Join(developerDir, csvName)
+	csvName := prefix + time.Now().Format("20060102") + ".csv"
+	csvPath := filepath.Join(outputDir, csvName)
 	if err := writeCSV(csvPath, rows); err != nil {
 		return err
 	}
 
-	removed := cleanupOldExports(developerDir, csvName)
+	removed := cleanupOldExports(outputDir, prefix, csvName)
 	fmt.Printf("export: %d posts → %s (removed %d old CSVs)\n", len(rows), csvPath, removed)
 	return nil
 }
@@ -211,9 +227,9 @@ type postRow struct {
 }
 
 var (
-	moreBlockRE = regexp.MustCompile(`<!--more-->`)
-	listStarRE  = regexp.MustCompile(`\*`)
-	quoteRE     = regexp.MustCompile(`> `)
+	moreBlockRE  = regexp.MustCompile(`<!--more-->`)
+	listStarRE   = regexp.MustCompile(`\*`)
+	quoteRE      = regexp.MustCompile(`> `)
 	whitespaceRE = regexp.MustCompile(`\s+`)
 )
 
@@ -303,20 +319,27 @@ func writeCSV(path string, rows [][2]string) error {
 	return w.Error()
 }
 
-// cleanupOldExports deletes prior 祝融说_副本*.csv files in dir except current.
-// Returns the number of files removed.
-func cleanupOldExports(dir, currentName string) int {
-	pattern := "祝融说_副本*.csv"
-	matches, err := filepath.Glob(filepath.Join(dir, pattern))
+// cleanupOldExports deletes only regular prefix+YYYYMMDD.csv archives except current.
+// Quote the prefix so user-supplied metacharacters cannot widen the cleanup scope.
+func cleanupOldExports(dir, prefix, currentName string) int {
+	if strings.TrimSpace(prefix) == "" {
+		return 0
+	}
+	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `[0-9]{8}\.csv$`)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
 	removed := 0
-	for _, m := range matches {
-		if filepath.Base(m) == currentName {
+	for _, entry := range entries {
+		if entry.Name() == currentName || !pattern.MatchString(entry.Name()) {
 			continue
 		}
-		if err := os.Remove(m); err == nil {
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err == nil {
 			removed++
 		}
 	}

@@ -11,8 +11,8 @@ import (
 	"strings"
 )
 
-func installDOCXCover(path string, book *content.BookEntry, lang content.Lang, fonts CoverFonts, hasMeta bool) error {
-	png, err := publicationCover(book, lang, fonts)
+func installDOCXCover(path string, book *content.BookEntry, lang content.Lang, fonts CoverFonts, hasMeta bool, publications ...content.Publication) error {
+	png, err := publicationCover(book, lang, fonts, publications...)
 	if err != nil {
 		return err
 	}

@@ -79,7 +79,8 @@ func lineHeight(v float64) template.TextOption {
 // monospaced TrueType font registered under the "mono" family and used for
 // code blocks (PDF-1); when empty, code blocks fall back to the body font.
 type PDFOptions struct {
-	FontPath string
+	Publication content.Publication
+	FontPath    string
 	// MonoFontPath registers a monospaced font for code blocks.
 	MonoFontPath string
 	CoverFonts   CoverFonts
@@ -107,19 +108,19 @@ func RenderPDF(book *content.BookEntry, lang content.Lang, outPath string, opts 
 	}
 
 	renderCover(doc, book, lang)
-	renderTitlePage(doc, book, lang)
-	renderCopyrightPage(doc, book, lang)
+	renderTitlePage(doc, book, lang, opts.Publication)
+	renderCopyrightPage(doc, book, lang, opts.Publication)
 	renderTOC(doc, book, lang, plan)
 	if err := renderChapters(doc, book, lang, opts); err != nil {
 		return err
 	}
-	renderBackmatter(doc, book, lang)
+	renderBackmatter(doc, book, lang, opts.Publication)
 
 	data, err := doc.Generate()
 	if err != nil {
 		return fmt.Errorf("render pdf: %w", err)
 	}
-	cover, err := publicationCover(book, lang, opts.CoverFonts)
+	cover, err := publicationCover(book, lang, opts.CoverFonts, opts.Publication)
 	if err != nil {
 		return fmt.Errorf("publication cover: %w", err)
 	}
@@ -157,7 +158,7 @@ func newPDFDocument(book *content.BookEntry, lang content.Lang, opts PDFOptions)
 		template.WithMargins(document.UniformEdges(document.Mm(26))),
 		template.WithMetadata(document.DocumentMetadata{
 			Title:   title,
-			Author:  "Rong Zhu",
+			Author:  publicationMetadataAuthor(opts.Publication, lang),
 			Subject: subject,
 			Creator: "huan ebook exporter",
 		}),
@@ -214,14 +215,17 @@ func pdfHeaderTitle(book *content.BookEntry, lang content.Lang) string {
 // renderTitlePage emits the title page (page 2 in publication order): book
 // title, subtitle, and author/publisher credit. The title page follows the
 // cover and must have low text density (<200 chars, satisfying typo.pdf.titlepage).
-func renderTitlePage(doc *template.Document, book *content.BookEntry, lang content.Lang) {
+func renderTitlePage(doc *template.Document, book *content.BookEntry, lang content.Lang, publications ...content.Publication) {
+	identity := content.PublicationIdentity{}
+	if len(publications) > 0 {
+		identity = publications[0].Identity(lang)
+	}
 	title := book.TitleZH
 	subtitle := book.SubtitleZH
-	credit := "祝融 著"
+	credit := identity.TitleCredit
 	if lang == content.LangEN {
 		title = book.TitleEN
 		subtitle = ""
-		credit = "By Rong Zhu"
 	}
 	page := doc.AddPage()
 	row := func(fn func(c *template.ColBuilder)) {
@@ -244,10 +248,7 @@ func renderTitlePage(doc *template.Document, book *content.BookEntry, lang conte
 		c.Text(credit, template.FontSize(12), template.AlignCenter())
 	})
 	row(func(c *template.ColBuilder) { c.Spacer(document.Pt(20)) })
-	pub := "祝融说 · zhurongshuo.com"
-	if lang == content.LangEN {
-		pub = "zhurongshuo.com"
-	}
+	pub := identity.Publisher
 	row(func(c *template.ColBuilder) {
 		c.Text(pub, template.FontSize(10), template.AlignCenter())
 	})
@@ -256,7 +257,11 @@ func renderTitlePage(doc *template.Document, book *content.BookEntry, lang conte
 // renderCopyrightPage emits the copyright page (page 3 in publication order):
 // contains standard copyright keywords (版权/©/Copyright/版次) satisfying
 // typo.pdf.copyright.
-func renderCopyrightPage(doc *template.Document, book *content.BookEntry, lang content.Lang) {
+func renderCopyrightPage(doc *template.Document, book *content.BookEntry, lang content.Lang, publications ...content.Publication) {
+	identity := content.PublicationIdentity{}
+	if len(publications) > 0 {
+		identity = publications[0].Identity(lang)
+	}
 	page := doc.AddPage()
 	row := func(fn func(c *template.ColBuilder)) {
 		page.AutoRow(func(r *template.RowBuilder) {
@@ -274,10 +279,10 @@ func renderCopyrightPage(doc *template.Document, book *content.BookEntry, lang c
 	row(func(c *template.ColBuilder) { c.Spacer(document.Pt(20)) })
 	if lang == content.LangEN {
 		row(func(c *template.ColBuilder) {
-			c.Text("Copyright © 2010–2026 Rong Zhu", template.FontSize(10), template.AlignCenter())
+			c.Text(identity.Copyright, template.FontSize(10), template.AlignCenter())
 		})
 		row(func(c *template.ColBuilder) {
-			c.Text("All rights reserved · zhurongshuo.com", template.FontSize(9), template.AlignCenter())
+			c.Text(identity.Rights, template.FontSize(9), template.AlignCenter())
 		})
 		row(func(c *template.ColBuilder) { c.Spacer(document.Pt(16)) })
 		row(func(c *template.ColBuilder) {
@@ -285,10 +290,10 @@ func renderCopyrightPage(doc *template.Document, book *content.BookEntry, lang c
 		})
 	} else {
 		row(func(c *template.ColBuilder) {
-			c.Text("版权所有 © 2010–2026 祝融", template.FontSize(10), template.AlignCenter())
+			c.Text(identity.Copyright, template.FontSize(10), template.AlignCenter())
 		})
 		row(func(c *template.ColBuilder) {
-			c.Text("保留一切权利 · zhurongshuo.com", template.FontSize(9), template.AlignCenter())
+			c.Text(identity.Rights, template.FontSize(9), template.AlignCenter())
 		})
 		row(func(c *template.ColBuilder) { c.Spacer(document.Pt(16)) })
 		row(func(c *template.ColBuilder) {
@@ -299,7 +304,11 @@ func renderCopyrightPage(doc *template.Document, book *content.BookEntry, lang c
 
 // renderBackmatter emits the final page (PDF-2): centered book-closing marker
 // satisfying typo.pdf.backmatter ("全书完" / "The End").
-func renderBackmatter(doc *template.Document, book *content.BookEntry, lang content.Lang) {
+func renderBackmatter(doc *template.Document, book *content.BookEntry, lang content.Lang, publications ...content.Publication) {
+	identity := content.PublicationIdentity{}
+	if len(publications) > 0 {
+		identity = publications[0].Identity(lang)
+	}
 	page := doc.AddPage()
 	row := func(fn func(c *template.ColBuilder)) {
 		page.AutoRow(func(r *template.RowBuilder) {
@@ -315,10 +324,7 @@ func renderBackmatter(doc *template.Document, book *content.BookEntry, lang cont
 		c.Text(label, template.FontSize(18), template.Bold(), template.AlignCenter())
 	})
 	row(func(c *template.ColBuilder) { c.Spacer(document.Pt(20)) })
-	site := "祝融说 · zhurongshuo.com"
-	if lang == content.LangEN {
-		site = "zhurongshuo.com"
-	}
+	site := identity.Publisher
 	row(func(c *template.ColBuilder) {
 		c.Text(site, template.FontSize(10), template.AlignCenter())
 	})
@@ -855,4 +861,12 @@ func emitCompactTableGrid(page *template.PageBuilder, rows [][]string, columns i
 		}
 	})
 	return true
+}
+
+func publicationMetadataAuthor(p content.Publication, lang content.Lang) string {
+	identity := p.Identity(lang)
+	if identity.MetadataAuthor != "" {
+		return identity.MetadataAuthor
+	}
+	return identity.Author
 }

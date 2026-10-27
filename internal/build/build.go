@@ -366,7 +366,6 @@ func IncrementalRender(opts Options, cache *PipelineCache, affectedURLs []string
 		p.writer = cache.Writer
 		// Ensure the i18n bundle is wired into the template package (global state).
 		tmpl.SetI18nBundle(p.i18nBundle)
-		_ = tmpl.SetPublicationRevisionNotice(p.cfg.Params.Extra)
 	} else {
 		if err := p.setupTemplatesAndWriter(); err != nil {
 			return fmt.Errorf("IncrementalRender setupTemplatesAndWriter: %w", err)

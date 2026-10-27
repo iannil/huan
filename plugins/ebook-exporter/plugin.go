@@ -19,6 +19,7 @@ import (
 // Config is the ebook-exporter configuration from huan.yaml
 // plugins.ebook_exporter.*.
 type Config struct {
+	Publication content.Publication
 	// OutputDir is the export root (relative to the project source dir).
 	OutputDir string
 	// FontsDir is an optional extra directory searched for CJK fonts.
@@ -76,6 +77,13 @@ func ParseConfig(raw map[string]any) (*Config, error) {
 		}
 		cfg.Cover = b
 	}
+	if v, ok := raw["publication"]; ok {
+		var err error
+		cfg.Publication, err = parsePublication(v)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -87,6 +95,7 @@ func (c *Config) ConfigSchema() plugin.Schema {
 		{Key: "pdf_font", Type: "string", Description: "PDF 正文 TrueType 字体路径"},
 		{Key: "cover_font", Type: "string", Description: "封面中文字体路径"},
 		{Key: "cover_latin_font", Type: "string", Description: "封面英文衬线字体路径"},
+		{Key: "publication", Type: "map", Description: "Optional publisher copy, base URL, and site-relative cover background"},
 		{Key: "cover", Type: "bool", Required: false, Default: true, Description: "是否生成封面页"},
 	}}
 }
@@ -213,34 +222,34 @@ func legacyPath(outRoot, kind, dirName, base string, lang content.Lang, format s
 	return filepath.Join(outRoot, format, kind, dirName, name+"."+format)
 }
 
+// renderOptions is internal to this plugin; the host plugin ABI is unchanged.
+type renderOptions struct {
+	FontPath, MonoFontPath, PDFFont string
+	CoverFonts                      render.CoverFonts
+	Publication                     content.Publication
+}
+
 // renderUnit renders one unit in one language into one format.
-func renderUnit(book *content.BookEntry, lang content.Lang, format, outPath, fontPath, monoFontPath string, publicationFonts ...string) error {
-	pdfFont := fontPath
-	covers := render.CoverFonts{}
-	if len(publicationFonts) > 0 && publicationFonts[0] != "" {
-		pdfFont = publicationFonts[0]
-	}
-	if len(publicationFonts) > 1 {
-		covers.CJK = publicationFonts[1]
-	}
-	if len(publicationFonts) > 2 {
-		covers.Latin = publicationFonts[2]
+func renderUnit(book *content.BookEntry, lang content.Lang, format, outPath string, options renderOptions) error {
+	pdfFont := options.PDFFont
+	if pdfFont == "" {
+		pdfFont = options.FontPath
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return err
 	}
 	switch format {
 	case "epub":
-		opts := render.EPUBOptions{EmbedFont: fontPath != "", FontPath: fontPath, CoverFonts: covers}
+		opts := render.EPUBOptions{EmbedFont: options.FontPath != "", FontPath: options.FontPath, CoverFonts: options.CoverFonts, Publication: options.Publication}
 		return render.RenderEPUB(book, lang, outPath, opts)
 	case "pdf":
 		// PDF requires a CJK font; missing font is a per-item failure.
 		if pdfFont == "" {
 			return fmt.Errorf("pdf: no CJK font found (set fonts_dir config)")
 		}
-		return render.RenderPDF(book, lang, outPath, render.PDFOptions{FontPath: pdfFont, MonoFontPath: monoFontPath, CoverFonts: covers})
+		return render.RenderPDF(book, lang, outPath, render.PDFOptions{FontPath: pdfFont, MonoFontPath: options.MonoFontPath, CoverFonts: options.CoverFonts, Publication: options.Publication})
 	case "docx":
-		return render.RenderDOCX(book, lang, outPath, render.DOCXOptions{CoverFonts: covers})
+		return render.RenderDOCX(book, lang, outPath, render.DOCXOptions{CoverFonts: options.CoverFonts, Publication: options.Publication})
 	}
 	return fmt.Errorf("unknown format: %s", format)
 }
@@ -426,6 +435,10 @@ func renderableFont(path string) bool {
 // export cannot proceed at all.
 func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (plugin.ExportResult, error) {
 	req = normalizeReq(req)
+	publication, err := loadPublication(req.SourceDir, p.cfg.Publication)
+	if err != nil {
+		return plugin.ExportResult{}, err
+	}
 	outRoot := p.cfg.OutputDir
 	if !filepath.IsAbs(outRoot) {
 		outRoot = filepath.Join(req.SourceDir, p.cfg.OutputDir)
@@ -505,7 +518,10 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 	// existing exports once the derivation changes.
 	assets := []string{fontPath, monoFontPath, pdfFont, coverFont, coverLatinFont, filepath.Join(req.SourceDir, "data/books.yaml"), filepath.Join(req.SourceDir, "data/practices.yaml")}
 	assetHash := ComputeHash(assets)
-	hash := func(u *unit) string { return "publication-v4-20260909:" + assetHash + ":" + ComputeHash(u.mdPaths) }
+	publicationHash := publication.Fingerprint()
+	hash := func(u *unit) string {
+		return "publication-v5:" + publicationHash + ":" + assetHash + ":" + ComputeHash(u.mdPaths)
+	}
 	reqFormats := formatsFor(req.Format)
 
 	// Phase 1: incremental skip — cheap, sequential, no rendering.
@@ -582,7 +598,7 @@ func (p *EbookExporter) Export(ctx context.Context, req plugin.ExportRequest) (p
 				formatOK := true
 				for _, lang := range j.langs {
 					out := outPath(outRoot, j.u.kind, j.u.dirName, j.u, lang, f)
-					if err := renderUnit(j.u.agg, lang, f, out, fontPath, monoFontPath, pdfFont, coverFont, coverLatinFont); err != nil {
+					if err := renderUnit(j.u.agg, lang, f, out, renderOptions{FontPath: fontPath, MonoFontPath: monoFontPath, PDFFont: pdfFont, CoverFonts: render.CoverFonts{CJK: coverFont, Latin: coverLatinFont}, Publication: publication}); err != nil {
 						jr.fails = append(jr.fails, plugin.ExportFailure{
 							Item: plugin.ExportItem{Path: out, Lang: string(lang), Format: f, Slug: j.u.agg.Slug},
 							Err:  err.Error(),

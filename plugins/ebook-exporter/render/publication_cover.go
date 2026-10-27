@@ -16,6 +16,7 @@ import (
 
 	"github.com/iannil/huan-plugin-ebook-exporter/content"
 	"github.com/iannil/huan-plugin-ebook-exporter/style"
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
@@ -117,7 +118,12 @@ func wrapCoverText(text string, face font.Face, maxWidth float64) []string {
 	return lines
 }
 
-func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFonts) ([]byte, error) {
+func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFonts, publications ...content.Publication) ([]byte, error) {
+	publication := content.Publication{}
+	if len(publications) > 0 {
+		publication = publications[0]
+	}
+	identity := publication.Identity(lang)
 	if fonts.CJK == "" {
 		fonts.CJK, _ = style.FindCJKFont("")
 	}
@@ -132,28 +138,12 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 	sans, _ := loadCoverFont("", goregular.TTF)
 	im := image.NewRGBA(image.Rect(0, 0, int(math.Round(coverWidth*coverScale)), int(math.Round(coverHeight*coverScale))))
 	draw.Draw(im, im.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-	red := color.RGBA{173, 47, 46, 255}
-	ivory := color.RGBA{252, 251, 239, 255}
-	draw.Draw(im, image.Rect(int(math.Round(425*coverScale)), 0, im.Bounds().Dx(), im.Bounds().Dy()), image.NewUniform(red), image.Point{}, draw.Src)
-	for _, cy := range []float64{343, 421, 499} {
-		cx, y, r := 510*coverScale, cy*coverScale, 18*coverScale
-		for py := int(y - r - 1); py <= int(y+r+1); py++ {
-			for px := int(cx - r - 1); px <= int(cx+r+1); px++ {
-				// Four subpixel samples keep small circular edges smooth at print size.
-				n := 0
-				for _, dy := range []float64{.25, .75} {
-					for _, dx := range []float64{.25, .75} {
-						a, b := float64(px)+dx-cx, float64(py)+dy-y
-						if a*a+b*b <= r*r {
-							n++
-						}
-					}
-				}
-				if n > 0 {
-					im.SetRGBA(px, py, color.RGBA{uint8((int(ivory.R)*n + int(red.R)*(4-n)) / 4), uint8((int(ivory.G)*n + int(red.G)*(4-n)) / 4), uint8((int(ivory.B)*n + int(red.B)*(4-n)) / 4), 255})
-				}
-			}
+	if len(publication.BackgroundPNG) > 0 {
+		background, err := png.Decode(bytes.NewReader(publication.BackgroundPNG))
+		if err != nil {
+			return nil, fmt.Errorf("cover background: %w", err)
 		}
+		xdraw.CatmullRom.Scale(im, im.Bounds(), background, background.Bounds(), draw.Over, nil)
 	}
 	text := func(x, y float64, s string, size float64, f *sfnt.Font, gray bool) error {
 		face, e := opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 300, Hinting: font.HintingNone})
@@ -169,10 +159,10 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 		d.DrawString(s)
 		return nil
 	}
-	if err = text(52, 73, "祝融说。", 20, cjk, false); err != nil {
+	if err = text(52, 73, identity.CoverBrand, 20, cjk, false); err != nil {
 		return nil, err
 	}
-	text(53, 98, "ZHURONGSHUO", 9, sans, true)
+	text(53, 98, identity.CoverBrandLatin, 9, sans, true)
 	title, sub := inlinePlain(book.TitleZH), inlinePlain(book.SubtitleZH)
 	chineseSub := ""
 	if lang != content.LangEN {
@@ -253,15 +243,17 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 			y += 20
 		}
 	}
+	taglineFont, creditFont := cjk, cjk
+	taglineSize, taglineY := 12.0, 661.0
 	if lang == content.LangEN {
-		text(54, 651, "FORM NOT VOID,", 10, sans, true)
-		text(54, 668, "MIND NO CORE", 10, sans, true)
-		text(54, 727, "Rong Zhu", 13, latin, false)
-	} else {
-		text(54, 661, "法不净空，觉无性也。", 12, cjk, true)
-		text(54, 727, "祝融 著", 13, cjk, false)
+		taglineFont, creditFont = sans, latin
+		taglineSize, taglineY = 10, 651
 	}
-	text(54, 777, "zhurongshuo.com", 10, sans, true)
+	for i, line := range identity.CoverTagline {
+		text(54, taglineY+float64(i)*17, line, taglineSize, taglineFont, true)
+	}
+	text(54, 727, identity.CoverCredit, 13, creditFont, false)
+	text(54, 777, identity.CoverFooter, 10, sans, true)
 	var out bytes.Buffer
 	if err := png.Encode(&out, im); err != nil {
 		return nil, err
@@ -269,8 +261,8 @@ func publicationCover(book *content.BookEntry, lang content.Lang, fonts CoverFon
 	return out.Bytes(), nil
 }
 
-func publicationCoverSVG(book *content.BookEntry, lang content.Lang, fonts CoverFonts) (string, error) {
-	data, err := publicationCover(book, lang, fonts)
+func publicationCoverSVG(book *content.BookEntry, lang content.Lang, fonts CoverFonts, publications ...content.Publication) (string, error) {
+	data, err := publicationCover(book, lang, fonts, publications...)
 	if err != nil {
 		return "", err
 	}

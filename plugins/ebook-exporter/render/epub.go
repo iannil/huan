@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -171,6 +172,7 @@ func replaceUnderscoreEm(s string) string {
 
 // EPUBOptions controls EPUB rendering behavior.
 type EPUBOptions struct {
+	Publication content.Publication
 	// EmbedFont embeds a CJK font into the EPUB (larger file, portable).
 	EmbedFont bool
 	// FontPath is the path of the font file to embed.
@@ -212,12 +214,12 @@ func titlePageXHTML(book *content.BookEntry, lang content.Lang) string {
 // AddImage reads from a source path; go-epub only fetches that source at
 // Write time, so the returned cleanup function must not run before the
 // caller's Write — defer it in RenderEPUB, which writes last.
-func addCover(e *goepub.Epub, book *content.BookEntry, lang content.Lang, fonts CoverFonts) (cleanup func(), err error) {
-	svg, err := publicationCoverSVG(book, lang, fonts)
+func addCover(e *goepub.Epub, book *content.BookEntry, lang content.Lang, fonts CoverFonts, publication content.Publication) (cleanup func(), err error) {
+	svg, err := publicationCoverSVG(book, lang, fonts, publication)
 	if err != nil {
 		return nil, err
 	}
-	tmp, err := os.CreateTemp("", "zhurongshuo-cover-*.svg")
+	tmp, err := os.CreateTemp("", "ebook-cover-*.svg")
 	if err != nil {
 		return nil, fmt.Errorf("create cover temp: %w", err)
 	}
@@ -255,10 +257,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if err != nil {
 		return fmt.Errorf("create epub: %w", err)
 	}
-	author := "祝融"
-	if lang == content.LangEN {
-		author = "Rong Zhu"
-	}
+	author := opts.Publication.Identity(lang).Author
 	e.SetAuthor(author)
 	if lang == content.LangEN {
 		e.SetLang("en")
@@ -303,7 +302,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	// cover-image. SetCover inserts the cover section spine-first, ahead of
 	// the title page below. go-epub only reads the source file during Write,
 	// so the temp SVG's cleanup is deferred until after that write.
-	coverCleanup, err := addCover(e, book, lang, opts.CoverFonts)
+	coverCleanup, err := addCover(e, book, lang, opts.CoverFonts, opts.Publication)
 	if err != nil {
 		return fmt.Errorf("add cover: %w", err)
 	}
@@ -388,7 +387,7 @@ func RenderEPUB(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if err := e.Write(outPath); err != nil {
 		return fmt.Errorf("write epub: %w", err)
 	}
-	if err := normalizeEPUB(outPath, linkTargets); err != nil {
+	if err := normalizeEPUBWithLinks(outPath, linkTargets, opts.Publication.BaseURL); err != nil {
 		return fmt.Errorf("normalize epub: %w", err)
 	}
 	return nil
@@ -415,6 +414,14 @@ func epubSemType(secType string) string { return epubSemTypes[secType] }
 // zip is post-processed here. Entry order and the STORED first mimetype
 // entry — both required by the OCF spec and epubcheck — are preserved.
 func normalizeEPUB(path string, mappings ...map[string]string) error {
+	var targets map[string]string
+	if len(mappings) > 0 {
+		targets = mappings[0]
+	}
+	return normalizeEPUBWithLinks(path, targets, "")
+}
+
+func normalizeEPUBWithLinks(path string, targets map[string]string, baseURL string) error {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
 		return err
@@ -439,9 +446,7 @@ func normalizeEPUB(path string, mappings ...map[string]string) error {
 		hdr := f.FileHeader
 		if strings.HasSuffix(f.Name, ".xhtml") || strings.HasSuffix(f.Name, ".html") {
 			data = []byte(strings.ReplaceAll(string(data), ` dir="auto"`, ""))
-			if len(mappings) > 0 {
-				data = []byte(epubResolveLinks(string(data), mappings[0]))
-			}
+			data = []byte(epubResolveLinks(string(data), targets, baseURL))
 		}
 		entries = append(entries, entry{header: hdr, data: data})
 	}
@@ -636,7 +641,11 @@ func epubSourceURL(src string) string {
 
 var epubRootHref = regexp.MustCompile(`href="(/[^" ]*)"`)
 
-func epubResolveLinks(body string, targets map[string]string) string {
+func epubResolveLinks(body string, targets map[string]string, baseURLs ...string) string {
+	baseURL := ""
+	if len(baseURLs) > 0 {
+		baseURL = strings.TrimRight(baseURLs[0], "/")
+	}
 	return epubRootHref.ReplaceAllStringFunc(body, func(attr string) string {
 		url := html.UnescapeString(attr[len(`href="`) : len(attr)-1])
 		if strings.HasPrefix(url, "//") {
@@ -649,6 +658,13 @@ func epubResolveLinks(body string, targets map[string]string) string {
 			}
 			return `href="` + html.EscapeString(dest) + `"`
 		}
-		return `href="https://zhurongshuo.com` + html.EscapeString(url) + `"`
+		if baseURL != "" {
+			base, baseErr := neturl.Parse(baseURL)
+			ref, refErr := neturl.Parse(url)
+			if baseErr == nil && refErr == nil {
+				url = base.ResolveReference(ref).String()
+			}
+		}
+		return `href="` + html.EscapeString(url) + `"`
 	})
 }

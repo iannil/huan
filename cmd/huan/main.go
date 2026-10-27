@@ -18,7 +18,7 @@ var sourceDir string
 var rootCmd = &cobra.Command{
 	Use:   "huan",
 	Short: "A static site generator",
-	Long:  "huan is a static site generator written in Go, designed to replace Hugo for zhurongshuo.com.",
+	Long:  "huan is a static site generator written in Go for file-based content publishing.",
 }
 
 func init() {

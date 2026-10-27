@@ -11,7 +11,10 @@ import (
 
 // DOCXOptions controls DOCX rendering behavior. V1 has no knobs;
 // reserved for future use.
-type DOCXOptions struct{ CoverFonts CoverFonts }
+type DOCXOptions struct {
+	CoverFonts  CoverFonts
+	Publication content.Publication
+}
 
 // docxFirstLineIndentTwips is the body-paragraph first-line indent
 // (2 CJK characters at 12pt ≈ 480 twips).
@@ -53,10 +56,7 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if lang == content.LangEN {
 		title = TypographCJK(book.TitleEN)
 	}
-	author := "祝融"
-	if lang == content.LangEN {
-		author = "Rong Zhu"
-	}
+	author := opts.Publication.Identity(lang).Author
 	builder := docx.NewDocumentBuilder(
 		docx.WithTitle(title),
 		docx.WithAuthor(author),
@@ -182,7 +182,7 @@ func RenderDOCX(book *content.BookEntry, lang content.Lang, outPath string, opts
 	if err := doc.SaveAs(outPath); err != nil {
 		return fmt.Errorf("save docx: %w", err)
 	}
-	return installDOCXCover(outPath, book, lang, opts.CoverFonts, len(meta) > 0)
+	return installDOCXCover(outPath, book, lang, opts.CoverFonts, len(meta) > 0, opts.Publication)
 }
 
 // docxChapterTitleLevel maps an in-chapter heading level to a DOCX style ID.

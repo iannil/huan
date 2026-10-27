@@ -95,7 +95,6 @@ func RenderPageWithCache(opts Options, cache *PipelineCache, pageURL string) (st
 		p.renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(p.cfg.BaseURL))
 		p.writer = cache.Writer
 		tmpl.SetI18nBundle(p.i18nBundle)
-		_ = tmpl.SetPublicationRevisionNotice(p.cfg.Params.Extra)
 	} else {
 		if err := p.setupTemplatesAndWriter(); err != nil {
 			return "", fmt.Errorf("RenderPageWithCache setupTemplatesAndWriter: %w", err)

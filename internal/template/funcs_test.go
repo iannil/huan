@@ -464,11 +464,8 @@ var testedFuncs = map[string]bool{
 	// RSS
 	"rssLastBuildDate": true,
 
-	// Site-theme functions promoted from the retired zhurongshuo theme
-	// plugin (funcs_theme.go, covered by funcs_theme_test.go)
-	"readingTime": true, "parseGuideYAML": true, "svgTextWidth": true,
-	"svgTruncate": true, "svgWrap": true, "failRender": true,
-	"guideChartTypes": true, "publicationRevisionNotice": true,
+	// Generic data and text primitives.
+	"parseYAML": true, "errorf": true, "textWidth": true, "textWrap": true, "textTruncate": true,
 
 	// Hugo-style functions used in production (zhurongshuo templates rely on
 	// these). Listed here as "trusted" because they have implicit coverage
