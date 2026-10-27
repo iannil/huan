@@ -35,6 +35,7 @@ type Renderer struct {
 // Fenced code blocks are syntax-highlighted using chroma (matching Hugo's output).
 func NewRenderer(cfg *config.MarkupConfig) *Renderer {
 	extensions := []goldmark.Extender{
+		Math,                            // Preserve TeX delimiters and content for client-side rendering
 		cjkfriendly.CJKFriendlyEmphasis, // Emphasis next to CJK punctuation
 		extension.GFM,                   // GitHub Flavored Markdown (tables, strikethrough, etc.)
 		extension.Linkify,               // Auto-detect bare URLs

@@ -20,6 +20,7 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/iannil/huan/internal/markdown"
 	cjkfriendly "github.com/tats-u/goldmark-cjk-friendly/v2"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -1291,7 +1292,7 @@ func comparisonText(v interface{}) string {
 // field or frontmatter).
 func markdownifyFunc(s string) (string, error) {
 	md := goldmark.New(
-		goldmark.WithExtensions(cjkfriendly.CJKFriendlyEmphasis, extension.Footnote),
+		goldmark.WithExtensions(cjkfriendly.CJKFriendlyEmphasis, extension.Footnote, markdown.Math),
 		goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()),
 	)
 	var buf bytes.Buffer
