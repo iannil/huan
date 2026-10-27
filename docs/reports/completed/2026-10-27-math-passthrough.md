@@ -1,6 +1,18 @@
 # goldmark 数学透传修复
 
-更新时间：2026-10-27 17:37 +0800。状态：源码、完整站点构建及浏览器验证通过；本次用户已授权提交、推送、发布 v0.12.3 和本地 go install，发布正在执行。
+更新时间：2026-10-27 17:42 +0800。状态：v0.12.3 已提交、推送、发布并完成本地 go install；GitHub Release 与 GHCR 发布流水线成功。
+
+### 发布验收结果（2026-10-27 17:42 +0800）
+
+- 源码提交及标签：`473f8e2b6c6458bd0ac5b4af999ba9955a06dc19`，`v0.12.3`。
+- [GitHub Release](https://github.com/iannil/huan/releases/tag/v0.12.3)：五个平台归档 + checksums + manifest，共七个附件；已下载至 `release/0.12.3/`，五个归档 SHA256 全部匹配。darwin/arm64 发布二进制实测 `huan 0.12.3 (473f8e2)`。
+- [Release workflow](https://github.com/iannil/huan/actions/runs/40482117212)：completed / success。
+- GHCR：`ghcr.io/iannil/huan:v0.12.3` 镜像索引已通过 registry 查询验证，digest `sha256:eb1daf6dde47e527c54c5ad45f708673aaa797ff804f524ad24b35e170664748`；运行平台为 linux/amd64。
+- 本地安装：先从标签对应的干净源码构建 Admin UI，再执行 `go install ./cmd/huan`；`/Users/rong.zhu/go/bin/huan version` 输出 `huan 0.12.3 (473f8e2)`，Go 构建信息为 v0.12.3、vcs.modified=false。SHA256：`8b684c928f0c9756b196637953d4b0afaf04dc20ecad484c123ce1c7c9c03c23`。
+- 已安装二进制在独立 HUAN_HOME 下构建 minimal fixture 成功：4 页、17 文件；fixture 缺 terms/search 模板警告保留。
+- 安装限制：直接 `go install github.com/iannil/huan/cmd/huan@v0.12.3` 失败，因为源码模块不含被忽略的 `internal/admin/dist`，而 handler 使用 go:embed。此次按现有 CI 的前端构建步骤解决本地安装，未改变已发布标签或模块打包机制。
+- 前端构建通过；npm ci 报告现有依赖 22 个漏洞（5 moderate、16 high、1 critical），未在本次发布中执行依赖升级。
+- 本次未重启已有服务、升级下游站点或替换本地插件；已发布镜像不等于下游线上服务已升级。
 
 ## v0.12.3 发布记录
 
