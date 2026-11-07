@@ -24,9 +24,10 @@ func newExportCmd() *cobra.Command {
 		Short: "Export content (default: posts CSV archive; 'ebook' for ebook formats)",
 		Long: `Bare ` + "`huan export`" + ` walks content/posts/ for .md files, extracts
 frontmatter dates and cleaned body text, and writes a date-sorted
-(RFC 4180, UTF-8 BOM) CSV to developer/posts-YYYYMMDD.csv by default.
-Use --output-dir and --filename-prefix to choose the archive location and name.
-Prior CSV archives with the same literal prefix and an eight-digit date are removed.
+(RFC 4180, UTF-8 BOM) CSV under csvOutputDir from huan.yaml (default: archive/)
+as posts-YYYYMMDD.csv. Use --output-dir and --filename-prefix to choose the
+archive location and name. Prior CSV archives with the same literal prefix and
+an eight-digit date are removed.
 
 Subcommands: csv (same as bare), ebook (offline document formats via an
 exporter plugin).`,
@@ -44,8 +45,8 @@ func newExportCsvCmd() *cobra.Command {
 		Use:   "csv",
 		Short: "Export content/posts/*.md to a CSV archive",
 		Long: `Walk content/posts/ for .md files, extract frontmatter dates and
-cleaned body text, and write a date-sorted (RFC 4180, UTF-8 BOM) CSV to
-developer/posts-YYYYMMDD.csv by default.
+cleaned body text, and write a date-sorted (RFC 4180, UTF-8 BOM) CSV under
+csvOutputDir from huan.yaml (default: archive/) as posts-YYYYMMDD.csv.
 
 Use --output-dir and --filename-prefix to choose the archive location and name.
 Prior CSV archives with the same literal prefix and an eight-digit date are removed.`,
@@ -58,7 +59,9 @@ Prior CSV archives with the same literal prefix and an eight-digit date are remo
 
 func addExportCSVFlags(cmd *cobra.Command) {
 	// Local flags: ebook exports have their own output contract.
-	cmd.Flags().String("output-dir", "developer", "CSV output directory (relative to source, or absolute)")
+	// Default "archive" matches Defaults().CsvOutputDir; runExport prefers
+	// huan.yaml csvOutputDir when the flag was not explicitly changed.
+	cmd.Flags().String("output-dir", "archive", "CSV output directory (relative to source, or absolute); defaults to csvOutputDir in huan.yaml")
 	cmd.Flags().String("filename-prefix", "posts-", "literal CSV filename prefix (non-empty, without path separators)")
 }
 
@@ -179,6 +182,13 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 	postsDir := filepath.Join(sourceDir, "content", "posts")
 	outputDir := mustStringFlag(cmd, "output-dir")
+	if !cmd.Flags().Changed("output-dir") {
+		if cfg, err := config.Load(sourceDir); err == nil {
+			if dir := strings.TrimSpace(cfg.CsvOutputDir); dir != "" {
+				outputDir = dir
+			}
+		}
+	}
 	if !filepath.IsAbs(outputDir) {
 		outputDir = filepath.Join(sourceDir, outputDir)
 	}

@@ -35,7 +35,7 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		OutputDir: "developer/export",
+		OutputDir: "export",
 		Cover:     true,
 	}
 }
@@ -90,7 +90,7 @@ func ParseConfig(raw map[string]any) (*Config, error) {
 // ConfigSchema returns the plugin.Schema for config validation.
 func (c *Config) ConfigSchema() plugin.Schema {
 	return plugin.Schema{Fields: []plugin.FieldSchema{
-		{Key: "output_dir", Type: "string", Required: false, Default: "developer/export", Description: "ebook 输出根目录（相对项目根）"},
+		{Key: "output_dir", Type: "string", Required: false, Default: "export", Description: "ebook 输出根目录（相对项目根）"},
 		{Key: "fonts_dir", Type: "string", Required: false, Description: "额外的 CJK 字体搜索目录"},
 		{Key: "pdf_font", Type: "string", Description: "PDF 正文 TrueType 字体路径"},
 		{Key: "cover_font", Type: "string", Description: "封面中文字体路径"},

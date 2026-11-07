@@ -140,7 +140,7 @@ func TestExportRenamesSlugArtifacts(t *testing.T) {
 	ex := p.(plugin.Exporter)
 
 	// Simulate a pre-v4 export: slug-named epub sitting in the output dir.
-	legacy := filepath.Join(root, "developer/export/epub/books/individual/demo-book.epub")
+	legacy := filepath.Join(root, "export/epub/books/individual/demo-book.epub")
 	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestExportRenamesSlugArtifacts(t *testing.T) {
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
 		t.Fatalf("legacy slug artifact still exists (err=%v)", err)
 	}
-	localized := filepath.Join(root, "developer/export/epub/books/individual/示范书.epub")
+	localized := filepath.Join(root, "export/epub/books/individual/示范书.epub")
 	if _, err := os.Stat(localized); err != nil {
 		t.Fatalf("localized artifact missing: %v", err)
 	}

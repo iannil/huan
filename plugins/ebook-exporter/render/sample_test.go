@@ -6,7 +6,7 @@ package render
 //
 // 构造一本覆盖全部块类型与版式特征的"构造样张"书（zh + en 两版），
 // 用三个后端渲染为 PDF/EPUB/DOCX，输出目录由 EBOOK_SAMPLE_OUT 指定
-// （默认 developer/export/STYLE-SAMPLES，相对当前工作目录），字体由
+// （默认 export/STYLE-SAMPLES，相对当前工作目录），字体由
 // EBOOK_SAMPLE_FONT 指定（缺省走 style.FindCJKFont）。
 //
 // 样张内容为专用构造文本，刻意覆盖出版版式的全部模式，供正式修改前的
@@ -123,7 +123,7 @@ func Observer() string {
 
 `+"```bash"+`
 # 长行代码：超过正文宽度的命令必须折行而不丢字符
-huan export ebook --type books --level all --format all --jobs 8 --force --output developer/export
+huan export ebook --type books --level all --format all --jobs 8 --force --output export
 `+"```"+`
 
 ## 表格与列表版式
@@ -199,7 +199,7 @@ Closing paragraph.
 
 `+"```bash"+`
 # Long command lines must wrap without losing characters
-huan export ebook --type books --level all --format all --jobs 8 --force --output developer/export
+huan export ebook --type books --level all --format all --jobs 8 --force --output export
 `+"```"+`
 
 ## Table and List Layout

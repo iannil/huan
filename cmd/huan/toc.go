@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/iannil/huan/internal/config"
 	"github.com/iannil/huan/internal/content"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -38,7 +39,7 @@ func newTocCmd() *cobra.Command {
 		Use:   "toc",
 		Short: "Generate table-of-contents markdown for books/practices/products",
 		Long: `Scan content/{books,practices,products}/ and write three markdown files
-to developer/toc/:
+to the directory configured by tocDir in huan.yaml (default: toc/):
 
   books-toc.md      — books organized by volume → book → part → chapter
   practices-toc.md  — practices organized by season → practice → part → chapter
@@ -51,7 +52,20 @@ Structure mirrors data/books.yaml and data/practices.yaml.`,
 }
 
 func runToc(cmd *cobra.Command, args []string) error {
-	outDir := filepath.Join(sourceDir, "developer", "toc")
+	cfg, err := config.Load(sourceDir)
+	if err != nil {
+		return err
+	}
+	tocDir := cfg.TocDir
+	if tocDir == "" {
+		tocDir = "toc"
+	}
+	var outDir string
+	if filepath.IsAbs(tocDir) {
+		outDir = tocDir
+	} else {
+		outDir = filepath.Join(sourceDir, tocDir)
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create toc dir: %w", err)
 	}
@@ -87,9 +101,9 @@ func generateToc(sourceDir, kind string) (string, error) {
 
 type collectionData struct {
 	Collection []struct {
-		Volume     string `yaml:"volume"`
-		Season     string `yaml:"season"`
-		Books      []struct {
+		Volume string `yaml:"volume"`
+		Season string `yaml:"season"`
+		Books  []struct {
 			Slug  string `yaml:"slug"`
 			Title string `yaml:"title"`
 		} `yaml:"books"`

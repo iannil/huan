@@ -9,7 +9,7 @@ huan Exporter 能力插件：将站点内容（books / practices / posts）导�
 ```yaml
 plugins:
   ebook_exporter:
-    output_dir: "developer/export"   # 默认，可省略
+    output_dir: "export"   # 默认，可省略；站点可改为 drafts/publishing/export 等
     fonts_dir: ""                    # 可选：自定义字体目录（默认扫描系统字体目录）
     cover: true                      # 保留配置；当前三个后端均生成封面
     pdf_font: ""                     # 可选：单独指定 PDF 正文 TrueType 字体
@@ -43,7 +43,7 @@ huan export ebook --season 3
 huan export ebook --type all --format all --force
 ```
 
-产物落 `developer/export/{epub,pdf,docx}/books|practices|posts/{individual|volumes|complete}/`，文件名随语言本地化：中文版用中文书名（`title`），英文版用英文书名（`subtitle`，半角冒号转全角）；英文书名缺失回退中文书名并加 `-en` 后缀。重跑时未变化的书自动跳过（增量 manifest）。旧 slug 命名文件在重导出成功后自动清理。
+产物落 `{output_dir}/{epub,pdf,docx}/books|practices|posts/{individual|volumes|complete}/`（默认 `output_dir=export`），文件名随语言本地化：中文版用中文书名（`title`），英文版用英文书名（`subtitle`，半角冒号转全角）；英文书名缺失回退中文书名并加 `-en` 后缀。重跑时未变化的书自动跳过（增量 manifest）。旧 slug 命名文件在重导出成功后自动清理。
 
 ## 依赖
 

@@ -38,7 +38,7 @@ func TestExportCSVDefaults(t *testing.T) {
 			if err := cmd.Execute(); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(dir, "developer", "posts-"+time.Now().Format("20060102")+".csv")
+			path := filepath.Join(dir, "archive", "posts-"+time.Now().Format("20060102")+".csv")
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
@@ -116,7 +116,7 @@ func TestExportCSVRejectsUnsafePrefix(t *testing.T) {
 			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "filename-prefix") {
 				t.Fatalf("want prefix validation error, got %v", err)
 			}
-			if _, err := os.Stat(filepath.Join(dir, "developer")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(dir, "archive")); !os.IsNotExist(err) {
 				t.Fatalf("invalid prefix created output directory: %v", err)
 			}
 		})

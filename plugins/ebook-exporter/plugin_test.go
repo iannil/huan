@@ -9,7 +9,7 @@ import (
 
 func TestInitPluginConfig(t *testing.T) {
 	p, err := InitPlugin(map[string]any{
-		"output_dir": "developer/export",
+		"output_dir": "export",
 		"cover":      true,
 	})
 	if err != nil {

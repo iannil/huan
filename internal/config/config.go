@@ -16,36 +16,44 @@ type PluginConfig struct {
 func (p PluginConfig) RawConfig() map[string]any {
 	return p.Config
 }
+
 type Config struct {
-	BaseURL      string            `yaml:"baseURL"`
-	Title        string            `yaml:"title"`
-	LanguageCode string            `yaml:"languageCode"`
-	PublishDir   string            `yaml:"publishDir"`
+	BaseURL      string `yaml:"baseURL"`
+	Title        string `yaml:"title"`
+	LanguageCode string `yaml:"languageCode"`
+	PublishDir   string `yaml:"publishDir"`
+	// TocDir is where `huan toc` writes books/practices/products TOC markdown.
+	// Relative to the project root. Default "toc".
+	TocDir string `yaml:"tocDir"`
+	// CsvOutputDir is the default directory for `huan export` / `huan export csv`.
+	// Overridable by --output-dir. Relative to the project root (or absolute).
+	// Default "archive".
+	CsvOutputDir string `yaml:"csvOutputDir"`
 	// CleanPublishDir wipes the output dir before building. Default true.
 	// Set false to keep stale files (legacy behavior).
-	CleanPublishDir *bool            `yaml:"cleanPublishDir"`
-	Paginate     int               `yaml:"paginate"`
-	Minify       bool              `yaml:"minify"`
-	HasCJKLang   bool              `yaml:"hasCJKLanguage"`
-	SummaryLen   int               `yaml:"summaryLength"`
-	EnableEmoji  bool              `yaml:"enableEmoji"`
+	CleanPublishDir *bool `yaml:"cleanPublishDir"`
+	Paginate        int   `yaml:"paginate"`
+	Minify          bool  `yaml:"minify"`
+	HasCJKLang      bool  `yaml:"hasCJKLanguage"`
+	SummaryLen      int   `yaml:"summaryLength"`
+	EnableEmoji     bool  `yaml:"enableEmoji"`
 
 	// i18n: when Languages is non-empty, BuildMultiSite runs per-language.
 	// See internal/config/languages.go and docs/adr/0007-i18n-build-system.md.
-	DefaultContentLanguage string                      `yaml:"defaultContentLanguage"`
-	Languages              map[string]LanguageConfig   `yaml:"languages"`
+	DefaultContentLanguage string                    `yaml:"defaultContentLanguage"`
+	Languages              map[string]LanguageConfig `yaml:"languages"`
 
-	Author       AuthorConfig      `yaml:"author"`
-	Params       ParamsConfig      `yaml:"params"`
-	Menu         map[string][]MenuItem `yaml:"menu"`
-	Social       []SocialItem      `yaml:"social"`
-	Markup       MarkupConfig      `yaml:"markup"`
-	Sitemap      SitemapConfig     `yaml:"sitemap"`
-	RSS          RSSConfig         `yaml:"rss"`
-	Outputs      OutputsConfig     `yaml:"outputs"`
-	AI           AIConfig          `yaml:"ai"`
-	Plugins      map[string]PluginConfig `yaml:"plugins"`
-	Theme        string                    `yaml:"theme"`
+	Author  AuthorConfig            `yaml:"author"`
+	Params  ParamsConfig            `yaml:"params"`
+	Menu    map[string][]MenuItem   `yaml:"menu"`
+	Social  []SocialItem            `yaml:"social"`
+	Markup  MarkupConfig            `yaml:"markup"`
+	Sitemap SitemapConfig           `yaml:"sitemap"`
+	RSS     RSSConfig               `yaml:"rss"`
+	Outputs OutputsConfig           `yaml:"outputs"`
+	AI      AIConfig                `yaml:"ai"`
+	Plugins map[string]PluginConfig `yaml:"plugins"`
+	Theme   string                  `yaml:"theme"`
 
 	// Computed (not from YAML)
 	BaseURLTemplate template.URL
@@ -54,7 +62,7 @@ type Config struct {
 
 // ServicesConfig mirrors Hugo's [services] section for template compatibility.
 type ServicesConfig struct {
-	RSS RSSConfig
+	RSS    RSSConfig
 	Disqus DisqusConfig
 }
 
@@ -68,21 +76,21 @@ type AuthorConfig struct {
 }
 
 type ParamsConfig struct {
-	SubTitle      string                       `yaml:"subTitle"`
-	FooterSlogan  string                       `yaml:"footerSlogan"`
-	Keywords      []string                     `yaml:"keywords"`
-	Description   string                       `yaml:"description"`
-	Copyrights    string                       `yaml:"copyrights"`
-	EnableMathJax bool                         `yaml:"enableMathJax"`
-	EnableSummary bool                         `yaml:"enableSummary"`
-	MainSections  []string                     `yaml:"mainSections"`
-	GoogleAnalytics string                     `yaml:"googleAnalytics"`
-	CDNURL        string                       `yaml:"cdnURL"`
+	SubTitle        string   `yaml:"subTitle"`
+	FooterSlogan    string   `yaml:"footerSlogan"`
+	Keywords        []string `yaml:"keywords"`
+	Description     string   `yaml:"description"`
+	Copyrights      string   `yaml:"copyrights"`
+	EnableMathJax   bool     `yaml:"enableMathJax"`
+	EnableSummary   bool     `yaml:"enableSummary"`
+	MainSections    []string `yaml:"mainSections"`
+	GoogleAnalytics string   `yaml:"googleAnalytics"`
+	CDNURL          string   `yaml:"cdnURL"`
 
 	// Extra absorbs unrecognized keys under params for configuration consumers.
 	Extra map[string]any `yaml:",inline"`
 
-	Author        AuthorConfig                 `yaml:"author"`
+	Author AuthorConfig `yaml:"author"`
 }
 
 type MenuItem struct {
@@ -142,8 +150,8 @@ type AIConfig struct {
 
 // BuildConfig mirrors Hugo's build frontmatter directive.
 type BuildConfig struct {
-	List             string `yaml:"list"`     // never, always
-	Render           string `yaml:"render"`   // never, always
+	List             string `yaml:"list"`   // never, always
+	Render           string `yaml:"render"` // never, always
 	PublishResources bool   `yaml:"publishResources"`
 }
 
@@ -165,6 +173,8 @@ func Defaults() *Config {
 	return &Config{
 		BaseURL:      "http://localhost:1313/",
 		PublishDir:   "docs",
+		TocDir:       "toc",
+		CsvOutputDir: "archive",
 		Paginate:     10,
 		Minify:       true,
 		HasCJKLang:   true,
@@ -172,7 +182,7 @@ func Defaults() *Config {
 		LanguageCode: "zh-cn",
 		Markup: MarkupConfig{
 			Goldmark: GoldmarkConfig{
-				Renderer: GoldmarkRendererConfig{Unsafe: true},
+				Renderer:   GoldmarkRendererConfig{Unsafe: true},
 				Extensions: GoldmarkExtensionsConfig{Typographer: false},
 			},
 		},

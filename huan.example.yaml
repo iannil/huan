@@ -10,6 +10,8 @@ baseURL: https://example.com/
 title: 示例站点
 languageCode: zh-cn
 publishDir: docs                     # 输出目录
+tocDir: toc                          # `huan toc` 输出目录（相对项目根）
+csvOutputDir: archive                # `huan export`/`huan export csv` 默认目录；可被 --output-dir 覆盖
 paginate: 10                         # 列表页分页数
 minify: true                         # 输出 HTML 压缩
 hasCJKLanguage: true                 # 启用中日韩语言感知
