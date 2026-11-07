@@ -159,3 +159,9 @@
 - 同组最终实测：热build 2.274→1.648s；保存到HTTP 2.272→1.633s。默认缓存build峰值RSS约增加86MiB，--noCache可关闭。
 - 7,236稳定文件完全一致，9个历史不稳定路径全部候选hash经旧基线验证。无效worker/Minifier/head-only实验已回退。
 - 源码验收完成，2026-09-24 纳入 v0.11.20 发布提交。验收报告：docs/reports/2026-09-23-build-dev-performance-verification.md；过程记录保留在progress待提交归档。
+
+### 2026-11-08 新增：下游站点工具链升级约束
+
+- huan 的 toc/CSV 输出目录自 v0.12.5 起由站点 `huan.yaml` 的 `tocDir` / `csvOutputDir` 决定；v0.12.4 及更早硬编码 `developer/`，下游站点即使写了配置也不生效。
+- 下游升级不能只更新 PATH 里的主程序：zhurongshuo 用 `scripts/check_huan_install.py` 按 deploy.yml 容器 tag 校验版本，必须用 `scripts/install_huan.py --source <干净 tag checkout>` 重装 `~/.huan/releases/v<版本>` 完整 bundle（主程序 + 全部插件 + manifest）。
+- `.github/workflows/deploy.yml` 本身是 zhurongshuo `deployment_receipt.py` 的输入：只改 pin 不重建站点会让 CI 的 receipt 校验失败；升级必须整跑一次 `deploy.sh`（步骤 5 重新写 receipt）。
