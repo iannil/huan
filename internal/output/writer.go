@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -185,16 +186,33 @@ func (w *Writer) WriteBytes(relPath string, data []byte) error {
 // CopyStatic copies all files from srcDir into publishDir, preserving relative
 // paths. Files whose slash-relative path starts with one of the excludes
 // prefixes (e.g. "en/") are skipped; nil/empty excludes copies everything.
+//
+// Files are copied by a bounded worker pool: static trees are usually a few
+// thousand small files, so per-file latency dominated the serial version.
+// The first error stops further dispatch and is returned, matching the
+// serial walk's fail-fast behavior.
 func (w *Writer) CopyStatic(srcDir string, excludes []string) error {
-	_, err := os.Stat(srcDir)
+	info, err := os.Stat(srcDir)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	if !info.IsDir() {
+		return nil
+	}
 
-	return filepath.Walk(srcDir, func(path string, info fs.FileInfo, err error) error {
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	walkErr := filepath.Walk(srcDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -214,24 +232,67 @@ func (w *Writer) CopyStatic(srcDir string, excludes []string) error {
 			}
 		}
 
-		return w.copyFile(path, relPath)
+		mu.Lock()
+		failed := firstErr != nil
+		mu.Unlock()
+		if failed {
+			return filepath.SkipAll
+		}
+
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(src, rel string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := w.copyFile(src, rel); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
+		}(path, relPath)
+		return nil
 	})
+	wg.Wait()
+
+	if walkErr != nil {
+		return walkErr
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	return nil
 }
 
 func (w *Writer) copyFile(src, relPath string) error {
 	lock := w.pathMutex(relPath)
 	lock.Lock()
 	defer lock.Unlock()
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", src, err)
-	}
-	defer in.Close()
 
 	dst := PathToFilePath(relPath, w.publishDir)
 	if err := w.ensureDir(filepath.Dir(dst)); err != nil {
 		return err
 	}
+
+	var size int64
+	if info, err := os.Stat(src); err == nil {
+		size = info.Size()
+	}
+
+	// Prefer APFS copy-on-write when available: no byte copy, no page cache
+	// pressure. Falls back to a streaming copy on any error (other FS,
+	// existing destination, cross-device).
+	if err := cloneFile(src, dst); err == nil {
+		w.recordWrite(size)
+		return nil
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
 
 	out, err := os.Create(dst)
 	if err != nil {
@@ -243,10 +304,6 @@ func (w *Writer) copyFile(src, relPath string) error {
 		return fmt.Errorf("copy to %s: %w", dst, err)
 	}
 
-	var size int64
-	if info, err := os.Stat(src); err == nil {
-		size = info.Size()
-	}
 	w.recordWrite(size)
 	return nil
 }

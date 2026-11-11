@@ -34,13 +34,17 @@ func (p *pipeline) copyStatic() {
 
 	projectStatic := filepath.Join(p.opts.SourceDir, "static")
 	// Plain copy skips the language-local staticRoot subtree (it is remapped
-	// below) and any explicitly excluded prefixes.
-	excludes := append([]string{}, p.opts.StaticExclude...)
-	if p.opts.StaticRoot != "" {
-		excludes = append(excludes, p.opts.StaticRoot+"/")
-	}
-	if err := p.writer.CopyStatic(projectStatic, excludes); err != nil {
-		p.logf("  WARN: static: %v\n", err)
+	// below) and any explicitly excluded prefixes. SkipProjectStatic drops
+	// the shared tree entirely when this language relies on root-absolute
+	// assets from the default-language output.
+	if !p.opts.SkipProjectStatic {
+		excludes := append([]string{}, p.opts.StaticExclude...)
+		if p.opts.StaticRoot != "" {
+			excludes = append(excludes, p.opts.StaticRoot+"/")
+		}
+		if err := p.writer.CopyStatic(projectStatic, excludes); err != nil {
+			p.logf("  WARN: static: %v\n", err)
+		}
 	}
 	// Language-local static: copy static/<staticRoot>/ to this build's
 	// output root (e.g. static/en/llms.txt → docs/en/llms.txt for the en

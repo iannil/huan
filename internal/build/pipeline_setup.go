@@ -55,6 +55,9 @@ func (p *pipeline) setupTemplatesAndWriter() error {
 	p.tmpls = tmpls
 
 	p.i18nBundle = p.loadI18nBundle()
+	// Keep SetI18nBundle for callers that still rely on package state
+	// (e.g. templates loaded before FuncMapWithI18n). New render FuncMaps
+	// bind the bundle directly so parallel language builds do not race.
 	tmpl.SetI18nBundle(p.i18nBundle)
 
 	templateCount := 0
@@ -63,7 +66,7 @@ func (p *pipeline) setupTemplatesAndWriter() error {
 	}
 	p.logf("  Templates:    %d\n", templateCount)
 
-	p.renderer = tmpl.NewRenderer(tmpls, tmpl.FuncMap(p.cfg.BaseURL))
+	p.renderer = tmpl.NewRenderer(tmpls, tmpl.FuncMapWithI18n(p.cfg.BaseURL, p.i18nBundle))
 
 	if p.cfg.Minify {
 		p.writer = output.NewWriterWithMinify(p.opts.OutputDir)

@@ -6,7 +6,6 @@ package build
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,7 +23,7 @@ import (
 // partial output is preferable to no output, and the build log captures
 // every warning for later inspection.
 func (p *pipeline) renderPages() {
-	maxWorkers := runtime.GOMAXPROCS(0)
+	maxWorkers := p.workerCount()
 	sem := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
 	var renderedCount atomic.Int64

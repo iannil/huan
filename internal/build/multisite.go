@@ -2,9 +2,14 @@ package build
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iannil/huan/internal/config"
@@ -105,106 +110,265 @@ func BuildMultiSite(opts Options) (*MultiSiteResult, error) {
 		}
 	}
 
+	// Prepare one build spec per language. Serial mode writes straight into
+	// opts.OutputDir (default language first, then each language under its
+	// baseURL prefix). Parallel mode writes each language into an isolated
+	// staging dir and renames them into place at the end, because the
+	// default language's cleanPublishDir would otherwise wipe the root while
+	// a concurrent language is still writing under it.
+	specs := make([]languageSpec, 0, len(langs))
 	for _, entry := range langs {
-		code := entry.Code
-		lang := entry.Lang
+		specs = append(specs, makeLanguageSpec(opts, masterCfg, entry, defaultCode, available))
+	}
 
-		// Clone master cfg for this language
-		langCfg := *masterCfg // shallow copy is sufficient; we only override top-level fields
-
-		// Override Title per-language config
-		if lang.Title != "" {
-			langCfg.Title = lang.Title
+	if opts.ParallelLanguages && len(specs) > 1 {
+		if err := opts.Timings.Measure("multi", "parallel language builds", func() error {
+			return buildLanguagesParallel(opts, specs, inputs, masterCfg)
+		}); err != nil {
+			return result, err
 		}
-		// Override Params per-language config (empty fields keep top-level
-		// params) so non-default languages see translated site metadata.
-		applyLanguageParams(&langCfg.Params, lang.Params)
-		// Override LanguageCode: explicit lang.LanguageCode wins, else use code
-		if lang.LanguageCode != "" {
-			langCfg.LanguageCode = lang.LanguageCode
-		} else {
-			langCfg.LanguageCode = code
-		}
-
-		// Adjust BaseURL: append language prefix when set (e.g. /en)
-		// Example: cfg.BaseURL = "https://zhurongshuo.com/", lang.BaseURL = "/en"
-		//      → effective BaseURL = "https://zhurongshuo.com/en/"
-		if lang.BaseURL != "" {
-			base := strings.TrimRight(masterCfg.BaseURL, "/")
-			langCfg.BaseURL = base + "/" + strings.Trim(lang.BaseURL, "/") + "/"
-		}
-
-		// Per-language Options
-		langOpts := opts
-		// BaseURLOverride already applied to masterCfg above; clear it so
-		// BuildSite doesn't overwrite the per-language baseURL prefix.
-		langOpts.BaseURLOverride = ""
-		// Append language baseURL to OutputDir for non-default languages
-		if lang.BaseURL != "" {
-			langOpts.OutputDir = filepath.Join(opts.OutputDir, lang.BaseURL)
-		}
-		// Inject cfg override + page filter + translations map
-		langOpts.CfgOverride = &langCfg
-		langOpts.AvailableTranslations = available
-		langOpts.StaticExclude = lang.StaticExclude
-		langOpts.StaticRoot = lang.StaticRoot
-		cc := code
-		def := defaultCode
-		isDefault := code == defaultCode
-		excluded := lang.ExcludeSections
-		catalog := lang.CatalogSections
-		neutral := lang.NeutralSections
-		langOpts.PageFilter = func(p *content.Page) bool {
-			if isDefault {
-				// Default language: pages with empty Language OR explicit default code
-				return p.Language == "" || p.Language == cc
+	} else {
+		for i := range specs {
+			built, err := buildSiteWithInputs(specs[i].opts, inputs)
+			if err != nil {
+				return result, fmt.Errorf("build language %s: %w", specs[i].code, err)
 			}
-			// Non-default language: classify the page's top-level section.
-			// Note: Page.Kind is assigned in BuildTree (after this filter runs),
-			// so section-index pages are detected by filename (_index.*), not
-			// IsSection().
-			top := config.TopSection(p.RelPath)
-			isIndex := strings.HasPrefix(filepath.Base(p.RelPath), "_index.")
-			switch {
-			case sectionInList(top, excluded):
-				// Fully hidden: drop everything (no index, content, or sitemap).
-				return false
-			case sectionInList(top, catalog):
-				// Catalog-only: render the section index from this language's
-				// _index.<lang>.md sidecar; drop all content pages.
-				return isIndex && p.Language == cc
-			case sectionInList(top, neutral):
-				// Language-neutral (e.g. image gallery): index from this
-				// language's sidecar; content from the default language.
-				if isIndex {
-					return p.Language == cc
-				}
-				return p.Language == "" || p.Language == def
-			default:
-				// Normal: only pages with the explicit matching language code.
-				return p.Language == cc
-			}
+			specs[i].result = built
 		}
+	}
 
-		// Dispatch to single-language BuildSite.
-		// Safety with cleanPublishDir (default on): each language builds into
-		// its own output dir (zh-cn -> docs, others -> docs/<code>), and the
-		// default language is always moved to the front of the build order
-		// (see above), so a later language only cleans its own subdirectory
-		// of already-generated output and regenerates it immediately.
-		// No cross-language wipe.
-		built, err := buildSiteWithInputs(langOpts, inputs)
-		if err != nil {
-			return result, fmt.Errorf("build language %s: %w", code, err)
-		}
+	for _, s := range specs {
 		result.PerLanguage = append(result.PerLanguage, LanguageBuildResult{
-			Code:   code,
-			Result: built,
+			Code:   s.code,
+			Result: s.result,
 		})
 	}
 
 	result.TotalDuration = time.Since(multiStart)
 	return result, nil
+}
+
+// languageSpec is one language's fully prepared build.
+type languageSpec struct {
+	code       string
+	isDefault  bool
+	urlPrefix  string // trimmed lang.BaseURL, empty for default/root
+	stagingDir string // parallel mode only
+	opts       Options
+	result     *Result
+}
+
+func makeLanguageSpec(opts Options, masterCfg *config.Config, entry config.LanguageEntry, defaultCode string, available map[string]map[string]bool) languageSpec {
+	code := entry.Code
+	lang := entry.Lang
+	isDefault := code == defaultCode
+	urlPrefix := strings.Trim(lang.BaseURL, "/")
+
+	langCfg := *masterCfg // shallow copy; only top-level fields overridden
+	if lang.Title != "" {
+		langCfg.Title = lang.Title
+	}
+	applyLanguageParams(&langCfg.Params, lang.Params)
+	if lang.LanguageCode != "" {
+		langCfg.LanguageCode = lang.LanguageCode
+	} else {
+		langCfg.LanguageCode = code
+	}
+	if lang.BaseURL != "" {
+		base := strings.TrimRight(masterCfg.BaseURL, "/")
+		langCfg.BaseURL = base + "/" + strings.Trim(lang.BaseURL, "/") + "/"
+	}
+
+	langOpts := opts
+	langOpts.BaseURLOverride = ""
+	if isDefault {
+		langOpts.OutputDir = opts.OutputDir
+	} else {
+		langOpts.OutputDir = filepath.Join(opts.OutputDir, filepath.FromSlash(urlPrefix))
+	}
+	langOpts.CfgOverride = &langCfg
+	langOpts.AvailableTranslations = available
+	langOpts.StaticExclude = lang.StaticExclude
+	langOpts.StaticRoot = lang.StaticRoot
+	langOpts.SkipProjectStatic = lang.SkipProjectStatic
+	langOpts.PageFilter = makeLanguagePageFilter(code, defaultCode, isDefault, lang)
+
+	return languageSpec{code: code, isDefault: isDefault, urlPrefix: urlPrefix, opts: langOpts}
+}
+
+func buildLanguagesParallel(opts Options, specs []languageSpec, inputs *buildInputs, masterCfg *config.Config) error {
+	stagingRoot, err := os.MkdirTemp(filepath.Dir(opts.OutputDir), ".huan-multi-*")
+	if err != nil {
+		return fmt.Errorf("create multi-language staging: %w", err)
+	}
+	defer os.RemoveAll(stagingRoot)
+
+	perLangWorkers := parallelLanguageWorkers(len(specs), opts.MaxWorkers)
+	var wg sync.WaitGroup
+	errs := make([]error, len(specs))
+	for i := range specs {
+		i := i
+		stageDir := filepath.Join(stagingRoot, sanitizeStagingName(specs[i].code))
+		specs[i].opts.OutputDir = stageDir
+		specs[i].opts.MaxWorkers = perLangWorkers
+		specs[i].stagingDir = stageDir
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			built, buildErr := buildSiteWithInputs(specs[i].opts, inputs)
+			specs[i].result = built
+			errs[i] = buildErr
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			return fmt.Errorf("build language %s: %w", specs[i].code, err)
+		}
+	}
+	return mergeStagedLanguageOutputs(opts.OutputDir, specs)
+}
+
+func parallelLanguageWorkers(langCount, requested int) int {
+	if langCount < 1 {
+		langCount = 1
+	}
+	total := requested
+	if total <= 0 {
+		total = runtime.GOMAXPROCS(0)
+	}
+	if total < 1 {
+		total = 1
+	}
+	share := total / langCount
+	if share < 1 {
+		share = 1
+	}
+	return share
+}
+
+func sanitizeStagingName(code string) string {
+	code = strings.ReplaceAll(code, "/", "_")
+	code = strings.ReplaceAll(code, "\\", "_")
+	if code == "" {
+		return "default"
+	}
+	return code
+}
+
+func makeLanguagePageFilter(code, defaultCode string, isDefault bool, lang config.LanguageConfig) func(*content.Page) bool {
+	excluded := lang.ExcludeSections
+	catalog := lang.CatalogSections
+	neutral := lang.NeutralSections
+	cc := code
+	def := defaultCode
+	return func(p *content.Page) bool {
+		if isDefault {
+			return p.Language == "" || p.Language == cc
+		}
+		top := config.TopSection(p.RelPath)
+		isIndex := strings.HasPrefix(filepath.Base(p.RelPath), "_index.")
+		switch {
+		case sectionInList(top, excluded):
+			return false
+		case sectionInList(top, catalog):
+			return isIndex && p.Language == cc
+		case sectionInList(top, neutral):
+			if isIndex {
+				return p.Language == cc
+			}
+			return p.Language == "" || p.Language == def
+		default:
+			return p.Language == cc
+		}
+	}
+}
+
+func mergeStagedLanguageOutputs(finalDir string, staged []languageSpec) error {
+	if err := os.RemoveAll(finalDir); err != nil {
+		return fmt.Errorf("remove previous publish dir: %w", err)
+	}
+	// Prefer rename over copy. Default language staging becomes the publish
+	// root; other languages rename under their URL prefix. Do NOT MkdirAll
+	// finalDir first — an empty destination forces a full tree copy.
+	var defaultLang *languageSpec
+	others := make([]languageSpec, 0, len(staged))
+	for i := range staged {
+		if staged[i].isDefault {
+			defaultLang = &staged[i]
+		} else {
+			others = append(others, staged[i])
+		}
+	}
+	if defaultLang == nil {
+		return fmt.Errorf("merge staged outputs: missing default language")
+	}
+	if err := promoteStagedDir(defaultLang.stagingDir, finalDir); err != nil {
+		return fmt.Errorf("merge language %s: %w", defaultLang.code, err)
+	}
+	for _, s := range others {
+		if s.urlPrefix == "" {
+			return fmt.Errorf("language %s: non-default language needs baseURL prefix for parallel merge", s.code)
+		}
+		dest := filepath.Join(finalDir, filepath.FromSlash(s.urlPrefix))
+		if err := promoteStagedDir(s.stagingDir, dest); err != nil {
+			return fmt.Errorf("merge language %s: %w", s.code, err)
+		}
+	}
+	return nil
+}
+
+func promoteStagedDir(src, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(dest); err == nil {
+		// Destination exists unexpectedly; merge by copy.
+		return copyDirMerge(src, dest)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(src, dest); err == nil {
+		return nil
+	}
+	// Cross-device rename failure → copy fallback.
+	return copyDirMerge(src, dest)
+}
+
+func copyDirMerge(src, dest string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return copyFileReplace(path, target)
+	})
+}
+
+func copyFileReplace(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // sectionInList reports whether the given top-level section name is present in

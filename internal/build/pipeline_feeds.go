@@ -5,7 +5,6 @@ package build
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 
 	"github.com/iannil/huan/internal/output"
@@ -53,7 +52,7 @@ func (p *pipeline) renderTaxonomyPages() {
 	// BuildTermContext only reads the shared lookup/site, and renderer/writer
 	// are goroutine-safe (as in renderPages), so render terms concurrently.
 	if termsTmpl := p.tmpls.Lookup("_default/list.html"); termsTmpl != nil {
-		maxWorkers := runtime.GOMAXPROCS(0)
+		maxWorkers := p.workerCount()
 		sem := make(chan struct{}, maxWorkers)
 		var wg sync.WaitGroup
 		for _, term := range taxCtx.DataTerms {

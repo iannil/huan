@@ -391,6 +391,54 @@ Hello world.
 	}
 }
 
+// TestMultiSiteSkipProjectStatic verifies that skipProjectStatic skips the
+// shared static/ tree for that language while still applying staticRoot.
+func TestMultiSiteSkipProjectStatic(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "huan.yaml", `
+baseURL: https://example.com/
+title: Test
+languageCode: zh-cn
+publishDir: docs
+defaultContentLanguage: zh-cn
+languages:
+  zh-cn:
+    weight: 1
+    languageName: 中文
+    languageCode: zh-cn
+  en:
+    weight: 2
+    languageName: English
+    languageCode: en
+    baseURL: /en
+    skipProjectStatic: true
+    staticRoot: "en"
+`)
+	writeFile(t, dir, filepath.Join("content", "posts", "foo.md"), `---
+title: "Foo"
+date: 2026-06-14T00:00:00Z
+---
+Hello world.
+`)
+	writeFile(t, dir, filepath.Join("static", "css", "site.css"), "body{}")
+	writeFile(t, dir, filepath.Join("static", "en", "llms.txt"), "en llms")
+	out := filepath.Join(dir, "docs")
+
+	if _, err := BuildMultiSite(Options{SourceDir: dir, OutputDir: out}); err != nil {
+		t.Fatalf("BuildMultiSite: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(out, "css", "site.css")); err != nil {
+		t.Errorf("docs/css/site.css should exist from default language: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "en", "css", "site.css")); !os.IsNotExist(err) {
+		t.Error("docs/en/css/site.css should NOT exist when skipProjectStatic is set")
+	}
+	if _, err := os.Stat(filepath.Join(out, "en", "llms.txt")); err != nil {
+		t.Errorf("docs/en/llms.txt should still exist via staticRoot: %v", err)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

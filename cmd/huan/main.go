@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/iannil/huan/internal/plugin"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"github.com/iannil/huan/internal/build"
 	"github.com/iannil/huan/internal/config"
+	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +65,15 @@ func main() {
 }
 
 func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
+	stopProfile := startCPUProfile()
+	defer stopProfile()
+	// Build is a short-lived batch process: a higher GC target trades peak
+	// memory (~600MB -> ~900MB on a 2.7k-page bilingual site) for roughly
+	// 10% less wall time, measured by alternating GOGC=100/200/400 runs.
+	// An explicit GOGC from the environment always wins.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(200)
+	}
 	timings := commandTimings(cmd)
 	start := time.Now()
 	defer func() { reportTimings(cmd, timings, "build total", start, buildErr) }()
@@ -121,18 +131,19 @@ func runBuild(cmd *cobra.Command, args []string) (buildErr error) {
 	// baseURL prefix. Single-language configs use the existing BuildSite path.
 	if cfg.IsMultiLanguage() {
 		multiResult, err := build.BuildMultiSite(build.Options{
-			Timings:         timings,
-			MarkdownCache:   markdownCache,
-			Logf:            func(format string, args ...any) { fmt.Fprintf(cmd.OutOrStdout(), format, args...) },
-			SourceDir:       sourceDir,
-			OutputDir:       outputDir,
-			IncludeDrafts:   includeDrafts,
-			IncludeFuture:   includeFuture,
-			IncludeExpired:  includeExpired,
-			BaseURLOverride: baseURLOverride,
-			MinifyOverride:  minifyOverride,
-			PluginRegistry:  reg,
-			ThemeManager:    themeMgr,
+			Timings:           timings,
+			MarkdownCache:     markdownCache,
+			Logf:              func(format string, args ...any) { fmt.Fprintf(cmd.OutOrStdout(), format, args...) },
+			SourceDir:         sourceDir,
+			OutputDir:         outputDir,
+			IncludeDrafts:     includeDrafts,
+			IncludeFuture:     includeFuture,
+			IncludeExpired:    includeExpired,
+			BaseURLOverride:   baseURLOverride,
+			MinifyOverride:    minifyOverride,
+			PluginRegistry:    reg,
+			ThemeManager:      themeMgr,
+			ParallelLanguages: os.Getenv("HUAN_PARALLEL_LANGS") == "1",
 		})
 		if err != nil {
 			return err

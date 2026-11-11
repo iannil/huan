@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/iannil/huan/internal/theme"
 )
@@ -19,6 +20,11 @@ type Loader struct {
 	themeManager *theme.Manager // 可选：主题插件管理器
 }
 
+// loadMu serializes LoadAll / SetActiveTemplate because they touch the
+// package-level tmplRef used by the initial partial stub FuncMap.
+// Renderer clones rebind partial and do not need this lock at execute time.
+var loadMu sync.Mutex
+
 // tmplRef is the currently active template (set to the clone during Render).
 // It's a package-level variable because the partial closure must reference it.
 // NOTE: Render now overrides "partial"/"partialCached" in each clone so this
@@ -27,6 +33,8 @@ var tmplRef *template.Template
 
 // SetActiveTemplate updates the active template reference used by the partial closure.
 func SetActiveTemplate(t *template.Template) {
+	loadMu.Lock()
+	defer loadMu.Unlock()
 	tmplRef = t
 }
 
@@ -60,6 +68,8 @@ func NewLoaderWithTheme(sourceDir, layoutsDir string, funcMap template.FuncMap, 
 
 // LoadAll loads all templates and returns a ready-to-execute *template.Template.
 func (l *Loader) LoadAll() (*template.Template, error) {
+	loadMu.Lock()
+	defer loadMu.Unlock()
 	// Collect template file contents: theme plugin first, then theme dir, then local overrides
 	templates := map[string]string{}
 

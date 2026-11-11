@@ -46,3 +46,21 @@ func TestCurrentI18nBundle(t *testing.T) {
 		t.Error("expected nil bundle")
 	}
 }
+
+func TestFuncMapWithI18nBindsBundle(t *testing.T) {
+	SetI18nBundle(nil)
+	defer SetI18nBundle(nil)
+
+	fm := FuncMapWithI18n("https://example.com/", &mockI18nBundle{})
+	fn, ok := fm["i18n"].(func(string, ...interface{}) string)
+	if !ok {
+		t.Fatal("i18n func missing or wrong type")
+	}
+	if got := fn("hello"); got != "translated:hello" {
+		t.Fatalf("bound i18n: got %q", got)
+	}
+	// Package-level bundle stays nil — the FuncMap must not depend on it.
+	if currentI18nBundle() != nil {
+		t.Fatal("FuncMapWithI18n should not require SetI18nBundle")
+	}
+}

@@ -80,9 +80,21 @@ type Options struct {
 	// that participate in the build pipeline.
 	ThemeManager *theme.Manager
 
-	// StaticExclude / StaticRoot are injected per-language by BuildMultiSite.
-	StaticExclude []string
-	StaticRoot    string
+	// StaticExclude / StaticRoot / SkipProjectStatic are injected
+	// per-language by BuildMultiSite.
+	StaticExclude     []string
+	StaticRoot        string
+	SkipProjectStatic bool
+
+	// MaxWorkers caps concurrent page/feed render workers for this build.
+	// Zero means runtime.GOMAXPROCS(0). Multi-language parallel builds set
+	// a per-language share so two languages do not oversubscribe the CPU.
+	MaxWorkers int
+
+	// ParallelLanguages runs multi-language builds concurrently into staging
+	// dirs. Off by default: page rendering already saturates all cores, so
+	// two concurrent language pipelines contend instead of going faster.
+	ParallelLanguages bool
 }
 
 // RenderPageFunc is the callback signature for single-page rendering.
@@ -362,9 +374,9 @@ func IncrementalRender(opts Options, cache *PipelineCache, affectedURLs []string
 		p.scRegistry = cache.SCRegistry
 		p.md = cache.MDRenderer
 		// Renderer wraps the cached templates with the current BaseURL FuncMap.
-		p.renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(p.cfg.BaseURL))
+		p.renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMapWithI18n(p.cfg.BaseURL, p.i18nBundle))
 		p.writer = cache.Writer
-		// Ensure the i18n bundle is wired into the template package (global state).
+		// Keep package-level bundle for legacy FuncMap/LoadAllTemplates paths.
 		tmpl.SetI18nBundle(p.i18nBundle)
 	} else {
 		if err := p.setupTemplatesAndWriter(); err != nil {

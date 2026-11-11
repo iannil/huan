@@ -86,6 +86,13 @@ type LanguageConfig struct {
 	// the output root of this language's build (replacing the plain static/
 	// copy for those prefixed files).
 	StaticRoot string `yaml:"staticRoot"`
+
+	// SkipProjectStatic, when true, skips copying the project static/ tree
+	// into this language's output. Theme static and StaticRoot remapping
+	// still run. Use when the language's pages reference root-absolute
+	// assets (e.g. /css/...) served from the default language output, so
+	// duplicating shared static under /en/css is wasted I/O.
+	SkipProjectStatic bool `yaml:"skipProjectStatic"`
 }
 
 // LanguageParamsConfig is the per-language subset of ParamsConfig honored by

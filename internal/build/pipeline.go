@@ -77,6 +77,18 @@ type pipeline struct {
 
 // runOnContentLoaded invokes any registered build.Hook.OnContentLoaded plugins.
 // Collection-not-interruption: failures log a warning but do not abort.
+// workerCount returns the concurrent worker budget for this pipeline.
+func (p *pipeline) workerCount() int {
+	if p.opts.MaxWorkers > 0 {
+		return p.opts.MaxWorkers
+	}
+	n := runtime.GOMAXPROCS(0)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
 func (p *pipeline) runOnContentLoaded() {
 	if p.opts.PluginRegistry == nil {
 		return
@@ -399,7 +411,7 @@ func (p *pipeline) renderMarkdownAndTree() error {
 		// Pages are independent: goldmark Convert is stateless per call, the
 		// shortcode registry is read-only after setup, and each goroutine only
 		// mutates its own page. Render concurrently with a bounded worker pool.
-		maxWorkers := runtime.GOMAXPROCS(0)
+		maxWorkers := p.workerCount()
 		sem := make(chan struct{}, maxWorkers)
 		var wg sync.WaitGroup
 		var errMu sync.Mutex

@@ -39,6 +39,9 @@ languages:
 #   en:
 #     staticExclude: ["en/"]   # 该语言的 plain static 拷贝跳过 static/en/
 #     staticRoot: "en"         # static/en/* 映射为该语言输出根的本地 static
+#     skipProjectStatic: true  # 不把共享 static/ 再拷进该语言输出（页面用
+#                              # 根绝对路径 /css /js 时省掉重复 I/O；
+#                              # staticRoot 映射仍然生效）
 
 # ---------- 作者 ----------
 

@@ -958,6 +958,13 @@ func (r *Renderer) newWorker() (*renderWorker, error) {
 	}
 	worker := &renderWorker{tmpl: cloned}
 
+	// Re-bind the renderer's FuncMap on the clone so per-build values
+	// (especially i18n/T closed over a language bundle) win over the
+	// package-level SetI18nBundle fallback used at LoadAllTemplates time.
+	if len(r.funcMap) > 0 {
+		cloned.Funcs(r.funcMap)
+	}
+
 	// Override partial/partialCached on the clone so they close over the
 	// cloned template directly. This avoids the race from concurrent calls
 	// writing/reading the package-level tmplRef.

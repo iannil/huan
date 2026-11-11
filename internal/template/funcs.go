@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -28,7 +30,22 @@ import (
 )
 
 // FuncMap returns all custom template functions needed to render the site.
+// Prefer FuncMapWithI18n when a language bundle is available so i18n/T close
+// over that bundle instead of reading package-level SetI18nBundle state.
 func FuncMap(baseURL string) template.FuncMap {
+	return FuncMapWithI18n(baseURL, nil)
+}
+
+// FuncMapWithI18n is like FuncMap but binds i18n/T to the given bundle.
+// A nil bundle keeps the legacy fallback to currentI18nBundle() so older
+// call sites that only call SetI18nBundle continue to work until migrated.
+func FuncMapWithI18n(baseURL string, bundle I18nBundle) template.FuncMap {
+	i18nFn := func(key string, args ...interface{}) string {
+		if bundle != nil {
+			return bundle.Translate(key, args...)
+		}
+		return i18nFunc(key, args...)
+	}
 	fm := template.FuncMap{
 		// URL helpers
 		"absURL":   func(s string) string { return baseURL + strings.TrimPrefix(s, "/") },
@@ -165,8 +182,8 @@ func FuncMap(baseURL string) template.FuncMap {
 		"getenv":                  func(s string) string { return os.Getenv(s) },
 		"os_Getenv":               func(s string) string { return os.Getenv(s) },
 		"time":                    timeParseFunc,
-		"i18n":                    i18nFunc,
-		"T":                       i18nFunc,
+		"i18n":                    i18nFn,
+		"T":                       i18nFn,
 		"hreflang":                hreflangFunc,
 		"langPrefix":              langPrefixFunc,
 		"translationLinks":        translationLinksFunc,
@@ -998,6 +1015,31 @@ func unionFunc(slices ...interface{}) []interface{} {
 	return result
 }
 
+// regexpCache memoizes compiled pattern regexps for the template functions
+// below. Template patterns are static strings, so recompiling them per call
+// (once per page for search-index builds) was pure waste. Invalid patterns
+// still panic through regexp.MustCompile on first use, preserving the
+// historical failure mode.
+var (
+	regexpCache      sync.Map // pattern -> *regexp.Regexp
+	regexpCacheCount atomic.Int64
+)
+
+const regexpCacheLimit = 512
+
+func cachedRegexp(pattern string) *regexp.Regexp {
+	if v, ok := regexpCache.Load(pattern); ok {
+		return v.(*regexp.Regexp)
+	}
+	re := regexp.MustCompile(pattern)
+	if regexpCacheCount.Load() < regexpCacheLimit {
+		if _, loaded := regexpCache.LoadOrStore(pattern, re); !loaded {
+			regexpCacheCount.Add(1)
+		}
+	}
+	return re
+}
+
 func replaceREFunc(pattern, repl interface{}, src interface{}) string {
 	// Accept interface{} because Hugo's plainify returns template.HTML, and
 	// templates like `{{ $x | plainify | replaceRE ... }}` pipe HTML-typed
@@ -1009,7 +1051,7 @@ func replaceREFunc(pattern, repl interface{}, src interface{}) string {
 	if p == `\s+` && r == " " {
 		return collapseASCIIWhitespace(s)
 	}
-	re := regexp.MustCompile(p)
+	re := cachedRegexp(p)
 	return re.ReplaceAllString(s, r)
 }
 
@@ -1047,7 +1089,7 @@ func isASCIIRegexSpace(b byte) bool {
 }
 
 func findREFunc(pattern, src string) []string {
-	re := regexp.MustCompile(pattern)
+	re := cachedRegexp(pattern)
 	return re.FindAllString(src, -1)
 }
 

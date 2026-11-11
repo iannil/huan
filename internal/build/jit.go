@@ -92,7 +92,7 @@ func RenderPageWithCache(opts Options, cache *PipelineCache, pageURL string) (st
 		p.i18nBundle = cache.I18nBundle
 		p.scRegistry = cache.SCRegistry
 		p.md = cache.MDRenderer
-		p.renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMap(p.cfg.BaseURL))
+		p.renderer = tmpl.NewRenderer(cache.Templates, tmpl.FuncMapWithI18n(p.cfg.BaseURL, p.i18nBundle))
 		p.writer = cache.Writer
 		tmpl.SetI18nBundle(p.i18nBundle)
 	} else {
