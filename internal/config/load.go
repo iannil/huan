@@ -42,6 +42,13 @@ func Load(sourceDir string) (*Config, error) {
 		return nil, fmt.Errorf("parse config (stage 1 raw): %w", err)
 	}
 
+	// Reject keys that earlier releases accepted and that are now removed.
+	// Typed decoding is lenient (unknown keys are ignored), so a removed key
+	// would otherwise be dropped silently and its effect would vanish.
+	if err := rejectRemovedKeys(rawMap); err != nil {
+		return nil, err
+	}
+
 	// Stage 2: interpolate ${VAR} (strict mode; unset → error).
 	interpolated, err := Interpolate(rawMap)
 	if err != nil {

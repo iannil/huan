@@ -190,7 +190,9 @@ func makeLanguageSpec(opts Options, masterCfg *config.Config, entry config.Langu
 	langOpts.AvailableTranslations = available
 	langOpts.StaticExclude = lang.StaticExclude
 	langOpts.StaticRoot = lang.StaticRoot
-	langOpts.SkipProjectStatic = lang.SkipProjectStatic
+	// Every language is verified to carry the shared static tree: the language
+	// versions must correspond file-for-file, never borrow each other's assets.
+	langOpts.CheckStaticParity = true
 	langOpts.PageFilter = makeLanguagePageFilter(code, defaultCode, isDefault, lang)
 
 	return languageSpec{code: code, isDefault: isDefault, urlPrefix: urlPrefix, opts: langOpts}

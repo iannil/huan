@@ -39,9 +39,12 @@ languages:
 #   en:
 #     staticExclude: ["en/"]   # 该语言的 plain static 拷贝跳过 static/en/
 #     staticRoot: "en"         # static/en/* 映射为该语言输出根的本地 static
-#     skipProjectStatic: true  # 不把共享 static/ 再拷进该语言输出（页面用
-#                              # 根绝对路径 /css /js 时省掉重复 I/O；
-#                              # staticRoot 映射仍然生效）
+#
+# 注意：共享 static/ 永远会被拷进每个语言的输出。canonify 会把页面里的根相对
+# 资源（/css/a.css）按该语言 baseURL 改写为 /en/css/a.css，所以每个语言必须自带
+# 一份，否则英文站会缺样式。构建结束时会校验：页面引用的资源必须存在于本语言
+# 输出，且各语言输出的共享静态文件集合必须一致；缺失即构建失败（可用
+# HUAN_ASSET_CHECK=off 降级为警告）。
 
 # ---------- 作者 ----------
 

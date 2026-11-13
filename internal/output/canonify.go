@@ -10,6 +10,16 @@ import (
 type CanonifyOptions struct {
 	BaseURL string // e.g., "https://zhurongshuo.com/"
 	IsHome  bool   // if true, inject Hugo generator meta
+
+	// OnRewrite, when non-nil, is called once per root-relative URL value that
+	// receives the base prefix, with the original value including the leading
+	// slash (e.g. "/css/site.css"). The build pipeline uses it to verify that
+	// every referenced asset actually exists in the language's output, so a
+	// missing stylesheet fails the build instead of shipping an unstyled page.
+	//
+	// The callback runs from concurrent page renders: implementations must be
+	// safe for concurrent use. Nil keeps canonify allocation-free.
+	OnRewrite func(urlPath string)
 }
 
 // Keep the root regex for unusual base URLs containing regexp replacement expansions.
@@ -32,7 +42,7 @@ func Canonify(html string, opts CanonifyOptions) string {
 	base := strings.TrimRight(opts.BaseURL, "/")
 
 	// Segmented rewrite: walk HTML, apply patterns only outside code/pre.
-	html = applyCanonifyOutsideCode(html, base)
+	html = applyCanonifyOutsideCode(html, base, opts.OnRewrite)
 
 	// Inject Hugo generator meta tag (home page only)
 	if opts.IsHome {
@@ -55,23 +65,23 @@ func Canonify(html string, opts CanonifyOptions) string {
 // split preserves the tags themselves (they end up in the "outside" segments
 // at their boundaries, which is fine since the bare/quoted patterns don't
 // match the tags themselves).
-func applyCanonifyOutsideCode(html, base string) string {
+func applyCanonifyOutsideCode(html, base string, obs canonifyObserver) string {
 	if !strings.Contains(html, "href") && !strings.Contains(html, "src") {
 		return html
 	}
 	if !strings.Contains(html, "<code") && !strings.Contains(html, "<pre") {
-		return canonifySegment(html, base)
+		return canonifySegment(html, base, obs)
 	}
 	regions := canonifyCodeRegionPattern.FindAllStringIndex(html, -1)
 	if len(regions) == 0 {
-		return canonifySegment(html, base)
+		return canonifySegment(html, base, obs)
 	}
 	var sb strings.Builder
 	lastEnd, copied := 0, 0
 	changed := false
 	rewrite := func(start, end int) {
 		segment := html[start:end]
-		out := canonifySegment(segment, base)
+		out := canonifySegment(segment, base, obs)
 		if out != segment {
 			if !changed {
 				sb.Grow(len(html))
@@ -96,14 +106,14 @@ func applyCanonifyOutsideCode(html, base string) string {
 
 // Preserve the original three passes: a quoted value can contain a bare
 // attribute, and the base URL inserted by one pass can match a later pass.
-func canonifySegment(html, base string) string {
-	html = rewriteCanonifyAttributes(html, base, canonifyQuoted)
-	html = rewriteCanonifyAttributes(html, base, canonifyBare)
+func canonifySegment(html, base string, obs canonifyObserver) string {
+	html = rewriteCanonifyAttributes(html, base, canonifyQuoted, obs)
+	html = rewriteCanonifyAttributes(html, base, canonifyBare, obs)
 	if strings.Contains(base, "$") {
 		// ReplaceAllString historically expands $ captures in the base URL.
 		return canonifyBareRootPattern.ReplaceAllString(html, "${1}"+base+"/${2}")
 	}
-	return rewriteCanonifyAttributes(html, base, canonifyRoot)
+	return rewriteCanonifyAttributes(html, base, canonifyRoot, obs)
 }
 
 type canonifyMode uint8
@@ -114,10 +124,14 @@ const (
 	canonifyRoot
 )
 
+// canonifyObserver receives every root-relative URL value that gets prefixed.
+// A nil observer keeps the rewrite allocation-free.
+type canonifyObserver func(urlPath string)
+
 // rewriteCanonifyAttributes scans exactly the old regex language, without an
 // HTML parser (which would change malformed markup and attribute boundaries).
 // Modes are quoted URLs, bare non-root URLs, and bare root URLs respectively.
-func rewriteCanonifyAttributes(html, base string, mode canonifyMode) string {
+func rewriteCanonifyAttributes(html, base string, mode canonifyMode, obs canonifyObserver) string {
 	var sb strings.Builder
 	copied := 0
 	changed := false
@@ -160,6 +174,9 @@ func rewriteCanonifyAttributes(html, base string, mode canonifyMode) string {
 		}
 		pathStart := cursor
 		cursor++
+		// valueEnd bounds the URL value (leading slash included) so the
+		// observer sees exactly what gets prefixed, without the delimiter.
+		valueEnd := cursor
 		switch mode {
 		case canonifyQuoted:
 			end := strings.IndexByte(html[cursor:], '"')
@@ -174,6 +191,7 @@ func rewriteCanonifyAttributes(html, base string, mode canonifyMode) string {
 			if html[pathStart+1] == '/' {
 				continue
 			}
+			valueEnd = cursor - 1
 		case canonifyBare:
 			for cursor < len(html) && !canonifySpace(html[cursor]) && html[cursor] != '"' && html[cursor] != '/' && html[cursor] != '>' {
 				cursor++
@@ -182,12 +200,23 @@ func rewriteCanonifyAttributes(html, base string, mode canonifyMode) string {
 				continue
 			}
 			pos = cursor
+			// The bare-mode rewrite only prefixes the first segment (the loop
+			// stops at the next '/'), but the URL continues to the attribute
+			// delimiter: observe the whole value, not just that segment.
+			valueEnd = cursor
+			for valueEnd < len(html) && !canonifySpace(html[valueEnd]) && html[valueEnd] != '"' && html[valueEnd] != '>' {
+				valueEnd++
+			}
 		case canonifyRoot:
 			if cursor >= len(html) || (!canonifySpace(html[cursor]) && html[cursor] != '>') {
 				continue
 			}
 			cursor++
 			pos = cursor
+			valueEnd = cursor - 1
+		}
+		if obs != nil {
+			obs(html[pathStart:valueEnd])
 		}
 		if !changed {
 			sb.Grow(len(html) + len(base))

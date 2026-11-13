@@ -68,6 +68,10 @@ type pipeline struct {
 	renderer   *tmpl.Renderer
 	writer     *output.Writer
 
+	// assetRefs collects root-relative asset URLs seen in rendered pages so
+	// the post-write asset gate can verify each one exists in this output.
+	assetRefs *assetRefs
+
 	// Stage 4 (buildContext)
 	siteCtx *tmpl.SiteContext
 	lookup  map[*content.Page]*tmpl.Context

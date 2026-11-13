@@ -1,6 +1,7 @@
 package output
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -204,5 +205,40 @@ func BenchmarkCanonify_ManyRootRelativeAttributes(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = Canonify(html, opts)
+	}
+}
+
+// TestCanonify_OnRewriteObservesRootRelativeValues covers the observer the
+// build uses for its asset gate: every prefixed root-relative value is
+// reported, and adding the observer never changes the rewritten bytes.
+func TestCanonify_OnRewriteObservesRootRelativeValues(t *testing.T) {
+	in := `<link href="/css/a.css"><img src=/img/b.png><a href="/page/">x</a>` +
+		`<a href="https://cdn.example.com/x.css">y</a>`
+
+	var got []string
+	withObserver := Canonify(in, CanonifyOptions{
+		BaseURL:   "https://example.com/en/",
+		OnRewrite: func(p string) { got = append(got, p) },
+	})
+	withoutObserver := Canonify(in, CanonifyOptions{BaseURL: "https://example.com/en/"})
+
+	// Observation order follows canonify's three passes (quoted, bare, root),
+	// not document order; compare as sets.
+	want := []string{"/css/a.css", "/img/b.png", "/page/"}
+	sort.Strings(got)
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("observed %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("observed %v, want %v", got, want)
+		}
+	}
+	if withObserver != withoutObserver {
+		t.Errorf("observer changed output:\n with: %q\nwithout: %q", withObserver, withoutObserver)
+	}
+	if !strings.Contains(withObserver, `href="https://example.com/en/css/a.css"`) {
+		t.Errorf("root-relative value not prefixed with the language base: %q", withObserver)
 	}
 }

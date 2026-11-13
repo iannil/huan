@@ -80,11 +80,17 @@ type Options struct {
 	// that participate in the build pipeline.
 	ThemeManager *theme.Manager
 
-	// StaticExclude / StaticRoot / SkipProjectStatic are injected
+	// StaticExclude / StaticRoot / CheckStaticParity are injected
 	// per-language by BuildMultiSite.
-	StaticExclude     []string
-	StaticRoot        string
-	SkipProjectStatic bool
+	StaticExclude []string
+	StaticRoot    string
+
+	// CheckStaticParity enables the post-write gate that verifies this
+	// language output carries every shared static/ file. It is set for
+	// multi-language builds: each language must ship its own copy so the
+	// versions correspond file-for-file instead of borrowing another
+	// language's assets (which silently produced unstyled pages).
+	CheckStaticParity bool
 
 	// MaxWorkers caps concurrent page/feed render workers for this build.
 	// Zero means runtime.GOMAXPROCS(0). Multi-language parallel builds set
@@ -108,6 +114,14 @@ type Result struct {
 	BytesWritten  int64
 	Errors        int
 	Duration      time.Duration
+
+	// MissingAssets counts asset-like root-relative references in rendered
+	// pages that did not resolve inside this language output.
+	MissingAssets int
+
+	// MissingStatic counts shared static/ files absent from this language
+	// output (static parity gate).
+	MissingStatic int
 }
 
 func (o *Options) logf() func(string, ...any) {
@@ -176,7 +190,11 @@ func buildSiteWithInputs(opts Options, inputs *buildInputs) (*Result, error) {
 	// not propagated. Build continues so partial output is produced.
 	p.measureVoid("pages render + write", p.renderPages)
 	p.measureVoid("feeds + specials", p.renderFeedsAndSpecials)
-	p.measureVoid("static + finalize", p.copyStaticAndFinalize)
+	// The static stage also runs the asset integrity gates, which are fatal:
+	// publishing pages whose stylesheets are missing is worse than a red build.
+	if err := opts.Timings.Measure(p.timingScope, "static + finalize", p.copyStaticAndFinalize); err != nil {
+		return p.result, err
+	}
 
 	p.result.Duration = time.Since(start)
 

@@ -13,9 +13,23 @@ import (
 // copyStaticAndFinalize mirrors the theme + project static dirs into
 // publishDir (project overrides theme) and captures writer.Stats into
 // the result. This is the last stage — after it, BuildSite returns.
-func (p *pipeline) copyStaticAndFinalize() {
+func (p *pipeline) copyStaticAndFinalize() error {
 	p.measureVoid("static copy", p.copyStatic)
 	p.finalize()
+
+	// Integrity gates run once every file is on disk: a language may never
+	// ship a page that references an asset it did not write, and the parallel
+	// language outputs must carry the same shared static tree. Measured through
+	// Measure so a failed gate is recorded as a failed stage.
+	return p.opts.Timings.Measure(p.timingScope, "asset gates", func() error {
+		if err := p.checkReferencedAssets(); err != nil {
+			return err
+		}
+		if p.opts.CheckStaticParity {
+			return p.checkStaticParity()
+		}
+		return nil
+	})
 }
 
 func (p *pipeline) copyStatic() {
@@ -34,17 +48,16 @@ func (p *pipeline) copyStatic() {
 
 	projectStatic := filepath.Join(p.opts.SourceDir, "static")
 	// Plain copy skips the language-local staticRoot subtree (it is remapped
-	// below) and any explicitly excluded prefixes. SkipProjectStatic drops
-	// the shared tree entirely when this language relies on root-absolute
-	// assets from the default-language output.
-	if !p.opts.SkipProjectStatic {
-		excludes := append([]string{}, p.opts.StaticExclude...)
-		if p.opts.StaticRoot != "" {
-			excludes = append(excludes, p.opts.StaticRoot+"/")
-		}
-		if err := p.writer.CopyStatic(projectStatic, excludes); err != nil {
-			p.logf("  WARN: static: %v\n", err)
-		}
+	// below) and any explicitly excluded prefixes. The shared tree is always
+	// copied: canonify prefixes root-relative asset URLs with this language's
+	// base, so every language output must be self-contained. Skipping it (the
+	// removed skipProjectStatic option) shipped English pages with no styles.
+	excludes := append([]string{}, p.opts.StaticExclude...)
+	if p.opts.StaticRoot != "" {
+		excludes = append(excludes, p.opts.StaticRoot+"/")
+	}
+	if err := p.writer.CopyStatic(projectStatic, excludes); err != nil {
+		p.logf("  WARN: static: %v\n", err)
 	}
 	// Language-local static: copy static/<staticRoot>/ to this build's
 	// output root (e.g. static/en/llms.txt → docs/en/llms.txt for the en

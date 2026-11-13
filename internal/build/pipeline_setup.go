@@ -74,7 +74,14 @@ func (p *pipeline) setupTemplatesAndWriter() error {
 		p.writer = output.NewWriter(p.opts.OutputDir)
 	}
 	// Enable canonifyURLs to rewrite root-relative paths to absolute URLs.
-	p.writer.SetCanonify(output.CanonifyOptions{BaseURL: p.cfg.BaseURL})
+	// The rewrite observer feeds the post-write asset gate: every root-relative
+	// asset URL must resolve inside this language's own output, so a missing
+	// stylesheet fails the build instead of shipping an unstyled page.
+	p.assetRefs = newAssetRefs()
+	p.writer.SetCanonify(output.CanonifyOptions{
+		BaseURL:   p.cfg.BaseURL,
+		OnRewrite: p.assetRefs.record,
+	})
 	return nil
 }
 

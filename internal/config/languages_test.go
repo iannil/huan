@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTopSection(t *testing.T) {
 	cases := map[string]string{
@@ -49,5 +52,32 @@ func TestIsSectionExcludedForLang(t *testing.T) {
 	// Unknown language code → not excluded.
 	if cfg.IsSectionExcludedForLang("fr", "/books/") {
 		t.Error("unknown lang should not exclude")
+	}
+}
+
+// TestRejectRemovedKeys covers the migration guard for language options that
+// an earlier release accepted: dropping them silently would leave a config
+// looking applied while its behavior vanished.
+func TestRejectRemovedKeys(t *testing.T) {
+	raw := map[string]any{
+		"languages": map[string]any{
+			"en": map[string]any{"skipProjectStatic": true},
+		},
+	}
+	err := rejectRemovedKeys(raw)
+	if err == nil {
+		t.Fatal("expected skipProjectStatic to be rejected")
+	}
+	if !strings.Contains(err.Error(), "languages.en.skipProjectStatic was removed") {
+		t.Errorf("error should name the key, got: %v", err)
+	}
+
+	ok := map[string]any{
+		"languages": map[string]any{
+			"en": map[string]any{"staticRoot": "en"},
+		},
+	}
+	if err := rejectRemovedKeys(ok); err != nil {
+		t.Errorf("supported keys must pass, got: %v", err)
 	}
 }

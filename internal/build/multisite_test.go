@@ -391,9 +391,11 @@ Hello world.
 	}
 }
 
-// TestMultiSiteSkipProjectStatic verifies that skipProjectStatic skips the
-// shared static/ tree for that language while still applying staticRoot.
-func TestMultiSiteSkipProjectStatic(t *testing.T) {
+// TestMultiSiteEveryLanguageCarriesStatic verifies that each language output
+// ships its own copy of the shared static tree, so the language versions of
+// the site correspond file-for-file (the removed skipProjectStatic option used
+// to drop the copy and shipped English pages without stylesheets).
+func TestMultiSiteEveryLanguageCarriesStatic(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "huan.yaml", `
 baseURL: https://example.com/
@@ -411,7 +413,6 @@ languages:
     languageName: English
     languageCode: en
     baseURL: /en
-    skipProjectStatic: true
     staticRoot: "en"
 `)
 	writeFile(t, dir, filepath.Join("content", "posts", "foo.md"), `---
@@ -428,14 +429,25 @@ Hello world.
 		t.Fatalf("BuildMultiSite: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(out, "css", "site.css")); err != nil {
-		t.Errorf("docs/css/site.css should exist from default language: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(out, "en", "css", "site.css")); !os.IsNotExist(err) {
-		t.Error("docs/en/css/site.css should NOT exist when skipProjectStatic is set")
+	for _, rel := range []string{filepath.Join("css", "site.css"), filepath.Join("en", "css", "site.css")} {
+		if _, err := os.Stat(filepath.Join(out, rel)); err != nil {
+			t.Errorf("%s should exist: %v", rel, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(out, "en", "llms.txt")); err != nil {
-		t.Errorf("docs/en/llms.txt should still exist via staticRoot: %v", err)
+		t.Errorf("docs/en/llms.txt should exist via staticRoot: %v", err)
+	}
+	// The two copies must be identical: they come from one source tree.
+	cn, err := os.ReadFile(filepath.Join(out, "css", "site.css"))
+	if err != nil {
+		t.Fatalf("read cn css: %v", err)
+	}
+	en, err := os.ReadFile(filepath.Join(out, "en", "css", "site.css"))
+	if err != nil {
+		t.Fatalf("read en css: %v", err)
+	}
+	if string(cn) != string(en) {
+		t.Errorf("per-language static copies differ: %q vs %q", cn, en)
 	}
 }
 
