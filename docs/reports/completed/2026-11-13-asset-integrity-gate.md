@@ -1,7 +1,7 @@
 # skipProjectStatic 缺陷：移除该开关并加资产完整性门禁
 
-- 时间：2026-11-13 22:35 起，2026-11-13 22:52 完成实现与验证
-- 状态：**实现完成、未提交、未发布**（工作区改动待确认后提交）
+- 时间：2026-11-13 22:35 起，23:00 随 v0.12.7 发布
+- 状态：**已实现、已验证、已发布**（`1e33b68` → 版本提交 `9524b48` / tag `v0.12.7`）
 - 触发来源：下游站点 zhurongshuo 第三轮审计（`drafts/reports/2026-11-13-general-papers-audit/audit-round3.md` §7.1）
 - 关联版本：v0.12.6（`be4d41f` 引入 `skipProjectStatic`）
 
@@ -65,8 +65,17 @@
 - **逃生口**：`HUAN_ASSET_CHECK=off` 把两个门禁降级为 WARN，同时仍把计数写入 `Result.MissingAssets` / `Result.MissingStatic`。
 - 下游 zhurongshuo 已在 `2b22eb2ebe` 删除该开关，本次改动不要求它再动配置。
 
-## 6. 未做
+## 6. 发布结果
 
-- 未提交、未打标签、未发布；版本号未改（行为变更+配置项移除，建议下一个补丁版本 v0.12.7）。
-- 未对 0.12.6 的 release 报告做正式勘误，只在本文件与示例配置里写清了成立条件（如需对外，另起一条勘误）。
+| 项 | 结果 |
+| --- | --- |
+| 源码 | `9524b48` 已推 master；tag `v0.12.7` 指向同一提交 |
+| Release workflow | [run 43446630624](https://github.com/iannil/huan/actions/runs/43446630624) success（含 admin UI 构建、五平台产物、GHCR 推送） |
+| GitHub Release | `v0.12.7` 七个附件齐全，`shasum -a 256 -c` 五平台全部 OK |
+| GHCR | `v0.12.7` 与 `latest` 同一 digest `sha256:f7ec65cf6275bdc3f9f0a4f6d2c64ec9aec6a26b2c471d3dd0eec4699bd15a92`，匿名 manifest 查询 HTTP 200 |
+| 本地安装 | `go install ./cmd/huan` → `huan 0.12.7 (9524b48)`，vcs clean |
+
+## 7. 未做
+
 - 未做「一次渲染、多语言共享静态」的更大改造——那是把 7.5% 拿回来的唯一正确路径，超出本次范围。
+- 未升级下游 zhurongshuo 到 0.12.7（用户明确本次不管该仓库）。
