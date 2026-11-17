@@ -61,3 +61,27 @@
 ## 15:12 Task 5 修复（评审 round 1）：重建后广播 LiveReload reload/alert
 
 - `hub := dev.NewHub()` 上移到重建闭包之前；闭包内对齐 `huan dev` 参考：重建成功 `hub.BroadcastReload()`、失败 `hub.BroadcastAlert("huan rebuild error: ...")`。桌面预览窗口内容编辑后可自动刷新，重建错误可推送浏览器。验证：`go test ./internal/desktop/ -run TestServeRuntime -v` 3 passed、`-race -count=3` 9 passed、全包回归 ok、`go build ./... && go vet ./...` 通过。
+
+## 15:15 Task 6 完成：生产构建运行时（internal/desktop/build.go）
+
+### 完成内容
+
+- 新增 `internal/desktop/build.go`：`BuildSiteTo(sourceDir, outputDir, logf) error` —— 等价 `huan build` 默认路径：`config.Load` → `plugin.NewRegistryFromConfig` → `theme.NewManager`（`cfg.Theme != ""` 时 Activate，失败仅 logf 不阻断）→ `build.Options{Timings: NewTimings(), SourceDir, OutputDir, Logf, PluginRegistry, ThemeManager}` → `IsMultiLanguage` 分支 BuildMultiSite/BuildSite → 收尾 `image.RunProcessors`。无 dev 专用缓存（单次构建无增量收益）。`logf == nil` 时退化为 no-op。
+- TDD：先写 `build_test.go`（复用 server_test.go 包级 `writeSite` 夹具，未重定义）→ RED（`undefined: BuildSiteTo`，build.go 不存在的预期编译失败）→ 实现 → GREEN。
+
+### API 核对结果（源码 grep，实际签名 vs brief）
+
+- 全部一致，无需适配：`plugin.NewRegistryFromConfig(cfg *config.Config, sourceDir, pluginDirOverride string)`、`image.RunProcessors(outputDir, sourceDir string, registry *plugin.Registry)`、`theme.NewManager(registry *plugin.Registry)` + `(*Manager).Activate(name string) error`、`config.Load(sourceDir string) (*Config, error)`、`(*Config).IsMultiLanguage()`、`cfg.Theme` 字段、`build.BuildSite(opts Options) (*Result, error)`、`build.BuildMultiSite(opts Options) (*MultiSiteResult, error)`、`build.NewTimings()`、`build.Options.PluginRegistry/ThemeManager` 字段、module path `github.com/iannil/huan`。
+- 唯一调整：brief 中 `PluginRegistry: reg,` 的 struct 字面量对齐空格不合 gofmt，按 gofmt 对齐重排（纯空白，语义不变）。
+
+### 验证
+
+- RED：`go test ./internal/desktop/ -run TestBuildSiteTo -v` → FAIL：`build_test.go:12:12: undefined: BuildSiteTo`、`build_test.go:23:12: undefined: BuildSiteTo`。
+- GREEN：同命令 2 passed（ProducesOutput 断言磁盘上 `index.html` 与 `posts/alpha/index.html` 真实存在；InvalidSiteFails 断言空目录构建报错）。
+- 全包回归：`go test ./internal/desktop/ -v` → 14 passed, 0 failed。
+- `gofmt -l internal/desktop/`：新文件无输出（仅 config_test.go 为 Task 3 遗留项，本任务未碰）。
+- `go build ./... && go vet ./...`：通过。
+
+### 备注
+
+- 测试输出除 observability JSON 日志外无噪声；未引入任何 MyGo 内容。
