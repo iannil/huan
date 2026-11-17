@@ -187,3 +187,30 @@
 - `go build ./... && go vet ./internal/desktop/ ./cmd/huan-desktop/`：通过。
 - `go test ./internal/desktop/ -v`：15 passed（既有 14 + 新增 TestAdminOrigin）。
 - `gofmt -l`（app.go、app_test.go、bindings.go）：干净。
+
+## 16:05 Task 9 完成：打包 + 本地归档 + 验收文档（Phase 1 自动化范围收尾）
+
+### 完成内容
+
+- `mygo build -platform darwin/arm64` 产出 `build/desktop/darwin-arm64/`：`huan.app`（20.8 MB）+ `huan-0.13.0-arm64.dmg`（5.6 MB），与计划假设路径一致。
+- **修复 `mygo.json`**：`main` 由 `cmd/huan-desktop` 改为 `github.com/iannil/huan/cmd/huan-desktop`。mygo 的 `packageDir`/`goBuild` 把该字段原样传给 `go list`/`go build`，裸 `cmd/*` 路径被按 std 包解析报 "not in std"；此前从未运行过 `mygo build`（各任务用 `go build` 验证），本任务首次运行暴露。
+- .app 结构检查（自动化）：二进制 Mach-O arm64 755、Info.plist（identifier `io.github.iannil.huan.desktop`、版本 0.13.0、min macOS 12.0）、adhoc 签名；bundle 未嵌图标（图标美化留待办）。
+- 本地归档（按用户裁决 `/release/` 保持 gitignore，不入库）：`release/desktop/v0.13.0/` 下 app.zip（7.5 MB）+ dmg（5.6 MB）+ SHA256SUMS（`shasum -a 256 -c` 两项 OK）+ 中文 README（首启 xattr/右键说明、功能清单、日志位置、已知限制引用 spec §9）。
+- 验收文档：`docs/reports/2026-11-17-desktop-phase1-acceptance.md`（VERIFIED / PENDING-HUMAN-ACCEPTANCE 分离）。
+- 全仓门禁：`go vet ./...` 干净；`go test ./...` 33 包 ok / 0 失败（`-count=1` 复跑同）——Task 1 deferred 的 x/net+x/sys+x/text MVS 升级验证在此消化。gofmt：桌面范围仅 `config_test.go`（Task 3 残留，不修）；全仓另有 73 个文件为历史漂移（与分支变更集求交确认仅 config_test.go 属本分支）。
+
+### 人工验收待办（不视为通过）
+
+- 六项清单（启动选站/托盘构建/停止启动预览/打开目录浏览器/切换站点/退出释放端口）、双击首启（Gatekeeper 提示见 release README）。
+- **必须含一次真实 SPA→Go 绑定调用**（AppVersion/RevealSiteFolder）——dev/smoke 因 mygo IsDev 信任回环无法功能性验证绑定，生产 .app 唯一有效。
+- 托盘 OnClick：点击弹菜单不开窗口，MyGo 设计，非缺陷。
+
+### 验证
+
+- `go test ./...` / `go vet ./...`：全绿（见上）。
+- SHA256SUMS 校验：`shasum -a 256 -c SHA256SUMS` → app.zip OK、dmg OK。
+- git：本提交仅含文档与 `mygo.json` 修复；`release/`（gitignore）与 `build/`（未跟踪）均不入库。
+
+### 状态
+
+Phase 1 九个任务自动化范围全部完成；人工验收完成后本阶段方可视为最终关闭。进度文档按计划 `git mv` 至 `docs/reports/completed/2026-11-17-desktop-phase1.md`。
