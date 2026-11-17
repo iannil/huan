@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -287,22 +286,5 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 // inputs conservatively invalidate them; no filesystem stat is needed, so
 // deletions and editor atomic-save renames are classified the same as writes.
 func devMarkdownOnlyChanges(source string, paths []string) bool {
-	if len(paths) == 0 {
-		return false
-	}
-	root, err := filepath.Abs(filepath.Join(source, "content"))
-	if err != nil {
-		return false
-	}
-	for _, path := range paths {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return false
-		}
-		rel, err := filepath.Rel(root, abs)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.Ext(rel) != ".md" {
-			return false
-		}
-	}
-	return true
+	return dev.MarkdownOnlyChanges(source, paths)
 }

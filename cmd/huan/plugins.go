@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/iannil/huan/internal/build"
@@ -24,48 +23,12 @@ import (
 // Unknown plugins declared in yaml (not found as .so files) are silently
 // skipped at compile time.
 func newPluginRegistry(cfg *config.Config, sourceDir string, pluginDirOverride string) (*plugin.Registry, error) {
-	r := plugin.NewRegistry()
-	pluginDir := pluginDirFromSource(sourceDir)
-	if pluginDirOverride != "" {
-		pluginDir = pluginDirOverride
-	}
-	loader := plugin.NewLoader(pluginDir)
-
-	// Scan and load all .so files, filter by category
-	results, err := loader.ScanAndLoadByCategory(cfg.Plugins, plugin.CategoryStatic, plugin.CategoryMixed)
-	if err != nil {
-		return nil, fmt.Errorf("plugin: scan static plugins: %w", err)
-	}
-	for _, result := range results {
-		name := result.Plugin.Name()
-		if _, exists := r.Get(name); exists {
-			fmt.Fprintf(os.Stderr, "huan: plugin %q: name conflict, skipping\n", name)
-			continue
-		}
-		if err := r.Register(result.Plugin); err != nil {
-			fmt.Fprintf(os.Stderr, "huan: plugin %q: register error: %v\n", name, err)
-		}
-	}
-
-	// Validate configs against schemas. A plugin declared in yaml but not in
-	// this build-stage registry (dynamic plugins) is fine as long as its .so
-	// is resolvable — it will be loaded at runtime — so only warn on a truly
-	// missing .so.
-	soExists := func(name string) bool { return loader.Resolve(plugin.SoFileName(name)) != "" }
-	if errs, warns := plugin.ValidateRawConfigs(r, cfg.Plugins, soExists); len(errs) > 0 || len(warns) > 0 {
-		for _, w := range warns {
-			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
-		}
-		if len(errs) > 0 {
-			return nil, fmt.Errorf("plugin config errors:\n  - %s", strings.Join(errs, "\n  - "))
-		}
-	}
-	return r, nil
+	return plugin.NewRegistryFromConfig(cfg, sourceDir, pluginDirOverride)
 }
 
 // pluginDirFromSource returns the plugins directory path relative to sourceDir.
 func pluginDirFromSource(sourceDir string) string {
-	return sourceDir + "/plugins"
+	return plugin.DirFromSource(sourceDir)
 }
 
 // loadConfiguredPlugins loads every huan.yaml-declared plugin that is not

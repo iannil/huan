@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -19,7 +20,7 @@ import (
 type ServerOptions struct {
 	OutputDir    string
 	Bind         string
-	Port         string // ":0" or "0" makes the OS pick a free port
+	Port         string         // ":0" or "0" makes the OS pick a free port
 	Hub          *LiveReloadHub // optional; if nil, /livereload route returns 404
 	AdminHandler http.Handler   // optional; if non-nil, mounted at /admin/
 	Logf         func(format string, args ...any)
@@ -200,4 +201,28 @@ func serveNotFoundHTML(w http.ResponseWriter, r *http.Request, outputDir string)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusNotFound)
 	_, _ = io.Copy(w, rs)
+}
+
+// MarkdownOnlyChanges keeps pure Markdown results for content edits. Unknown
+// inputs conservatively invalidate them; no filesystem stat is needed, so
+// deletions and editor atomic-save renames are classified the same as writes.
+func MarkdownOnlyChanges(source string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	root, err := filepath.Abs(filepath.Join(source, "content"))
+	if err != nil {
+		return false
+	}
+	for _, path := range paths {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return false
+		}
+		rel, err := filepath.Rel(root, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.Ext(rel) != ".md" {
+			return false
+		}
+	}
+	return true
 }

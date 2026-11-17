@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/iannil/huan/internal/image"
 	"github.com/iannil/huan/internal/plugin"
 )
@@ -17,10 +15,5 @@ import (
 // function just discovers them by capability. If none is registered there is
 // nothing to do.
 func runImagePipeline(sourceDir, outputDir string, registry *plugin.Registry) error {
-	for _, p := range plugin.Find[image.ImageProcessor](registry) {
-		if err := p.Process(outputDir, sourceDir); err != nil {
-			return fmt.Errorf("image pipeline: process: %w", err)
-		}
-	}
-	return nil
+	return image.RunProcessors(outputDir, sourceDir, registry)
 }
