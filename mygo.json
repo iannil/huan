@@ -3,6 +3,6 @@
   "slug": "huan",
   "identifier": "io.github.iannil.huan.desktop",
   "version": "0.13.0",
-  "main": "cmd/huan-desktop",
+  "main": "github.com/iannil/huan/cmd/huan-desktop",
   "out": "build/desktop"
 }
