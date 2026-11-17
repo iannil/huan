@@ -118,11 +118,11 @@ build/desktop/darwin-arm64/
 
 ### 7.2 Fix 2（Important，用户裁决）：状态机接线 + startAndServe 串行化
 
-Task 4 导出但死代码的 `Machine`（state.go）自此驱动应用（spec §5 状态模型落地）。**接线适配说明**：4 态模型无法区分「稳定 serving」与「serving=启动中」，字面套用入口门 `Transition(StateIdle, StateServing)` 会使切换站点/换目录（对运行中会话的重启）恒被拒——故以 App 私有 `startMu` 串行化 startAndServe（串行化本身即裁决要求的另一目标），使入口时的 Serving 必指稳定会话；入口改为「暂停穿越 idle」式声明（idle→serving 新启 / serving→idle→serving 重启 / building→idle→serving 构建期重启 / error→idle 后新启），丢 CAS 即合并返回。状态映射与 CAS 丢失行为：
+Task 4 导出但死代码的 `Machine`（state.go）自此驱动应用（spec §5 状态模型落地）。**接线适配说明**：4 态模型无法区分「稳定 serving」与「serving=启动中」，字面套用入口门 `Transition(StateIdle, StateServing)` 会使切换站点/换目录（对运行中会话的重启）恒被拒——故以 App 私有 `startMu` 串行化 startAndServe（串行化本身即裁决要求的另一目标），使入口时的 Serving 必指稳定会话；入口改为「暂停穿越 idle」式声明（idle→serving 新启 / serving→idle→serving 重启 / building→idle→serving 构建期重启 / error→idle 后新启）。状态映射与 CAS 丢失行为：
 
 | 迁移点 | 迁移 | CAS 丢失时 |
 |--------|------|-----------|
-| startAndServe 入口 | idle→serving（新启）；serving/building→idle→serving（重启/构建期重启）；error→idle→serving | 记 `state-gate-lost` 分支日志，静默合并返回 |
+| startAndServe 入口 | idle→serving（新启）；serving/building→idle→serving（重启/构建期重启）；error→idle→serving | 记 `state-gate-lost` 分支日志。**语义澄清（re-review 修正）**：入口 CAS 丢失仅在持锁期间他方迁移机器的纳秒级窗口可达；启动窗口内的重复点击实际在 startMu 上**排队**，等待后按当期机器状态执行——Serving 则完整停止+重启（非合并、非幂等） |
 | startAndServe 失败 | serving→idle | —（必胜，持 startMu）；§6 error→idle 恢复塌缩为一步，重试入口同为 idle→serving |
 | ToggleServe 停止路径 | serving→idle 先于 Stop | 跳过离线页/SetServing(false) UI 降级（重启/构建持锁中），记 `state-gate-lost` |
 | OnServeExited | 先身份校验（a.rt 指针等同，重启时旧 runtime 已 detach → `stale-exit-skipped`），后 serving→idle；building→idle（构建中服务消亡，仍降级 UI）；余者 `unexpected-state-skip` 跳过 | — |
@@ -130,6 +130,15 @@ Task 4 导出但死代码的 `Machine`（state.go）自此驱动应用（spec §
 | Rebuild 完成/失败 | building→serving | `build-return-transition-lost`：机器已由新持有者（服务消亡→idle / 重启→serving）接管，保持其值；UI 仍按实际结果 SetBuilding(false)+通知 |
 
 - SetBuilding/SetServing UI 更新仍由实际结果驱动（不变）；Machine 是并发门 + 迁移真相。state.go 既有测试全绿；无新增导出 API。
+
+### 7.6 Fix 波 re-review 残留项（已裁决搁置，2026-11-18）
+
+re-review 判定全部 findings ADDRESSED、状态机接线 SUBSTANTIVE、无新 Critical/Important。以下残留均为 Minor/观察级，裁决搁置：
+
+- **剪贴板 void 吞错**（app.go `CopyAdminToken`）：`Clipboard.WriteText` 无错误返回（mygo modules.go 内部 `_ = c.Write(...)`），写失败仍会弹「已复制」通知。概率低、观感级；Phase 2 若 mygo 暴露错误接口再接。
+- **切换点击捕获时序**：`ToggleServe` 启动路径在阻塞 startMu 之前捕获 `RecentSites[0]`（app.go:408），理论上 ChooseSite 排队期间的切换点击会以旧站点完成排队重启（终态仍是有效服务会话）。可选微改进：捕获移至 startMu 等待之后。
+- **范围外观察**：`OpenSiteInBrowser`/`Quit` 处 `a.rt` 解锁读（相对 startAndServe 的锁定写属技术性 data race，良性指针读）；`StateError` 从未被置入（入口预清除，失败→idle 塌缩为一步——模型保真度注记，非裁决偏离）；构建期间机器处于 Building，用户无法停止服务（设计如此，见 §7.2 映射表）——人工验收时的 UX 注记；App 控制器状态流无直接单测（经静态分析 + state.go 自身 4 测试验证）。
+
 
 ### 7.3 Fix 3（机械批次）
 
