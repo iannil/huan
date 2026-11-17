@@ -16,3 +16,4 @@ skills-lock.json
 # then <project>/plugins.
 *.so
 .gocache/
+.superpowers/
