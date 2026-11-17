@@ -73,6 +73,7 @@ build/desktop/darwin-arm64/
 - [ ] 4. 「打开站点目录」→ Finder reveal；「在浏览器打开站点」→ 浏览器打开
 - [ ] 5. 「切换站点」→ 选另一目录 → 窗口 reload 到新 admin
 - [ ] 6. 「退出 huan」→ 进程退出、端口释放（`lsof -i :<port>` 确认）
+- [ ] 7. 「复制管理 Token」→ 粘贴到 SPA 认证提示 → 数据操作可用（修复波次新增，见 §7.1；托盘菜单与「站点」应用菜单均有该项）
 
 ### 5.3 绑定功能性验证（必须 — Task 8 评审遗留交付物）
 
@@ -103,3 +104,49 @@ build/desktop/darwin-arm64/
 ### 6.3 本任务修复
 
 - `mygo.json` `main` 改为模块全路径（§2）；`build/desktop/` 不在 .gitignore，构建产物保持未跟踪、未入库、未改 .gitignore。
+
+## 7. 修复波次（2026-11-18，终审裁决落地 — 代码提交 `ecf73d4`）
+
+整分支终审结论「Ready after fixes」的三项裁决 + 机械项全部落地后，重新打包发布物。本节为增量记录，前文保留原状。
+
+### 7.1 Fix 1（Critical，用户裁决）：托盘菜单浮出管理 Token
+
+- `ServeRuntime` 将每次 Start 生成的 admin token 存入 mu 保护区，新增 `Token()` 访问器（Start 前为空、Stop 清空——与 adminURL 等字段同批清理；无持久化，每 Start 重新生成保持不变）。
+- `Controller` 接口新增 `CopyAdminToken()`；托盘菜单「复制管理 Token」（ID `copy-token`，紧跟 serve/build 项）；应用菜单「站点」子菜单同步加入。
+- 剪贴板机制：核实 `go doc github.com/egoist/mygo ClipboardModule` 存在 `WriteText(text string)`（void，无错误面），直接采用，无需 Dialog 回退；复制成功后以系统通知确认。无 Token/未运行时 `Dialog.Error("预览服务未运行", ...)`。
+- SPA 认证提示（HUAN_ADMIN_TOKEN / stderr 均不可达的 Finder 启动场景）自此可完整走通——§5.2 清单第 7 项（PENDING-HUMAN）。
+
+### 7.2 Fix 2（Important，用户裁决）：状态机接线 + startAndServe 串行化
+
+Task 4 导出但死代码的 `Machine`（state.go）自此驱动应用（spec §5 状态模型落地）。**接线适配说明**：4 态模型无法区分「稳定 serving」与「serving=启动中」，字面套用入口门 `Transition(StateIdle, StateServing)` 会使切换站点/换目录（对运行中会话的重启）恒被拒——故以 App 私有 `startMu` 串行化 startAndServe（串行化本身即裁决要求的另一目标），使入口时的 Serving 必指稳定会话；入口改为「暂停穿越 idle」式声明（idle→serving 新启 / serving→idle→serving 重启 / building→idle→serving 构建期重启 / error→idle 后新启），丢 CAS 即合并返回。状态映射与 CAS 丢失行为：
+
+| 迁移点 | 迁移 | CAS 丢失时 |
+|--------|------|-----------|
+| startAndServe 入口 | idle→serving（新启）；serving/building→idle→serving（重启/构建期重启）；error→idle→serving | 记 `state-gate-lost` 分支日志，静默合并返回 |
+| startAndServe 失败 | serving→idle | —（必胜，持 startMu）；§6 error→idle 恢复塌缩为一步，重试入口同为 idle→serving |
+| ToggleServe 停止路径 | serving→idle 先于 Stop | 跳过离线页/SetServing(false) UI 降级（重启/构建持锁中），记 `state-gate-lost` |
+| OnServeExited | 先身份校验（a.rt 指针等同，重启时旧 runtime 已 detach → `stale-exit-skipped`），后 serving→idle；building→idle（构建中服务消亡，仍降级 UI）；余者 `unexpected-state-skip` 跳过 | — |
+| Rebuild 入口 | serving→building（取代裸 rt.Running() 判定；Running() 保留为启动窗口守卫——启动窗口机器亦为 serving，此时 rt 未就绪不可构建） | 原对话框「预览服务未运行，请先选择站点」 |
+| Rebuild 完成/失败 | building→serving | `build-return-transition-lost`：机器已由新持有者（服务消亡→idle / 重启→serving）接管，保持其值；UI 仍按实际结果 SetBuilding(false)+通知 |
+
+- SetBuilding/SetServing UI 更新仍由实际结果驱动（不变）；Machine 是并发门 + 迁移真相。state.go 既有测试全绿；无新增导出 API。
+
+### 7.3 Fix 3（机械批次）
+
+- `internal/version/VERSION`：0.12.7 → **0.13.0**（与 mygo.json/发布目录对齐；引擎下一发布从 v0.13.0 续计，记于当日 daily note）。
+- `config_test.go` gofmt 已清（§3 表中「仅 config_test.go」遗留就此关闭；§6.2 对应条目关闭）。全仓 75 文件 gofmt 历史漂移与分支变更集（68329ed..HEAD，23 个 .go）求交为**空**——漂移全部为历史遗留，未扩散。
+- `server.go` 死字段 `tmpDir` 移除（Start 用局部变量）；`assets/.gitkeep` 移除（目录已有真实 PNG）。
+- Start 就绪轮询改 `&http.Client{Timeout: 2s}`（裸 http.Get 无超时）。
+- `ServeOptions` 增 `Logger *observability.Logger`（nil 回退 stderr-only），App 注入文件落盘 logger——serve-start/serve-stop span 落 desktop.log。
+
+### 7.4 重新打包（VERIFIED）
+
+- `mygo build -platform darwin/arm64`（mygo v0.9.2，基于修复后工作树）；二进制结构检查：`LC_ALL=C grep -ac` 命中 `复制管理 Token`×3、`copy-token`×1、`预览服务未运行`×2（BSD `strings` 不识别多字节 UTF-8，grep -a 为有效证据）；Info.plist 版本 0.13.0。
+- 新 SHA256（`release/desktop/v0.13.0/SHA256SUMS`，`shasum -a 256 -c` 两项 OK；归档 zip 解包复验二进制含 Token 菜单串）：
+  - app.zip `3395b30a66e343f724ba1382f5f9dcfe477963aecf90ecd27ed7c5d74a30c236`
+  - dmg `f0f4b23fa23c6104f1937a60650dec52766545bb0a501c898a39308f344914ac`
+- 验证门禁：`go build ./...`、`go vet ./...` 干净；`go test ./...` 33 包全绿；`go test -race -count=2 ./internal/desktop/` 通过（15 用例）；分支范围 gofmt 干净。MyGo 引用仍仅在 `internal/desktop/{app,menu,bindings}.go`（cmd/huan-desktop 仅 import internal/desktop）；SPA 与 cmd/huan 未触碰。
+
+### 7.5 人工验收待办增量
+
+- §5.2 第 7 项（复制管理 Token → SPA 认证 → 数据操作可用）为 PENDING-HUMAN；第 1–6 项与 §5.3 绑定调用维持待办，均应在新归档（§7.4 SHA）上执行。

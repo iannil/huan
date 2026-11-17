@@ -214,3 +214,38 @@
 ### 状态
 
 Phase 1 九个任务自动化范围全部完成；人工验收完成后本阶段方可视为最终关闭。进度文档按计划 `git mv` 至 `docs/reports/completed/2026-11-17-desktop-phase1.md`。
+
+## 2026-11-17 16:41 UTC 终审修复波次（final fix wave）：Token 浮出 + 状态机接线 + v0.13.0 对齐
+
+整分支终审结论「Ready after fixes」；用户对三项裁决拍板后一次性落地，代码提交 `ecf73d4`，验收报告新增 §7（含状态映射表与重打包证据），发布物已按新代码重打包（新 SHA 见验收报告 §7.4）。逐项记录：
+
+### Fix 1（Critical，用户裁决）：托盘菜单浮出管理 Token
+
+- 问题：ServeRuntime 静默生成 admin token（每 Start 再生成、不持久化），SPA 认证提示所需的 Token 在 Finder 启动的 .app 中无任何获取途径（HUAN_ADMIN_TOKEN/stderr 均不可达），全部 /admin/api/* 永久 401。
+- 修复：ServeRuntime 在 mu 下存 token 并新增 `Token()`（Start 前空、Stop 与 adminURL 等同批清空）；`Controller` 增 `CopyAdminToken()`；托盘菜单与「站点」应用菜单均加「复制管理 Token」（ID `copy-token`，紧随 serve/build 项）。无 Token 时 Dialog「预览服务未运行」。
+- MyGo 适配：`go doc` 核实 `ClipboardModule.WriteText(text string)` 存在（void，无错误面）→ 直接剪贴板方案，无需 Dialog.Message 回退；复制后系统通知确认。
+
+### Fix 2（Important，用户裁决）：状态机接线 + startAndServe 串行化
+
+- 问题：Task 4 的 `Machine` 导出且有测试但纯死代码，spec §5 状态模型从未驱动应用；startAndServe 无串行化（并发菜单动作可产生孤儿 ServeRuntime）。
+- 修复 + **关键适配**：4 态无法区分「稳定 serving」与「serving=启动中」——字面入口门 `Transition(StateIdle, StateServing)` 会令切换站点（对运行会话的重启）恒失败。故 App 增私有 `startMu` 串行化 startAndServe（串行化本就是裁决目标之一），使入口时 Serving 必指稳定会话；入口按「暂停穿越 idle」声明（idle→serving / serving→idle→serving / building→idle→serving / error→idle→serving），丢 CAS 记日志合并返回。其余迁移点：ToggleServe 停止与 OnServeExited 走 serving→idle CAS（丢则跳过 UI 降级）；OnServeExited 先做 a.rt 指针身份校验（startAndServe 停旧前先 detach → 陈旧回调 `stale-exit-skipped`）；Rebuild 入口 serving→building（保留 Running() 守卫，堵启动窗口 rt 未就绪即构建的洞），完成 building→serving 丢失则保持新持有者状态。完整映射表见验收报告 §7.2。
+- SetBuilding/SetServing 仍由实际结果驱动；state.go 测试全绿；无新增导出 API。
+
+### Fix 3（机械批次）
+
+- `internal/version/VERSION` 0.12.7 → 0.13.0（对齐 mygo.json/发布目录；引擎下一发布从 v0.13.0 续计——已记 daily note）。
+- `config_test.go` gofmt 已清（Task 3 遗留关闭）；`server.go` 死字段 `tmpDir` 移除；`assets/.gitkeep` git rm（目录已有真实 PNG）；就绪轮询改 `&http.Client{Timeout: 2s}`；`ServeOptions` 增可选 `Logger`（nil 回退 stderr-only），App 注入文件 logger，serve-start/stop span 落 desktop.log。
+- 全仓 gofmt 历史漂移（75 文件）与分支变更集（23 个 .go）求交为空，证明零扩散、未处理项均系历史遗留。
+
+### Fix 5（验证门禁，全部通过）
+
+- `go build ./...` + `go vet ./...` 干净；`go test ./internal/desktop/ -v` 15 用例全过；`go test ./...` 33 包全绿；`go test -race -count=2 ./internal/desktop/` 通过；分支范围 gofmt 干净。
+- MyGo 引用仍仅 `internal/desktop/{app,menu,bindings}.go`；cmd/huan-desktop 仅 import internal/desktop；SPA 与 cmd/huan 未触碰。
+
+### Fix 6（重新打包，本地归档不入库）
+
+- `mygo build -platform darwin/arm64` 基于修复后代码重打；二进制 `grep -ac` 命中 `复制管理 Token`×3 / `copy-token`×1 / `预览服务未运行`×2（BSD strings 不识别多字节 UTF-8，grep -a 为有效证据）；新 SHA256SUMS 两项校验 OK，归档 zip 解包复验含 Token 菜单串。release/ 与 build/ 均不入 git。
+
+### 状态
+
+Phase 1 自动化范围在修复波次后重新闭环；人工验收（原六项 + 绑定调用 + 新增第 7 项复制 Token）须在新归档（验收报告 §7.4 SHA）上执行后方可最终关闭。
