@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -196,66 +197,93 @@ func (a *App) startAndServe(site string) {
 		a.menus.RefreshRecents(a, a.cfg.RecentSites)
 	}
 	a.log.LogFunctionEnd(startLog, time.Since(startTime), map[string]any{"admin_url": adminURL})
-	a.loadAdmin(adminURL)
+	// TrustedOrigins are fixed at window creation and every Start binds a new
+	// port, so each successful start rebuilds the window for the fresh origin.
+	a.recreateWindow()
 }
 
 // ShowWindow implements Controller: create or focus the admin window.
 // No blocking work, so it runs on the menu callback thread directly.
 func (a *App) ShowWindow() { a.showWindow() }
 
-// showWindow creates or focuses the admin window.
+// adminOrigin derives the TrustedOrigins entry for the admin SPA from the
+// running server's admin URL. mygo's isTrusted compares scheme://host:port
+// exactly (u.Host includes the port), and the dev server binds a fresh
+// random port per Start, so the origin must be derived at window-creation
+// time — a bare "http://127.0.0.1" can never match. Nil when there is no
+// usable admin URL (offline window: nothing to trust).
+func adminOrigin(adminURL string) []string {
+	u, err := url.Parse(adminURL)
+	if err != nil || u.Host == "" {
+		return nil
+	}
+	return []string{u.Scheme + "://" + u.Host}
+}
+
+// showWindow creates the admin window if none exists (menu entry point).
 func (a *App) showWindow() {
 	a.mu.Lock()
 	win := a.win
 	a.mu.Unlock()
 	if win != nil {
-		return // Phase 1: single window; created once in onReady flow
+		return // one window per serve session; startAndServe rebuilds it
+	}
+	a.createWindow()
+}
+
+// createWindow builds the admin window with TrustedOrigins derived from the
+// running runtime (empty when none — the offline page needs no bindings).
+func (a *App) createWindow() {
+	a.mu.Lock()
+	rt := a.rt
+	a.mu.Unlock()
+	var origins []string
+	adminURL := ""
+	if rt != nil {
+		adminURL = rt.AdminURL()
+		origins = adminOrigin(adminURL)
 	}
 	newWin := mygo.NewWindow(mygo.WindowOptions{
 		Title:  "huan",
 		Width:  1280,
 		Height: 800,
-		// TrustedOrigins lets the admin SPA origin call Go bindings.
-		Page: mygo.PageOptions{TrustedOrigins: []string{"http://127.0.0.1"}},
+		// TrustedOrigins lets the admin SPA origin call Go bindings; the
+		// origin carries the per-session port (see adminOrigin).
+		Page: mygo.PageOptions{TrustedOrigins: origins},
 	})
 	a.mu.Lock()
 	a.win = newWin
 	a.mu.Unlock()
-	// Window close (Cmd+W) must clear a.win so ShowWindow can recreate it.
-	// OnClosed fires after the window is truly gone (an OnClose listener
-	// would clear the reference even if some other listener kept the window
-	// open). Also runs during app quit; clearing then is harmless.
+	// Window close (Cmd+W) must clear a.win so showWindow can recreate it.
+	// OnClosed fires after the window is truly gone. The identity check keeps
+	// a stale OnClosed (from a window recreated mid-close) from clobbering
+	// the reference to the new window; clearing during app quit is harmless.
 	newWin.OnClosed(func() {
 		a.mu.Lock()
-		a.win = nil
+		if a.win == newWin {
+			a.win = nil
+		}
 		a.mu.Unlock()
 	})
-	url := ""
-	if a.rt != nil {
-		url = a.rt.AdminURL()
-	}
-	if url != "" {
-		if err := newWin.Page().LoadURL(url); err != nil {
+	if adminURL != "" {
+		if err := newWin.Page().LoadURL(adminURL); err != nil {
 			a.log.LogError("load-admin", err, nil)
 		}
 	}
 }
 
-// loadAdmin points the window at the given admin URL (or an offline page).
-func (a *App) loadAdmin(adminURL string) {
+// recreateWindow closes the current window (if any) and creates a fresh one
+// bound to the new runtime's origin, loading the admin URL. WindowOptions
+// fix TrustedOrigins at creation and every Start binds a new port, so a
+// site switch or serve restart must rebuild the window for bindings to work.
+func (a *App) recreateWindow() {
 	a.mu.Lock()
-	win := a.win
+	old := a.win
 	a.mu.Unlock()
-	if win == nil {
-		return
+	if old != nil {
+		old.Close() // fires the old window's OnClosed; identity check guards
 	}
-	if adminURL == "" {
-		a.showOffline()
-		return
-	}
-	if err := win.Page().LoadURL(adminURL); err != nil {
-		a.log.LogError("load-admin", err, nil)
-	}
+	a.createWindow()
 }
 
 // showOffline renders a minimal local page when the server is stopped.

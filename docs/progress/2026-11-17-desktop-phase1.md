@@ -160,3 +160,30 @@
 ### 备注
 
 - 冒烟后清理了预置 config.json 与 /tmp 站点/二进制；`logs/desktop.log` 为应用自身产物保留。自审发现的低风险项（菜单回调 goroutine 中 `a.rt`/`a.menus` 无锁读的理论竞态窗口、`Rebuild` 中 `rt.Config()` 在 Running 检查后可能为 nil 的理论窗口）按 brief 设计保留，记入 Task 8 报告，Phase 2 加固。
+
+## 15:50 Task 8 修复（评审 round 1）：TrustedOrigins 从运行中的 admin origin 派生
+
+### 问题（评审 Important）
+
+- 原实现 `TrustedOrigins: []string{"http://127.0.0.1"}` 不含端口；mygo v0.9.2 `Window.isTrusted`（window.go:1618-1638）以 `scheme://` + `u.Host`（含端口）构造页面 origin 并 `EqualFold` 精确比较。dev server 每次 Start 绑定随机端口（如 `http://127.0.0.1:55327`），故每个 SPA→Go 绑定调用（AppVersion/RevealSiteFolder）都会被拒绝——TrustedOrigins + bindings 的 Produces 目标落空。
+- 源码另证：`IsDev()`（dev.go:12-17，非 production 环境为 true）会无条件信任 loopback http/https，开发期掩盖此 bug；Task 9 打包 .app（production）后即死路。评审结论属实，按用户裁决修复。
+
+### 修复内容（internal/desktop/app.go、新增 app_test.go）
+
+- 新增纯函数 `adminOrigin(adminURL string) []string`：解析 admin URL，取 `scheme://host`（host 含端口、去 path）作为 TrustedOrigins 项；无可用 URL（离线窗口）时返回 nil（无可信来源）。
+- `createWindow()`（自 `showWindow` 拆出）：窗口创建时从当前运行时 `rt.AdminURL()` 派生 origins；无运行时则空 origins（离线页无需绑定）。
+- **窗口重建机制（评审给定两案中的「startAndServe 关闭+重建」案）**：`startAndServe` 成功后调 `recreateWindow()`——关旧窗（`old.Close()`）、以新 origin 建新窗并加载 admin URL。理由：`WindowOptions.Page.TrustedOrigins` 为创建期固定属性（mygo 无 setter），且每次 Start 都绑定新端口，origin 必变，逐次重建比「比较窗口 origin 是否匹配」更简单且恒正确。`ShowWindow` 在无运行时调用时创建空 origins 窗口（离线页），下一次 `startAndServe` 必然重建之。
+- **OnClosed 身份校验**：重建场景下旧窗 OnClosed 异步触发可能晚于新窗赋值 `a.win`；回调改为 `if a.win == newWin { a.win = nil }`（按窗口指针判定），陈旧回调不再误清新引用。单窗守卫语义保持（`a.win` 恒在 `a.mu` 下；OnClosed 清引用）。
+- 删除死代码 `loadAdmin`（唯一调用点已由 `recreateWindow` 取代）；`showOffline` 保留（OnServeExited/停服路径不变）。
+- 新增 `app_test.go::TestAdminOrigin`（4 子用例：带 path 的 admin URL、无 path、空 URL、无 host）。
+
+### 冒烟复验（自动化代理，同协议）
+
+- 预置站点启动 → 8s 核验：进程存活（PID 4968）、desktop.log 15 行全合法 JSON、stderr 无 panic；站点与 `/admin/` GET 均 200（127.0.0.1:55327）；python 复算 mygo origin 构造式确认「页面 origin == 我们传入的 TrustedOrigins 项」精确相等；`kill -9` 后进程消失、端口 0 监听。清理了预置 config 与 /tmp 产物。
+- webview 内 SPA→Go 绑定调用仍无法自动点击验证，功能性绑定证明归人工验收；本次以「派生 origin 与 isTrusted 构造式精确匹配」+ 单测作为代码级证据。
+
+### 验证
+
+- `go build ./... && go vet ./internal/desktop/ ./cmd/huan-desktop/`：通过。
+- `go test ./internal/desktop/ -v`：15 passed（既有 14 + 新增 TestAdminOrigin）。
+- `gofmt -l`（app.go、app_test.go、bindings.go）：干净。
