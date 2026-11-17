@@ -10,6 +10,7 @@ import (
 type Controller interface {
 	ToggleServe()       // start/stop the in-process server
 	Rebuild()           // one-click production build
+	CopyAdminToken()    // copy the current admin API token to the clipboard
 	OpenSiteFolder()    // reveal site root in Finder
 	OpenSiteInBrowser() // open siteURL in default browser
 	SwitchSite(path string)
@@ -23,6 +24,7 @@ type Controller interface {
 const (
 	itemToggleServe = "toggle-serve"
 	itemRebuild     = "rebuild"
+	itemCopyToken   = "copy-token"
 )
 
 // BuildTrayMenu assembles the tray menu; recents are the recent site paths.
@@ -31,6 +33,7 @@ func BuildTrayMenu(c Controller, recents []string) *mygo.Menu {
 		{Label: "打开预览窗口", ID: "show-window", Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowWindow() }},
 		{Label: "启动/停止预览服务", ID: itemToggleServe, Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
 		{Label: "一键构建站点", ID: itemRebuild, Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
+		{Label: "复制管理 Token", ID: itemCopyToken, Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }},
 		mygo.Separator(),
 		{Label: "打开站点目录", ID: "open-folder", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
 		{Label: "在浏览器打开站点", ID: "open-browser", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
@@ -60,6 +63,7 @@ func BuildAppMenu(c Controller) *mygo.Menu {
 			{Label: "打开预览窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowWindow() }},
 			{Label: "启动/停止预览服务", Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
 			{Label: "一键构建站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
+			{Label: "复制管理 Token", Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }},
 			mygo.Separator(),
 			{Label: "打开站点目录", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
 			{Label: "在浏览器打开站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},

@@ -56,7 +56,7 @@ func TestLoadOrDefault_CorruptFileBackedUpAndReset(t *testing.T) {
 func TestAddRecentSite_CapTenDedupToFront(t *testing.T) {
 	cfg := &DesktopConfig{}
 	for i := 0; i < 12; i++ {
-		cfg.AddRecentSite(string(rune('a'+i))) // 12 distinct
+		cfg.AddRecentSite(string(rune('a' + i))) // 12 distinct
 	}
 	if len(cfg.RecentSites) != 10 {
 		t.Fatalf("cap failed: %d", len(cfg.RecentSites))

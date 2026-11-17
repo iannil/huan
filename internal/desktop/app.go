@@ -23,15 +23,22 @@ type App struct {
 	cfg    *DesktopConfig
 	cfgDir string
 	rt     *ServeRuntime
-	win    *mygo.Window
-	menus  *MenuSet
-	log    *observability.Logger
-	logDir string
+	sm     *Machine // spec §5 state model: concurrency gate + transition truth
+	// startMu serializes startAndServe: the 4-state machine cannot
+	// distinguish "serving stably" from "serving = start in flight", so
+	// mutual exclusion of starts is what makes machine==Serving on entry
+	// mean a stable session (restart path) rather than a concurrent start.
+	startMu sync.Mutex
+	win     *mygo.Window
+	menus   *MenuSet
+	log     *observability.Logger
+	logDir  string
 }
 
 // Run starts the desktop app and blocks until it quits.
 func Run() error {
 	app := &App{}
+	app.sm = NewMachine()
 
 	// Structured JSON log file (Full-Lifecycle Observability).
 	dir, err := DefaultConfigDir()
@@ -145,18 +152,83 @@ func (a *App) pickSiteDialog() (string, bool) {
 // startAndServe starts (or restarts) the server for the given site and
 // reloads the window. Called from the ready flow and site switches.
 func (a *App) startAndServe(site string) {
+	// Serialize starts (see startMu doc): guarantees a single in-flight start.
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
+
 	startLog := a.log.LogFunctionStart("start-serve", map[string]any{"site": site})
 	startTime := time.Now()
-	if a.rt != nil {
-		_ = a.rt.Stop(5 * time.Second)
+	// Spec §5 state gate: claim the machine for this whole operation.
+	//   idle → serving            fresh start
+	//   serving → idle → serving  stable session restart (site switch) —
+	//                             parking through idle releases the serving
+	//                             slot so concurrent stops/claims stay honest
+	//   building → idle → serving serve restart while a production build runs
+	//                             (the build's completion CAS then loses,
+	//                             harmlessly — see Rebuild)
+	//   error → idle              spec §6 error recovery, then fresh start
+	// Losing any claim means another holder owns the machine — merge instead
+	// of duplicating (repeat-click idempotence).
+	if a.sm.Current() == StateError {
+		a.sm.Transition(StateError, StateIdle)
+	}
+	cur := a.sm.Current()
+	switch cur {
+	case StateIdle:
+		if !a.sm.Transition(StateIdle, StateServing) {
+			a.log.Log("start-serve", observability.EventBranch, map[string]any{
+				"branch": "state-gate-lost", "current": a.sm.Current().String(), "site": site,
+			})
+			return
+		}
+	case StateServing, StateBuilding:
+		if !a.sm.Transition(cur, StateIdle) || !a.sm.Transition(StateIdle, StateServing) {
+			a.log.Log("start-serve", observability.EventBranch, map[string]any{
+				"branch": "state-gate-lost", "current": a.sm.Current().String(), "site": site,
+			})
+			return
+		}
+	}
+	// Detach the old runtime before stopping it so its stale OnServeExited
+	// (identity check below) cannot downgrade the UI mid-restart.
+	a.mu.Lock()
+	old := a.rt
+	a.rt = nil
+	a.mu.Unlock()
+	if old != nil {
+		_ = old.Stop(5 * time.Second)
 	}
 	rt := NewServeRuntime(ServeOptions{
 		SourceDir: site,
+		Logger:    a.log, // serve-start/serve-stop spans land in desktop.log
 		Logf: func(format string, args ...any) {
 			a.log.Log("serve", observability.EventPoint, map[string]any{"msg": fmt.Sprintf(format, args...)})
 		},
 	})
+	this := rt
 	rt.OnServeExited = func(err error) {
+		// Stale-callback guard: only the live (a.rt-identical) session may
+		// drive UI; callbacks from a replaced runtime are dropped.
+		a.mu.Lock()
+		live := a.rt == this
+		a.mu.Unlock()
+		if !live {
+			a.log.Log("serve-exited", observability.EventBranch, map[string]any{"branch": "stale-exit-skipped"})
+			return
+		}
+		// Machine CAS decides who downgrades: serving→idle is the normal
+		// stop/exit; building→idle covers a serve death mid-build (still
+		// downgrade — the server really exited); anything else is stale.
+		switch {
+		case a.sm.Transition(StateServing, StateIdle):
+		case a.sm.Transition(StateBuilding, StateIdle):
+			a.log.Log("serve-exited", observability.EventBranch, map[string]any{"branch": "serve-exited-during-building"})
+		default:
+			a.log.Log("serve-exited", observability.EventBranch, map[string]any{
+				"branch": "unexpected-state-skip", "current": a.sm.Current().String(),
+			})
+			return
+		}
 		// Intentional stop (nil / context.Canceled): update UI quietly.
 		// Unexpected exit: also notify the user (spec §6).
 		if err == nil || errors.Is(err, context.Canceled) {
@@ -183,6 +255,10 @@ func (a *App) startAndServe(site string) {
 		if a.menus != nil {
 			a.menus.SetServing(false)
 		}
+		// Start failed: release the gate back to idle (spec §6 error→idle
+		// recovery collapsed into one step; the retry entry point is the same
+		// idle→serving path).
+		a.sm.Transition(StateServing, StateIdle)
 		return
 	}
 	a.mu.Lock()
@@ -306,8 +382,21 @@ func (a *App) showOffline() {
 
 func (a *App) ToggleServe() {
 	go func() {
-		if a.rt != nil && a.rt.Running() {
-			if err := a.rt.Stop(5 * time.Second); err != nil {
+		a.mu.Lock()
+		rt := a.rt
+		a.mu.Unlock()
+		if rt != nil && rt.Running() {
+			// Machine gate (spec §5): stopping downgrades only from serving.
+			// Losing the CAS means a start/restart holds the machine or a
+			// build is in flight — don't stop out from under it and skip the
+			// offline-page/SetServing(false) UI downgrade.
+			if !a.sm.Transition(StateServing, StateIdle) {
+				a.log.Log("toggle-serve", observability.EventBranch, map[string]any{
+					"branch": "state-gate-lost", "current": a.sm.Current().String(),
+				})
+				return
+			}
+			if err := rt.Stop(5 * time.Second); err != nil {
 				mygo.Dialog.Error("停止失败", err.Error())
 			}
 			if a.menus != nil {
@@ -327,8 +416,15 @@ func (a *App) ToggleServe() {
 
 func (a *App) Rebuild() {
 	go func() {
+		a.mu.Lock()
 		rt := a.rt
-		if rt == nil || !rt.Running() {
+		a.mu.Unlock()
+		// Machine gate (spec §5): building is reachable only from serving.
+		// Running() stays as a guard because the machine holds serving during
+		// the start-up window too (before the listener answers) — building
+		// then would deref an unready runtime; the CAS serializes concurrent
+		// builds and stop-mid-build.
+		if rt == nil || !rt.Running() || !a.sm.Transition(StateServing, StateBuilding) {
 			mygo.Dialog.Error("无法构建", "预览服务未运行，请先选择站点")
 			return
 		}
@@ -340,6 +436,15 @@ func (a *App) Rebuild() {
 		err := BuildSiteTo(rt.SourceDir(), outDir, func(format string, args ...any) {
 			a.log.Log("build", observability.EventPoint, map[string]any{"msg": fmt.Sprintf(format, args...)})
 		})
+		// Back to serving only if the machine still says building; if the
+		// serve exited mid-build or a restart claimed the machine meanwhile
+		// (OnServeExited / startAndServe moved building→idle), the CAS loses
+		// and we keep the machine where its new owner put it.
+		if !a.sm.Transition(StateBuilding, StateServing) {
+			a.log.Log("build", observability.EventBranch, map[string]any{
+				"branch": "build-return-transition-lost", "current": a.sm.Current().String(),
+			})
+		}
 		if a.menus != nil {
 			a.menus.SetBuilding(false)
 		}
@@ -349,6 +454,28 @@ func (a *App) Rebuild() {
 			return
 		}
 		a.notify("构建完成", "输出目录："+outDir)
+	}()
+}
+
+// CopyAdminToken implements Controller: copy the live admin API token to the
+// clipboard so the SPA's auth prompt can be satisfied in a Finder-launched
+// .app (env/stderr are unreachable there). No persistence — the token is
+// regenerated per serve session and cleared on Stop.
+func (a *App) CopyAdminToken() {
+	go func() {
+		a.mu.Lock()
+		rt := a.rt
+		a.mu.Unlock()
+		token := ""
+		if rt != nil {
+			token = rt.Token()
+		}
+		if token == "" {
+			mygo.Dialog.Error("预览服务未运行", "启动预览服务后再复制管理 Token")
+			return
+		}
+		mygo.Clipboard.WriteText(token)
+		a.notify("已复制管理 Token", "请粘贴到管理界面的认证提示中")
 	}()
 }
 

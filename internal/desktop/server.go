@@ -30,6 +30,10 @@ const devMarkdownCacheBytes = 128 << 20
 type ServeOptions struct {
 	SourceDir string
 	Logf      func(format string, a ...any)
+	// Logger receives the runtime's structured serve-start/serve-stop spans.
+	// Nil falls back to a stderr-only logger (standalone/test usage); the
+	// desktop app injects its file-backed logger so spans land in desktop.log.
+	Logger *observability.Logger
 }
 
 // ServeRuntime owns one in-process serve session: initial build, file
@@ -47,10 +51,10 @@ type ServeRuntime struct {
 	starting bool // guards concurrent Start calls
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the serve goroutine exits
-	tmpDir   string
 	cfg      *config.Config
 	adminURL string
 	siteURL  string
+	token    string // admin API token for this session; cleared on Stop
 	running  bool
 
 	// OnServeExited fires when the serve goroutine exits for any reason
@@ -67,7 +71,10 @@ func NewServeRuntime(opts ServeOptions) *ServeRuntime {
 	if opts.Logf == nil {
 		opts.Logf = func(string, ...any) {}
 	}
-	return &ServeRuntime{opts: opts, logf: opts.Logf, log: observability.NewLogger("")}
+	if opts.Logger == nil {
+		opts.Logger = observability.NewLogger("")
+	}
+	return &ServeRuntime{opts: opts, logf: opts.Logf, log: opts.Logger}
 }
 
 // Config returns the loaded site config; nil before a successful Start.
@@ -99,6 +106,15 @@ func (r *ServeRuntime) Running() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.running
+}
+
+// Token returns the admin API token for the current serve session; empty
+// before Start and after Stop clears the session state. The token lives only
+// in memory (regenerated per Start; never persisted).
+func (r *ServeRuntime) Token() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.token
 }
 
 // pickFreePort asks the OS for a free TCP port on 127.0.0.1 and releases it.
@@ -306,6 +322,7 @@ func (r *ServeRuntime) Start() (string, error) {
 	r.cfg = cfg
 	r.adminURL = devBaseURL + "admin/"
 	r.siteURL = devBaseURL
+	r.token = token
 	adminURL := r.adminURL
 	r.mu.Unlock()
 
@@ -339,11 +356,14 @@ func (r *ServeRuntime) Start() (string, error) {
 		}
 	}()
 
-	// Wait for the listener to answer before reporting ready.
+	// Wait for the listener to answer before reporting ready. A per-call
+	// client with a timeout keeps a hung connection from blocking the poll
+	// loop (bare http.Get has no timeout).
 	siteURL := devBaseURL
+	probe := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		resp, err := http.Get(siteURL)
+		resp, err := probe.Get(siteURL)
 		if err == nil {
 			_ = resp.Body.Close()
 			break
@@ -383,7 +403,7 @@ func (r *ServeRuntime) Stop(timeout time.Duration) error {
 		return err
 	}
 	r.mu.Lock()
-	r.cancel, r.done, r.cfg, r.adminURL, r.siteURL = nil, nil, nil, "", ""
+	r.cancel, r.done, r.cfg, r.adminURL, r.siteURL, r.token = nil, nil, nil, "", "", ""
 	r.mu.Unlock()
 	r.log.LogFunctionEnd(stopLog, time.Since(stopStart), nil)
 	return nil
