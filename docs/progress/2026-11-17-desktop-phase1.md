@@ -57,3 +57,7 @@
 ### 备注
 
 - 本文档此前仅含 Task 1 条目（Task 2–4 代码已提交但未追加进度记录）；本条目按指示仅追加 Task 5，未代补 Task 2–4。
+
+## 15:12 Task 5 修复（评审 round 1）：重建后广播 LiveReload reload/alert
+
+- `hub := dev.NewHub()` 上移到重建闭包之前；闭包内对齐 `huan dev` 参考：重建成功 `hub.BroadcastReload()`、失败 `hub.BroadcastAlert("huan rebuild error: ...")`。桌面预览窗口内容编辑后可自动刷新，重建错误可推送浏览器。验证：`go test ./internal/desktop/ -run TestServeRuntime -v` 3 passed、`-race -count=3` 9 passed、全包回归 ok、`go build ./... && go vet ./...` 通过。

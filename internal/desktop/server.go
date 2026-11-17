@@ -223,6 +223,9 @@ func (r *ServeRuntime) Start() (string, error) {
 	var wg sync.WaitGroup
 	var swapper build.BuildDirSwapper
 	nextDir := tmpDir + ".next"
+	// Created before the rebuild closure so finished rebuilds can push
+	// reload/alert events to connected browsers (same as `huan dev`).
+	hub := dev.NewHub()
 	queue := dev.NewRebuildQueue(func(paths []string) {
 		if !dev.MarkdownOnlyChanges(r.opts.SourceDir, paths) {
 			buildOpts.MarkdownCache.Clear()
@@ -241,12 +244,14 @@ func (r *ServeRuntime) Start() (string, error) {
 		if rebuildErr != nil {
 			_ = os.RemoveAll(nextDir)
 			r.logf("[watch] rebuild error: %v", rebuildErr)
+			hub.BroadcastAlert(fmt.Sprintf("huan rebuild error: %v", rebuildErr))
 			if r.OnRebuildFailed != nil {
 				r.OnRebuildFailed(rebuildErr)
 			}
 			return
 		}
 		r.logf("[watch] rebuild complete")
+		hub.BroadcastReload()
 	})
 
 	watcherOpts := dev.WatcherOptions{
@@ -285,7 +290,6 @@ func (r *ServeRuntime) Start() (string, error) {
 		ThemeManager:  themeMgr,
 	})
 
-	hub := dev.NewHub()
 	srv := dev.New(dev.ServerOptions{
 		OutputDir:    tmpDir,
 		Bind:         "127.0.0.1",
