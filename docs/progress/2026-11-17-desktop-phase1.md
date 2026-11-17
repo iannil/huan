@@ -85,3 +85,78 @@
 ### 备注
 
 - 测试输出除 observability JSON 日志外无噪声；未引入任何 MyGo 内容。
+
+## 15:21 Task 7 完成：图标资源 + 托盘/菜单（internal/desktop/menu.go、assets.go、scripts/gen-desktop-assets）
+
+### 完成内容
+
+- 新增 `scripts/gen-desktop-assets/main.go`：一次性占位图标生成器（纯图形、不引字体），产出 18x18 template 托盘图标（黑+alpha 实心圆盘）与 512x512 应用图标（深色方块 + 浅色圆盘）。
+- 运行 `go run ./scripts/gen-desktop-assets` 生成 `internal/desktop/assets/tray.png`（141B）与 `internal/desktop/assets/icon.png`（7.4K），入库；`.gitkeep` 保留。
+- 新增 `internal/desktop/assets.go`：`//go:embed` 暴露 `trayPNG []byte`、`iconPNG []byte`。
+- 新增 `internal/desktop/menu.go`：`Controller` 接口（9 方法：ToggleServe/Rebuild/OpenSiteFolder/OpenSiteInBrowser/SwitchSite/ChooseSite/OpenLogs/ShowWindow/Quit）、`BuildTrayMenu`（固定项 + recents 子菜单或 choose-site 回退 + 退出项）、`BuildAppMenu`（RoleAppMenu + 站点子菜单 + RoleClose/RoleQuit）、`MenuSet{Tray, AppMenu, TrayMenu}`、`BuildTray`（创建 template 托盘图标 + App.SetMenu + OnClick→ShowWindow）、`SetServing`（切换 toggle-serve 标签）、`SetBuilding`（切换 rebuild 可用性）、`RefreshRecents`（重建托盘菜单并 Tray.SetMenu）。
+
+### MyGo API 核对结果（go doc，实际签名 vs brief）
+
+- 全部一致：`NewTray(TrayOptions) (*Tray, error)`、`TrayOptions{ID, Icon, IconIsTemplate, Title, MonospacedTitle, ToolTip, Menu}`、`NewMenu(items []*MenuItem) *Menu`、`MenuItem{ID, Label, Type, Role, Submenu []*MenuItem, Click func(*MenuItem, *Window)}`、`MenuItemSubmenu MenuItemType = "submenu"`、`RoleAppMenu/RoleClose/RoleQuit`、`Separator() *MenuItem`、`(*Menu).ItemByID(id string) *MenuItem`、`(*MenuItem).SetLabel/SetEnabled`、`var App *Application` + `(*Application).SetMenu(*Menu)`、`(*Tray).OnClick(func()) func()`（返回的 off 函数按 brief 丢弃）、`(*Tray).SetMenu(*Menu)`。
+- 适配 1（TrayOptions.Icon 字段类型）：brief 写 `icon, err := mygo.NewMenuIcon(trayPNG, true)` 后 `Icon: icon`；实际 `TrayOptions.Icon` 为 `[]byte`（原始 PNG），`*MenuIcon` 仅用于 `MenuItem.Icon`。改为 `Icon: trayPNG`（去掉 BuildTray 中的 NewMenuIcon 调用），语义不变（同一嵌入 PNG 以 template 方式作托盘图标）。
+- 注释修正 2 处（纯注释、语义不变）：`MenuSet` 文档由"持动态更新 item 引用"改为"按 ID 查找（见 SetServing/SetBuilding）"以贴合实现；`SetServing` 文档删去代码未实现的"disables conflicting items"从句。
+- struct 字面量按 gofmt 对齐重排（纯空白，语义不变）。
+
+### 验证
+
+- `go build ./internal/desktop/ && go vet ./internal/desktop/`：通过。
+- `go test ./internal/desktop/ -v`：14 passed, 0 failed（既有测试无回归）。
+- `gofmt -l`（三个新文件）：无输出，干净。
+- 原生层行为（托盘/菜单真实渲染）按计划在 Task 8 装配后手动验收，本任务无单测（brief Step 4 约定）。
+
+## 15:32 Task 8 完成：绑定 + 应用装配（internal/desktop/bindings.go、app.go 完整版）+ 入口更新
+
+### 完成内容
+
+- 新增 `internal/desktop/bindings.go`：`DesktopBindings{app *App}`（绑定名即类型名）、`AppVersion() string`（`internal/version.String()`，嵌入 VERSION 文件）、`RevealSiteFolder() error`（TrustedOrigins 通路的验证绑定，无站点时报 "no site selected"）。SPA 未改动，generated client 留待后续。
+- 重写 `internal/desktop/app.go`（替换 Task 1 spike）：`App{mu, cfg, cfgDir, rt, win, menus, log, logDir}`；`Run()` 装配日志文件（config 目录下 `logs/desktop.log`，MultiWriter 到 stderr）→ `ConfigPath`/`LoadOrDefault` → `mygo.Bind` → 注册 `OnWindowAllClosed` → `WhenReady(onReady)` → `App.Run()`；`onReady`（托盘 → 最近站点校验/目录选择 → `startAndServe` → `showWindow`）；`pickSiteDialog`（循环选择直到有效或取消）；`startAndServe`（stop 旧 rt → 新 ServeRuntime → OnServeExited/OnRebuildFailed 回调 → Start → AddRecentSite + Save 持久化 → 菜单刷新 → loadAdmin）；`loadAdmin`/`showOffline`；Controller 九方法实现（菜单回调均派发 goroutine，`ShowWindow` 无阻塞直接执行）。新增 `var _ Controller = (*App)(nil)` 编译期断言。
+- `cmd/huan-desktop/main.go` 未改动（spike 版 `Run()` 签名一致）。
+
+### MyGo API 核对结果（go doc，实际签名 vs brief）
+
+- 全部一致：`Dialog.Open(OpenDialogOptions) ([]string, error)`、`OpenDialogOptions{Title, Directory}`、`Dialog.Error(title, content string)`（无返回值）、`NewNotification(NotificationOptions{Title, Body})` + `(*Notification).Show() error`、`ErrNotificationsDenied`、`Shell.ShowItemInFolder(path string)`（无返回值）、`Shell.OpenExternal(url string) error`（brief 按语句丢弃返回值，合法）、`Bind(services ...any)`、`PageOptions.TrustedOrigins []string`（经 `WindowOptions.Page` 嵌入字段）、`WindowOptions{Title, Width, Height, Page}`、`Page.LoadURL(rawURL string) error`、`(*Application).WhenReady(func())`、`(*Application).Run() error`、`(*Application).Quit()`、observability 全部签名（`NewLoggerWithWriter`/`Log`/`LogError`/`LogFunctionStart` 返回 spanID/`EventBranch`/`EventPoint`）。
+- 适配 1（`NewWindow` 返回值）：brief 写 `newWin, err := mygo.NewWindow(...)` + 错误分支；实际 `func NewWindow(opts WindowOptions) *Window`（单返回值，无 error）。改为单赋值、删错误分支，语义不变。
+- 适配 2（`Page.LoadHTML` 参数）：brief 调 `LoadHTML(html)`；实际 `LoadHTML(html, baseURL string)`。传 `""` 作为 baseURL（页面落在 about:blank），语义不变。
+- 适配 3（`LogFunctionEnd` 参数）：brief 调 `LogFunctionEnd(startLog, payload)` 两参；实际 `LogFunctionEnd(spanID string, duration time.Duration, payload map[string]any)` 三参。`startAndServe` 增加 `startTime`，传 `time.Since(startTime)`，语义不变（补齐耗时记录）。
+- 适配 4（窗口关闭回调）：brief 注释给的是 `OnClose(func(){...})` 形状；实际 `OnClose(fn func(e *CloseEvent))`（`e.PreventDefault()` 可阻止关闭）与 `OnClosed(fn func())`（窗口真正关闭后触发）两个回调。选 `OnClosed` 清引用：窗口真正销毁后才置 `a.win = nil`，即使未来出现阻止关闭的监听者也不会留下悬空引用；不调 `PreventDefault`，关闭行为保持默认。
+- 适配 5（Quit 兜底）：brief 写 `mygo.App.Quit(); os.Exit(0)` 并注明 os.Exit 仅为 Quit 缺失时的兜底；go doc 确认 `(*Application).Quit()` 存在（关闭全部窗口后退出，可被 OnBeforeQuit/OnWillQuit/OnClose 取消——本应用注册的 OnClosed 不取消）。删除 `os.Exit(0)`：紧随 Quit 立即硬退出会跳过优雅退出流程。
+- 适配 6（brief 缺 `ShowWindow`）：Controller 接口要求导出的 `ShowWindow()`，brief 只定义了小写 `showWindow`（编译错误暴露）。新增导出包装 `ShowWindow() { a.showWindow() }`（无阻塞工作，直接在菜单回调线程执行）。
+- 适配 7（未用导入）：brief import 列表含 `internal/config`，app.go 实际未引用，删除。
+- 适配 8（gofmt）：`ServeOptions.Logf` 一行闭包超宽，gfmt 重排为多行（纯空白，语义不变）。
+
+### cfgDir 修复（评审 pre-flight 发现，已应用）
+
+- brief 的 `Run()` 未给 `a.cfgDir` 赋值，`startAndServe` 的 `Save(filepath.Join(a.cfgDir, "config.json"), ...)` 会写到 CWD。已在 `ConfigPath()` 成功后增加 `app.cfgDir = filepath.Dir(cfgPath)`。冒烟验证：运行后 `~/Library/Application Support/huan-desktop/config.json` 被应用改写（AddRecentSite + Save 持久化生效），CWD 无 config.json 产生。
+
+### 窗口关闭行为（决议）
+
+- go doc：`OnWindowAllClosed` "Without listeners the application quits; registering one keeps it running (the common choice on macOS)"。选择 brief 注释中的第一方案（保持托盘常驻）：`Run()` 中注册空 `OnWindowAllClosed` 监听（阻止默认退出），每窗口 `OnClosed` 清 `a.win`；`ShowWindow` 按需重建窗口。Cmd+W 关窗后应用留在托盘，退出仅经托盘「退出 huan」/`Quit()`。
+
+### dev.Server SIGINT/SIGTERM 行为记录（Task 5 评审遗留交付物，仅记录不扩scope）
+
+- 位置：`internal/dev/server.go:104-135`。每次 `Server.Run` 都执行 `signal.Notify(SIGINT, SIGTERM)`：首个信号 → 进入 5s 超时的 `httpSrv.Shutdown` 优雅停止并返回（serve goroutine 退出，OnServeExited 以 nil/Shutdown 错误触发，桌面窗口走离线页）；5s 窗口内第二个信号 → `os.Exit(1)` 整进程强退；`Stop()`（ctx 取消）不中和已注册的信号处理器；默认信号处置仅在 Run 返回时经 `signal.Stop` 恢复。
+- Phase 1 含义：从终端 `go run ./cmd/huan-desktop` 时 Ctrl+C 表现为「优雅停服（窗口转离线页）」而非退出应用，再按一次才整进程退出；Finder/正常桌面启动收不到终端信号，不受影响。按任务指示未新增应用级信号管理。
+
+### 托盘 OnClick 记录（Task 7 评审发现）
+
+- `tray.OnClick(...)` 在挂了菜单后不触发（go doc：OnClick 仅在无菜单时生效）。代码按 brief 保留；Phase 1「点击托盘图标显示窗口」预期不生效，点击应弹出菜单，属人工验收注意事项。
+
+### 冒烟验收（自动化代理 + 人工清单移交）
+
+- 自动化代理（无法点击对话框/菜单）：预置有效站点到 config.json 的 recentSites（替代「选择站点」交互）→ `go build -o /tmp/huan-desktop-smoke ./cmd/huan-desktop && /tmp/huan-desktop-smoke` 后台启动 → 8s 后核验：(a) 进程存活（PID 72544）；(b) `~/Library/Application Support/huan-desktop/logs/desktop.log` 生成，15 行全部为合法 JSON（`Function_Start start-serve`、build Point 事件，trace_id 一致）；(c) stderr 无 panic（grep 0 命中）；(d) 站点 GET 200、`/admin/` GET 200（127.0.0.1:61932）；(e) config.json 被应用持久化（cfgDir 修复生效）；(f) `kill -9` 后进程消失、`lsof -iTCP:61932` 0 监听（端口释放）。无配置首启的目录选择弹窗属预期行为，未等待。
+- spec §7 人工六项清单（构建通知、停止/恢复离线页、Finder reveal、浏览器打开、切换站点 reload、优雅退出）无法自动化点击，移交人工验收；自动化代理已覆盖其可编程子集（启动流、服务可达、端口释放）。
+
+### 验证
+
+- `go build ./... && go vet ./internal/desktop/ ./cmd/huan-desktop/`：通过。
+- `go test ./internal/desktop/ -v`：14 passed, 0 failed。
+- `gofmt -l internal/desktop/*.go cmd/huan-desktop/main.go`：仅 config_test.go（Task 3 遗留项，未碰）。
+
+### 备注
+
+- 冒烟后清理了预置 config.json 与 /tmp 站点/二进制；`logs/desktop.log` 为应用自身产物保留。自审发现的低风险项（菜单回调 goroutine 中 `a.rt`/`a.menus` 无锁读的理论竞态窗口、`Rebuild` 中 `rt.Config()` 在 Running 检查后可能为 nil 的理论窗口）按 brief 设计保留，记入 Task 8 报告，Phase 2 加固。
