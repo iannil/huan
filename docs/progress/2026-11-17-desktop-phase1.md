@@ -30,3 +30,30 @@
 ### 提交
 
 - `feat(desktop): scaffold MyGo desktop shell with webview spike`（含 mygo.json、cmd/huan-desktop、internal/desktop、进度文档、go.mod/go.sum）
+
+## 14:53 Task 5 完成：进程内 serve 运行时（internal/desktop/server.go）
+
+### 完成内容
+
+- 新增 `internal/desktop/server.go`：`ServeRuntime` 类型封装进程内 huan dev 服务器——config/plugin/theme 装配 → 初次构建（BuildSite/BuildMultiSite + image pipeline）→ watcher + RebuildQueue 增量重建（Markdown 缓存按变更类型失效、BuildDirSwapper 原子换目录）→ dev.Server（站点 + /admin SPA + LiveReload）绑定 127.0.0.1 随机端口。
+- API：`ServeOptions{SourceDir, Logf}`、`NewServeRuntime`、`Start() (adminURL, error)`（阻塞到监听就绪，最多 10s）、`Stop(timeout) error`（幂等、优雅停 HTTP + watcher + queue + 清理 tmpDir）、`Running/AdminURL/SiteURL/SourceDir/Config`、回调 `OnServeExited`（含 panic recover）/`OnRebuildFailed`。
+- TDD：先写 `server_test.go`（writeSite 夹具照搬 incremental_test.go 模式，包级函数供 Task 6 复用）→ RED（undefined: NewServeRuntime）→ 实现 → GREEN。
+
+### API 核对结果（go doc / 源码，实际签名 vs brief）
+
+- `observability.Logger.LogFunctionEnd(spanID, duration time.Duration, payload)` — **偏差**：brief 少传 duration；按实际签名补 `time.Since(...)`（Start/Stop 各记录起点）。
+- 其余全部一致：`build.Options` 全部字段、`build.NewTimings/NewMarkdownCache/BuildSite/BuildMultiSite/BuildDirSwapper.Swap/Wait`、`dev.New/NewHub/NewWatcher/NewRebuildQueue/MarkdownOnlyChanges/WatcherOptions/ServerOptions`、`admin.ResolveToken/GenerateToken/CheckBindSafety/NewHandler/HandlerOptions`、`content.NewParseCache`、`theme.NewManager/Activate`、`eventbus.NewChannelBus`、`plugin.NewRegistryFromConfig/DirFromSource/NewLoader/NewLifecycleManager`、`image.RunProcessors`、`config.Load/IsMultiLanguage/Theme/PublishDir`。
+- 语义级修正（对齐 `huan dev` 参考实现）：multi-language 分支 brief 提前 return 会跳过 image pipeline；改为 BuildSite/BuildMultiSite 之后统一跑 `image.RunProcessors`。
+- 竞态修正：Start 末尾 brief 解锁后重读 `r.adminURL`（与并发 Stop 清空竞态）；改为锁内捕获局部变量 `adminURL` 后使用。
+- `MarkdownCache.Close` 挂在 Start 的 defer（Start 返回即触发）；核对源码确认内存型缓存（NewMarkdownCache，disk==nil）Close 为幂等 no-op，语义无损。
+
+### 验证
+
+- `go test ./internal/desktop/ -run TestServeRuntime -v`：3 passed（StartServeStop 含站点 GET 含 "Alpha"、admin SPA 200、Stop 后拒连、OnServeExited 2s 内触发 nil；StopWithoutStartIsNoop；StartRejectsInvalidSite）。
+- `go test ./internal/desktop/ -v`：12 passed 全包回归；`-race` 3 passed 无告警。
+- `gofmt -l internal/desktop/`：仅剩 config_test.go（Task 3 已记录的遗留项，本任务不碰）。
+- `go build ./... && go vet ./...`：通过。测试输出除 observability 强制 JSON 结构化日志（stderr）外无噪声。
+
+### 备注
+
+- 本文档此前仅含 Task 1 条目（Task 2–4 代码已提交但未追加进度记录）；本条目按指示仅追加 Task 5，未代补 Task 2–4。
