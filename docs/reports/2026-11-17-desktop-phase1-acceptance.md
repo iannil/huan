@@ -1,7 +1,7 @@
 # huan desktop (MyGo) Phase 1 — 验收报告
 
 - 日期：2026-11-17（UTC）
-- 分支：`iannil/fde-next`（worktree scup）。打包基于代码 HEAD `2aa6ad1` + `mygo.json` main 路径修复（§2，提交 `4ee7bcb`）；发布提交 `55d84b5` 仅含文档。
+- 分支：`iannil/fde-next`（worktree scup）。打包基于代码 HEAD `2aa6ad1` + `mygo.json` main 路径修复（§2，提交 `4ee7bcb`）；发布提交为主题 `chore(release): huan desktop v0.13.0 phase 1 (.app) with acceptance report` 的 docs-only 提交（SHA 见 git log）。
 - Spec：[docs/superpowers/specs/2026-11-17-huan-desktop-mygo-design.md](../superpowers/specs/2026-11-17-huan-desktop-mygo-design.md)
 - 进度日志：[docs/reports/completed/2026-11-17-desktop-phase1.md](completed/2026-11-17-desktop-phase1.md)
 - 状态：**自动化范围全部通过；交互式人工验收待办（见 §5，未视为通过）**
