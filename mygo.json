@@ -1,0 +1,8 @@
+{
+  "name": "huan",
+  "slug": "huan",
+  "identifier": "io.github.iannil.huan.desktop",
+  "version": "0.13.0",
+  "main": "cmd/huan-desktop",
+  "out": "build/desktop"
+}
