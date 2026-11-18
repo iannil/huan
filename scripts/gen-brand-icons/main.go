@@ -59,8 +59,14 @@ func main() {
 	}
 }
 
-// compose scales src to contentRatio of a square canvas and centers it on a
-// transparent background, writing the result as a PNG at out.
+// bodyRadius is Apple's macOS icon body corner radius on the 824px icon
+// grid — the squircle silhouette neighboring Dock icons have and macOS does
+// NOT bake in automatically (the artwork must carry it).
+const bodyRadius = 185.4 / 824.0
+
+// compose scales src to contentRatio of a square canvas, masks it to the
+// macOS rounded-body silhouette, and centers it on a transparent
+// background, writing the result as a PNG at out.
 func compose(srcPath string, canvas int, out string) error {
 	src, err := loadImage(srcPath)
 	if err != nil {
@@ -68,6 +74,7 @@ func compose(srcPath string, canvas int, out string) error {
 	}
 	content := int(float64(canvas) * contentRatio)
 	scaled := areaScale(src, content, content)
+	squircleMask(scaled, float64(content)*bodyRadius)
 	dst := image.NewRGBA(image.Rect(0, 0, canvas, canvas))
 	off := (canvas - content) / 2
 	draw.Draw(dst, image.Rect(off, off, off+content, off+content), scaled, scaled.Bounds().Min, draw.Src)
@@ -77,6 +84,35 @@ func compose(srcPath string, canvas int, out string) error {
 	}
 	defer f.Close()
 	return png.Encode(f, dst)
+}
+
+// squircleMask multiplies every channel of the (alpha-premultiplied) image
+// by the coverage of a centered rounded rectangle with the given corner
+// radius. Coverage comes from the signed distance to the shape (≈1px
+// feather) so the arc anti-aliases instead of clipping hard.
+func squircleMask(img *image.RGBA, radius float64) {
+	b := img.Bounds()
+	hw, hh := float64(b.Dx())/2, float64(b.Dy())/2
+	inset := hw - radius
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		dy := math.Abs(float64(y-b.Min.Y) + 0.5 - hh)
+		qy := dy - inset
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dx := math.Abs(float64(x-b.Min.X) + 0.5 - hw)
+			qx := dx - inset
+			ex, ey := math.Max(qx, 0), math.Max(qy, 0)
+			d := math.Hypot(ex, ey) + math.Min(math.Max(qx, qy), 0) - radius
+			cov := math.Min(math.Max(0.5-d, 0), 1)
+			if cov >= 1 {
+				continue
+			}
+			i := img.PixOffset(x, y)
+			img.Pix[i+0] = uint8(float64(img.Pix[i+0]) * cov + 0.5)
+			img.Pix[i+1] = uint8(float64(img.Pix[i+1]) * cov + 0.5)
+			img.Pix[i+2] = uint8(float64(img.Pix[i+2]) * cov + 0.5)
+			img.Pix[i+3] = uint8(float64(img.Pix[i+3]) * cov + 0.5)
+		}
+	}
 }
 
 // areaScale downscales src to w×h by averaging the source rectangle that
