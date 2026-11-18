@@ -185,21 +185,24 @@ plugins:
       taxonomy: weekly
       term: monthly
 
-  # ---- zhurongshuo — 祝融说主题插件（特定站点专属） ----
-  zhurongshuo:
-    category: static
-    publicationRevisionNotice:
-      enabled: false
-      urlPattern: "^/"
-      content:
-        zh-cn:
-          ariaLabel: "出版状态"
-          title: "预览版，非最终版本。"
-          body: "内容可能随研究与规范复核而修改。"
-        en:
-          ariaLabel: "Publication status"
-          title: "Preview, not the final version."
-          body: "Content may change as research and relevant standards are reviewed."
+  # ---- zhurongshuo — 祝融说主题插件（特定站点专属，仅作配置示例） ----
+  # 注意：该插件的 .so 随 zhurongshuo 站点仓库分发，不属于 huan 自带插件。
+  # 在此声明会触发 "declared in yaml but no .so found" 配置警告，因此注释示
+  # 例；实际使用时请在该站点自己的 huan.yaml 中启用并取消注释：
+  # zhurongshuo:
+  #   category: static
+  #   publicationRevisionNotice:
+  #     enabled: false
+  #     urlPattern: "^/"
+  #     content:
+  #       zh-cn:
+  #         ariaLabel: "出版状态"
+  #         title: "预览版，非最终版本。"
+  #         body: "内容可能随研究与规范复核而修改。"
+  #       en:
+  #         ariaLabel: "Publication status"
+  #         title: "Preview, not the final version."
+  #         body: "Content may change as research and relevant standards are reviewed."
 
   # ---- image-pipeline — 图像处理（缩放、格式转换、srcset） ----
   image_pipeline:
