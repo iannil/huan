@@ -32,6 +32,10 @@ type App struct {
 	startMu sync.Mutex
 	win     *mygo.Window
 	menus   *MenuSet
+	// adminAuthRequired mirrors the serve session's admin.requireToken for
+	// menu building; true until the first successful Start syncs it (safe
+	// default: the first-built menus include the copy-token item).
+	adminAuthRequired bool
 	// diag collects startup problems (plugin load warnings, build issues);
 	// created in Run before any goroutine can Add into it.
 	diag   *Diagnostics
@@ -41,7 +45,10 @@ type App struct {
 
 // Run starts the desktop app and blocks until it quits.
 func Run() error {
-	app := &App{}
+	// adminAuthRequired defaults to true (缺省语义): the first-built menus
+	// include the copy-token item; startAndServe re-syncs it from the runtime
+	// after each successful Start and RefreshRecents rebuilds the tray menu.
+	app := &App{adminAuthRequired: true}
 	app.sm = NewMachine()
 	app.diag = NewDiagnostics()
 
@@ -120,7 +127,7 @@ func (a *App) onReady() {
 		}
 	})
 
-	menus, err := BuildTray(a, a.cfg.RecentSites)
+	menus, err := BuildTray(a, a.cfg.RecentSites, a.adminAuthRequired)
 	if err != nil {
 		a.log.LogError("tray", err, nil)
 	}
@@ -316,6 +323,10 @@ func (a *App) startAndServe(site string) {
 	}
 	a.mu.Lock()
 	a.rt = rt
+	// Sync the auth flag from the live session before any menu rebuild uses
+	// it (RefreshRecents below); the tray menu then drops/keeps the
+	// copy-token item per admin.requireToken.
+	a.adminAuthRequired = rt.AdminAuthRequired()
 	a.cfg.AddRecentSite(site)
 	a.mu.Unlock()
 	if err := Save(filepath.Join(a.cfgDir, "config.json"), a.cfg); err != nil {
@@ -323,7 +334,7 @@ func (a *App) startAndServe(site string) {
 	}
 	if a.menus != nil {
 		a.menus.SetServing(true)
-		a.menus.RefreshRecents(a, a.cfg.RecentSites)
+		a.menus.RefreshRecents(a, a.cfg.RecentSites, a.adminAuthRequired)
 	}
 	// RefreshRecents rebuilt the tray menu with a hardcoded diagMenuLabel(0),
 	// erasing the diag count the synchronous rt.Start warning handlers just

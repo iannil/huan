@@ -15,18 +15,39 @@ func TestDiagMenuLabel(t *testing.T) {
 }
 
 // compile-time check: a Controller implementation must gain ShowDiagnostics.
-type diagControllerProbe struct{}
+type stubController struct{}
 
-func (diagControllerProbe) ToggleServe()       {}
-func (diagControllerProbe) Rebuild()           {}
-func (diagControllerProbe) CopyAdminToken()    {}
-func (diagControllerProbe) OpenSiteFolder()    {}
-func (diagControllerProbe) OpenSiteInBrowser() {}
-func (diagControllerProbe) SwitchSite(string)  {}
-func (diagControllerProbe) ChooseSite()        {}
-func (diagControllerProbe) OpenLogs()          {}
-func (diagControllerProbe) ShowWindow()        {}
-func (diagControllerProbe) Quit()              {}
-func (diagControllerProbe) ShowDiagnostics()   {}
+func (stubController) ToggleServe()       {}
+func (stubController) Rebuild()           {}
+func (stubController) CopyAdminToken()    {}
+func (stubController) OpenSiteFolder()    {}
+func (stubController) OpenSiteInBrowser() {}
+func (stubController) SwitchSite(string)  {}
+func (stubController) ChooseSite()        {}
+func (stubController) OpenLogs()          {}
+func (stubController) ShowWindow()        {}
+func (stubController) Quit()              {}
+func (stubController) ShowDiagnostics()   {}
 
-var _ Controller = diagControllerProbe{}
+var _ Controller = stubController{}
+
+func TestBuildTrayMenu_OmitsTokenItem_WhenAuthDisabled(t *testing.T) {
+	menu := BuildTrayMenu(stubController{}, nil, false)
+	if item := menu.ItemByID(itemCopyToken); item != nil {
+		t.Fatal("tray menu must omit 复制管理 Token when admin auth is disabled")
+	}
+}
+
+func TestBuildTrayMenu_IncludesTokenItem_WhenAuthEnabled(t *testing.T) {
+	menu := BuildTrayMenu(stubController{}, nil, true)
+	if item := menu.ItemByID(itemCopyToken); item == nil {
+		t.Fatal("tray menu must keep 复制管理 Token when admin auth is enabled")
+	}
+}
+
+func TestBuildAppMenu_OmitsTokenItem_WhenAuthDisabled(t *testing.T) {
+	menu := BuildAppMenu(stubController{}, false)
+	if item := menu.ItemByID(itemCopyToken); item != nil {
+		t.Fatal("app menu must omit 复制管理 Token when admin auth is disabled")
+	}
+}

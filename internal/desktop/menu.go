@@ -32,19 +32,25 @@ const (
 )
 
 // BuildTrayMenu assembles the tray menu; recents are the recent site paths.
-func BuildTrayMenu(c Controller, recents []string) *mygo.Menu {
+// adminAuthRequired=false (admin.requireToken: false) omits the copy-token
+// item — there is no token to copy.
+func BuildTrayMenu(c Controller, recents []string, adminAuthRequired bool) *mygo.Menu {
 	items := []*mygo.MenuItem{
 		{Label: "打开预览窗口", ID: "show-window", Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowWindow() }},
 		{Label: "启动/停止预览服务", ID: itemToggleServe, Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
 		{Label: "一键构建站点", ID: itemRebuild, Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
-		{Label: "复制管理 Token", ID: itemCopyToken, Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }},
-		{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
-		mygo.Separator(),
-		{Label: "打开站点目录", ID: "open-folder", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
-		{Label: "在浏览器打开站点", ID: "open-browser", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
-		{Label: "打开日志目录", ID: "open-logs", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenLogs() }},
-		mygo.Separator(),
 	}
+	if adminAuthRequired {
+		items = append(items, &mygo.MenuItem{Label: "复制管理 Token", ID: itemCopyToken, Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }})
+	}
+	items = append(items,
+		&mygo.MenuItem{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: "打开站点目录", ID: "open-folder", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
+		&mygo.MenuItem{Label: "在浏览器打开站点", ID: "open-browser", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
+		&mygo.MenuItem{Label: "打开日志目录", ID: "open-logs", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenLogs() }},
+		mygo.Separator(),
+	)
 	if len(recents) > 0 {
 		subs := make([]*mygo.MenuItem, 0, len(recents)+1)
 		for _, p := range recents {
@@ -61,19 +67,26 @@ func BuildTrayMenu(c Controller, recents []string) *mygo.Menu {
 }
 
 // BuildAppMenu assembles the macOS application menu.
-func BuildAppMenu(c Controller) *mygo.Menu {
+// adminAuthRequired=false (admin.requireToken: false) omits the copy-token
+// item — there is no token to copy (same rule as BuildTrayMenu).
+func BuildAppMenu(c Controller, adminAuthRequired bool) *mygo.Menu {
+	siteItems := []*mygo.MenuItem{
+		{Label: "打开预览窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowWindow() }},
+		{Label: "启动/停止预览服务", Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
+		{Label: "一键构建站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
+	}
+	if adminAuthRequired {
+		siteItems = append(siteItems, &mygo.MenuItem{Label: "复制管理 Token", Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }})
+	}
+	siteItems = append(siteItems,
+		&mygo.MenuItem{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: "打开站点目录", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
+		&mygo.MenuItem{Label: "在浏览器打开站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
+	)
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},
-		{Label: "站点", Submenu: []*mygo.MenuItem{
-			{Label: "打开预览窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowWindow() }},
-			{Label: "启动/停止预览服务", Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
-			{Label: "一键构建站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
-			{Label: "复制管理 Token", Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }},
-			{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
-			mygo.Separator(),
-			{Label: "打开站点目录", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
-			{Label: "在浏览器打开站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
-		}},
+		{Label: "站点", Submenu: siteItems},
 		{Role: mygo.RoleClose},
 		{Role: mygo.RoleQuit},
 	})
@@ -88,8 +101,8 @@ type MenuSet struct {
 }
 
 // BuildTray creates the tray icon with its menu.
-func BuildTray(c Controller, recents []string) (*MenuSet, error) {
-	trayMenu := BuildTrayMenu(c, recents)
+func BuildTray(c Controller, recents []string, adminAuthRequired bool) (*MenuSet, error) {
+	trayMenu := BuildTrayMenu(c, recents, adminAuthRequired)
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		Icon:           trayPNG,
 		IconIsTemplate: true,
@@ -99,7 +112,7 @@ func BuildTray(c Controller, recents []string) (*MenuSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	appMenu := BuildAppMenu(c)
+	appMenu := BuildAppMenu(c, adminAuthRequired)
 	mygo.App.SetMenu(appMenu)
 	tray.OnClick(func() { c.ShowWindow() })
 	return &MenuSet{Tray: tray, AppMenu: appMenu, TrayMenu: trayMenu}, nil
@@ -142,9 +155,12 @@ func (m *MenuSet) SetDiagCount(n int) {
 	}
 }
 
-// RefreshRecents rebuilds the tray menu (recent list changed).
-func (m *MenuSet) RefreshRecents(c Controller, recents []string) error {
-	menu := BuildTrayMenu(c, recents)
+// RefreshRecents rebuilds the tray menu (recent list changed). The
+// adminAuthRequired flag re-applies the copy-token visibility rule on every
+// rebuild (admin.requireToken can only change with a serve restart, but each
+// rebuild re-decides it so the menu never drifts).
+func (m *MenuSet) RefreshRecents(c Controller, recents []string, adminAuthRequired bool) error {
+	menu := BuildTrayMenu(c, recents, adminAuthRequired)
 	m.TrayMenu = menu
 	m.Tray.SetMenu(menu)
 	return nil

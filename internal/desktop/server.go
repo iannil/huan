@@ -66,6 +66,9 @@ type ServeRuntime struct {
 	siteURL  string
 	token    string // admin API token for this session; cleared on Stop
 	running  bool
+	// adminAuthRequired mirrors admin.requireToken of the current session's
+	// config; true until the first Start's config load (safe default).
+	adminAuthRequired bool
 
 	// OnServeExited fires when the serve goroutine exits for any reason
 	// (Stop also triggers it with a nil/canceled error). Set before Start;
@@ -84,7 +87,7 @@ func NewServeRuntime(opts ServeOptions) *ServeRuntime {
 	if opts.Logger == nil {
 		opts.Logger = observability.NewLogger("")
 	}
-	return &ServeRuntime{opts: opts, logf: opts.Logf, log: opts.Logger}
+	return &ServeRuntime{opts: opts, logf: opts.Logf, log: opts.Logger, adminAuthRequired: true}
 }
 
 // Config returns the loaded site config; nil before a successful Start.
@@ -125,6 +128,15 @@ func (r *ServeRuntime) Token() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.token
+}
+
+// AdminAuthRequired reports whether the admin API of the current serve
+// session requires a token (admin.requireToken). True before the first
+// Start — the safe default — and updated by Start after config load.
+func (r *ServeRuntime) AdminAuthRequired() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.adminAuthRequired
 }
 
 // pickFreePort asks the OS for a free TCP port on 127.0.0.1 and releases it.
@@ -170,12 +182,17 @@ func (r *ServeRuntime) Start() (string, error) {
 		return "", fmt.Errorf("load config: %w", err)
 	}
 
-	// Admin token: generate silently (no stdout printing in a GUI app).
+	// Admin auth: admin.requireToken=false (loopback-only, enforced below)
+	// skips token generation entirely — the desktop has no stderr surface.
+	requireToken := cfg.Admin.RequireTokenEnabled()
+	r.mu.Lock()
+	r.adminAuthRequired = requireToken
+	r.mu.Unlock()
 	token, fromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety("127.0.0.1", token, true); err != nil { // literal keep-green; config wiring lands in Task 5
+	if err := admin.CheckBindSafety("127.0.0.1", token, requireToken); err != nil {
 		return "", err
 	}
-	if !fromEnv {
+	if requireToken && !fromEnv {
 		if token, err = admin.GenerateToken(); err != nil {
 			return "", fmt.Errorf("generate admin token: %w", err)
 		}
@@ -324,7 +341,7 @@ func (r *ServeRuntime) Start() (string, error) {
 		ServeURL:      devBaseURL,
 		BindAddr:      "127.0.0.1",
 		Token:         token,
-		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
+		RequireToken:  requireToken,
 		MemoryDir:     filepath.Join(r.opts.SourceDir, "memory", "daily"),
 		PluginManager: adminPluginMgr,
 		ThemeManager:  themeMgr,
