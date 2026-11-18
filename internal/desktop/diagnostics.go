@@ -37,10 +37,18 @@ type Diagnostics struct {
 // NewDiagnostics returns an empty collector.
 func NewDiagnostics() *Diagnostics { return &Diagnostics{} }
 
-// Add records one diagnostic item. Structured logging is the caller's job.
+// Add records one diagnostic item, skipping an identical (level, component,
+// msg) entry already collected — repeated rebuilds re-fire the same plugin
+// warnings and would otherwise inflate the badge count and duplicate dialog
+// lines. Distinct problems always collect. Structured logging is the caller's job.
 func (d *Diagnostics) Add(level DiagLevel, component, msg string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	for _, it := range d.items {
+		if it.Level == level && it.Component == component && it.Message == msg {
+			return
+		}
+	}
 	d.items = append(d.items, DiagItem{Level: level, Component: component, Message: msg})
 }
 

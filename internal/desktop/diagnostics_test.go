@@ -10,15 +10,18 @@ import (
 func TestDiagnosticsConcurrentAddSnapshot(t *testing.T) {
 	d := NewDiagnostics()
 	var wg sync.WaitGroup
+	// Distinct per-call messages: Add dedupes identical (level, component,
+	// msg) entries, so identical adds would collapse and the count assertion
+	// below could no longer detect lost updates under parallel Add/Snapshot.
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				d.Add(LevelWarn, "plugin", "x")
+				d.Add(LevelWarn, "plugin", fmt.Sprintf("x-%d-%d", i, j))
 				_ = d.Snapshot()
 			}
-		}()
+		}(i)
 	}
 	wg.Wait()
 	if got := len(d.Snapshot()); got != 400 {
@@ -39,6 +42,17 @@ func TestDiagnosticsResetAndHasErrors(t *testing.T) {
 	d.Reset()
 	if len(d.Snapshot()) != 0 || d.HasErrors() {
 		t.Fatal("Reset must clear items and errors")
+	}
+}
+
+func TestAdd_DeduplicatesIdenticalItems(t *testing.T) {
+	d := NewDiagnostics()
+	d.Add(LevelWarn, "plugin", "a.so: bad")
+	d.Add(LevelWarn, "plugin", "a.so: bad") // identical — skipped
+	d.Add(LevelWarn, "plugin", "b.so: bad") // distinct — collected
+	items := d.Snapshot()
+	if len(items) != 2 {
+		t.Fatalf("dedup: got %d items, want 2", len(items))
 	}
 }
 
