@@ -325,6 +325,11 @@ func (a *App) startAndServe(site string) {
 		a.menus.SetServing(true)
 		a.menus.RefreshRecents(a, a.cfg.RecentSites)
 	}
+	// RefreshRecents rebuilt the tray menu with a hardcoded diagMenuLabel(0),
+	// erasing the diag count the synchronous rt.Start warning handlers just
+	// set; re-apply the live count. Menu label only — startup notifications
+	// must not re-fire here (the onReady path owns them).
+	a.refreshDiagMenu()
 	a.log.LogFunctionEnd(startLog, time.Since(startTime), map[string]any{"admin_url": adminURL})
 	// TrustedOrigins are fixed at window creation and every Start binds a new
 	// port, so each successful start rebuilds the window for the fresh origin.
