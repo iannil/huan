@@ -25,11 +25,25 @@ type Plugin interface {
 	Name() string
 }
 
+// LoadWarning records one .so that failed to load during a directory scan.
+// Name is the .so file name; Err is the loader error. Load failures are
+// non-fatal — scanning continues with the remaining files. Printing is the
+// caller's job (the CLI prints to stderr; the desktop app surfaces warnings
+// in its startup diagnostics), so a Finder-launched .app never loses them.
+type LoadWarning struct {
+	Name string
+	Err  error
+}
+
 // Registry holds plugins keyed by Name(). The order slice preserves
 // registration order for deterministic iteration in Find[T] and All.
 type Registry struct {
 	plugins map[string]Plugin
 	order   []string
+	// Warnings lists plugins that failed to load while building this
+	// registry. Empty after a clean scan. Callers decide how to surface
+	// them (see LoadWarning).
+	Warnings []LoadWarning
 }
 
 // NewRegistry returns an empty Registry.

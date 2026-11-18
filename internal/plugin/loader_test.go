@@ -94,6 +94,48 @@ func TestLoader_ScanAndLoad_SkipsNonSOFiles(t *testing.T) {
 	}
 }
 
+func TestScanAndLoadCollectsWarningsInsteadOfPrinting(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "broken.so"), []byte("not a plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := NewLoader(dir)
+	results, err := l.ScanAndLoad()
+	if err != nil {
+		t.Fatalf("ScanAndLoad: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("want 0 results, got %d", len(results))
+	}
+	if len(l.Warnings) != 1 {
+		t.Fatalf("want 1 warning, got %d: %+v", len(l.Warnings), l.Warnings)
+	}
+	if l.Warnings[0].Name != "broken.so" {
+		t.Errorf("warning name = %q, want broken.so", l.Warnings[0].Name)
+	}
+	if l.Warnings[0].Err == nil {
+		t.Error("warning err is nil")
+	}
+}
+
+func TestScanAndLoadResetsWarningsPerCall(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "broken.so"), []byte("not a plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := NewLoader(dir)
+	for i := 0; i < 2; i++ {
+		if _, err := l.ScanAndLoad(); err != nil {
+			t.Fatalf("scan %d: %v", i, err)
+		}
+		if len(l.Warnings) != 1 {
+			t.Fatalf("scan %d: want 1 warning (reset per call), got %d", i, len(l.Warnings))
+		}
+	}
+}
+
 func TestShouldLoadInCategory(t *testing.T) {
 	tests := []struct {
 		category string

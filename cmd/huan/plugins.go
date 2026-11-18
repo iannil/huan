@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/iannil/huan/internal/build"
@@ -23,7 +24,12 @@ import (
 // Unknown plugins declared in yaml (not found as .so files) are silently
 // skipped at compile time.
 func newPluginRegistry(cfg *config.Config, sourceDir string, pluginDirOverride string) (*plugin.Registry, error) {
-	return plugin.NewRegistryFromConfig(cfg, sourceDir, pluginDirOverride)
+	reg, err := plugin.NewRegistryFromConfig(cfg, sourceDir, pluginDirOverride)
+	if err != nil {
+		return nil, err
+	}
+	plugin.PrintWarnings(os.Stderr, reg.Warnings)
+	return reg, nil
 }
 
 // pluginDirFromSource returns the plugins directory path relative to sourceDir.

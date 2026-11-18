@@ -33,6 +33,8 @@ type FieldSchema = pkgplugin.FieldSchema
 // All, Unregister, Names, SortedNames) defined there.
 type Registry = pkgplugin.Registry
 
+type LoadWarning = pkgplugin.LoadWarning
+
 // NewRegistry returns an empty Registry.
 func NewRegistry() *Registry { return pkgplugin.NewRegistry() }
 

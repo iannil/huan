@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,6 +38,39 @@ func (s *stubPlainPlugin) Name() string { return s.name }
 var _ plugin.Plugin = (*stubPlainPlugin)(nil)
 var _ deploy.Deployer = (*stubDeployer)(nil)
 var _ image.ImageProcessor = (*stubImageProcessor)(nil)
+
+func TestNewPluginRegistryPrintsWarnings(t *testing.T) {
+	dir := t.TempDir()
+	pluginsDir := filepath.Join(dir, "plugins")
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, "broken.so"), []byte("not a plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Plugins: map[string]config.PluginConfig{
+		"broken": {Category: "static"},
+	}}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	reg, err := newPluginRegistry(cfg, dir, pluginsDir)
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("newPluginRegistry: %v", err)
+	}
+	if reg == nil {
+		t.Fatal("registry is nil")
+	}
+	if !strings.Contains(string(out), "huan: plugin load warning: broken.so: ") {
+		t.Errorf("stderr missing canonical warning line, got: %q", string(out))
+	}
+}
 
 func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 	cfg := &config.Config{

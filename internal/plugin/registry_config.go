@@ -31,6 +31,8 @@ func NewRegistryFromConfig(cfg *config.Config, sourceDir string, pluginDirOverri
 	if err != nil {
 		return nil, fmt.Errorf("plugin: scan static plugins: %w", err)
 	}
+	// Transfer scan warnings onto the registry; printing is the caller's job.
+	r.Warnings = append(r.Warnings, loader.Warnings...)
 	for _, result := range results {
 		name := result.Plugin.Name()
 		if _, exists := r.Get(name); exists {

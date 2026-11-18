@@ -47,6 +47,9 @@ type PluginInitFunc func(cfg map[string]any) (interface{}, error)
 // Loader discovers and loads .so plugin files from a directory.
 type Loader struct {
 	pluginDir string
+	// Warnings accumulates load failures of the most recent scan. Reset at
+	// the entry of each ScanAndLoad/ScanAndLoadByCategory call.
+	Warnings []LoadWarning
 }
 
 // NewLoader creates a Loader that scans pluginDir for .so files.
@@ -167,10 +170,12 @@ type ScanAndLoadResult struct {
 
 // ScanAndLoad scans the pluginDir for all .so files, loads each one, and
 // returns the successfully loaded plugins with their paths. Files that
-// fail to load are skipped with a warning (logged to stderr). Returns an
-// error only if the pluginDir cannot be read.
+// fail to load are skipped with a warning (collected in Loader.Warnings;
+// printing is the caller's job). Returns an error only if the pluginDir
+// cannot be read.
 func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
 	var results []ScanAndLoadResult
+	l.Warnings = nil
 	loaded := make(map[string]bool) // .so file name -> already loaded from a higher-priority dir
 
 	for _, dir := range l.searchDirs() {
@@ -192,7 +197,7 @@ func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
 			fullPath := filepath.Join(dir, entry.Name())
 			p, err := l.LoadPlugin(fullPath, nil)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
+				l.Warnings = append(l.Warnings, LoadWarning{Name: entry.Name(), Err: err})
 				continue
 			}
 			loaded[entry.Name()] = true
@@ -207,6 +212,7 @@ func (l *Loader) ScanAndLoad() ([]ScanAndLoadResult, error) {
 // matches one of the given categories.
 func (l *Loader) ScanAndLoadByCategory(pluginConfigs map[string]config.PluginConfig, categories ...string) ([]ScanAndLoadResult, error) {
 	var results []ScanAndLoadResult
+	l.Warnings = nil
 	loadedNames := make(map[string]bool) // plugin name -> loaded from a higher-priority dir
 
 	for _, dir := range l.searchDirs() {
@@ -247,7 +253,7 @@ func (l *Loader) ScanAndLoadByCategory(pluginConfigs map[string]config.PluginCon
 			fullPath := filepath.Join(dir, entry.Name())
 			p, err := l.LoadPlugin(fullPath, pc.Config)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "huan: plugin load warning: %s: %v\n", entry.Name(), err)
+				l.Warnings = append(l.Warnings, LoadWarning{Name: entry.Name(), Err: err})
 				continue
 			}
 			loadedNames[pluginName] = true
