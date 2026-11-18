@@ -94,7 +94,13 @@ func (a *App) currentSourceDir() string {
 
 // notify shows a best-effort system notification; denial is not fatal.
 func (a *App) notify(title, body string) {
-	n := mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body})
+	a.notifyID("", title, body)
+}
+
+// notifyID shows a best-effort system notification with a routing ID; denial
+// is not fatal. A non-empty ID lets OnNotificationClick route the click.
+func (a *App) notifyID(id, title, body string) {
+	n := mygo.NewNotification(mygo.NotificationOptions{ID: id, Title: title, Body: body})
 	if err := n.Show(); err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
 		a.log.LogError("notify", err, nil)
 	}
@@ -102,6 +108,18 @@ func (a *App) notify(title, body string) {
 
 // onReady runs once the MyGo app is ready: tray, site, server, window.
 func (a *App) onReady() {
+	// Brand dock icon for bare-binary dev launches. A .app bundle carries
+	// its own icns; setting again with identical art is harmless.
+	if err := mygo.App.Dock.SetIcon(iconPNG); err != nil {
+		a.log.LogError("dock-icon", err, nil)
+	}
+	// Notification click → startup diagnostics dialog (fixed ID routing).
+	mygo.App.OnNotificationClick(func(id string) {
+		if id == notifStartupDiag {
+			a.showDiagnostics()
+		}
+	})
+
 	menus, err := BuildTray(a, a.cfg.RecentSites)
 	if err != nil {
 		a.log.LogError("tray", err, nil)
@@ -117,6 +135,8 @@ func (a *App) onReady() {
 		if err := ValidateSite(a.cfg.RecentSites[0]); err == nil {
 			site = a.cfg.RecentSites[0]
 		} else {
+			a.diag.Add(LevelError, "site", err.Error())
+			a.log.Log("diag", observability.EventPoint, map[string]any{"component": "site", "msg": err.Error()})
 			mygo.Dialog.Error("站点不可用", err.Error())
 		}
 	}
@@ -124,11 +144,13 @@ func (a *App) onReady() {
 		s, ok := a.pickSiteDialog()
 		if !ok {
 			a.log.Log("onReady", observability.EventBranch, map[string]any{"branch": "no-site-selected"})
+			a.reportStartupDiag()
 			return // stay in tray; user can pick via menu
 		}
 		site = s
 	}
 	a.startAndServe(site)
+	a.reportStartupDiag()
 	a.showWindow()
 }
 
@@ -160,6 +182,10 @@ func (a *App) startAndServe(site string) {
 	// Serialize starts (see startMu doc): guarantees a single in-flight start.
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
+
+	// Fresh diagnostics per serve session: items must describe the current
+	// startup, not a previous one (site/plugin/serve adds follow below).
+	a.diag.Reset()
 
 	startLog := a.log.LogFunctionStart("start-serve", map[string]any{"site": site})
 	startTime := time.Now()
@@ -209,6 +235,14 @@ func (a *App) startAndServe(site string) {
 		Logf: func(format string, args ...any) {
 			a.log.Log("serve", observability.EventPoint, map[string]any{"msg": fmt.Sprintf(format, args...)})
 		},
+		OnPluginWarnings: func(ws []plugin.LoadWarning) {
+			for _, w := range ws {
+				msg := fmt.Sprintf("%s: %v", w.Name, w.Err)
+				a.diag.Add(LevelWarn, "plugin", msg)
+				a.log.Log("diag", observability.EventPoint, map[string]any{"component": "plugin", "msg": msg})
+			}
+			a.refreshDiagMenu()
+		},
 	})
 	this := rt
 	rt.OnServeExited = func(err error) {
@@ -244,6 +278,8 @@ func (a *App) startAndServe(site string) {
 			return
 		}
 		a.log.LogError("serve-exited", err, nil)
+		a.diag.Add(LevelError, "serve", err.Error())
+		a.refreshDiagMenu()
 		a.notify("huan 预览服务已停止", "可通过托盘菜单重新启动")
 		if a.menus != nil {
 			a.menus.SetServing(false)
@@ -251,11 +287,16 @@ func (a *App) startAndServe(site string) {
 		a.showOffline()
 	}
 	rt.OnRebuildFailed = func(err error) {
+		a.diag.Add(LevelError, "build", err.Error())
+		a.refreshDiagMenu()
 		a.notify("重建失败", err.Error())
 	}
 	adminURL, err := rt.Start()
 	if err != nil {
 		a.log.LogError(startLog, err, nil)
+		a.diag.Add(LevelError, "serve", err.Error())
+		a.log.Log("diag", observability.EventPoint, map[string]any{"component": "serve", "msg": err.Error()})
+		a.refreshDiagMenu()
 		mygo.Dialog.Error("预览服务启动失败", err.Error())
 		if a.menus != nil {
 			a.menus.SetServing(false)
@@ -540,11 +581,50 @@ func (a *App) Quit() {
 	}()
 }
 
-// ShowDiagnostics opens the startup-diagnostics dialog (wired in full in the
-// app-integration task).
+// ShowDiagnostics implements Controller: opens the startup-diagnostics dialog.
 func (a *App) ShowDiagnostics() { a.showDiagnostics() }
 
-func (a *App) showDiagnostics() {}
+// showDiagnostics renders the collector snapshot as a native dialog;
+// error-level items switch the dialog to the error style.
+func (a *App) showDiagnostics() {
+	items := a.diag.Snapshot()
+	title, detail := diagSummary(items)
+	dialogType := mygo.MessageNone
+	if a.diag.HasErrors() {
+		dialogType = mygo.MessageError
+	}
+	if _, err := mygo.Dialog.Message(mygo.MessageOptions{
+		Type:    dialogType,
+		Title:   "启动诊断",
+		Message: title,
+		Detail:  detail,
+	}); err != nil {
+		a.log.LogError("show-diagnostics", err, nil)
+	}
+}
+
+// reportStartupDiag refreshes the menu badge and notifies when startup
+// collected any items — warnings included (a plugin version mismatch is
+// warn-level and must not be silent; spec decision 2026-11-18).
+func (a *App) reportStartupDiag() {
+	items := a.diag.Snapshot()
+	a.refreshDiagMenu()
+	if len(items) == 0 {
+		return
+	}
+	errs, warns := 0, 0
+	for _, it := range items {
+		if it.Level == LevelError {
+			errs++
+		} else {
+			warns++
+		}
+	}
+	a.log.Log("startup-diag", observability.EventBranch, map[string]any{"errors": errs, "warnings": warns})
+	first := items[0]
+	a.notifyID(notifStartupDiag, notifyTitle(errs, warns),
+		truncMsg(fmt.Sprintf("%s: %s", first.Component, first.Message), 100)+"（点击通知查看详情）")
+}
 
 // refreshDiagMenu updates the startup-diagnostics badge in both menus from
 // the current snapshot size. Safe to call from any goroutine (Add callbacks,
