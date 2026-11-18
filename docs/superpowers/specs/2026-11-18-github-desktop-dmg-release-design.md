@@ -27,12 +27,12 @@ tag v* push / workflow_dispatch(tag)
 ```
 
 - 把「Create GitHub Release」步骤从现 release job 迁至 create-release job，两个产物 job 只做 upload——并行上传同一 Release 无创建竞态。
-- release job 的 tag 解析步骤迁至 create-release（该 job 不再需要 tag id，改用 env.version）；desktop job 自带同款解析步骤（workflow 无法跨 job 共享 step，八行显式复制优于引入 composite action）。
+- tag 解析收敛在 create-release job，并以 job output `outputs.tag` 暴露；release job 与 desktop job 通过 `needs.create-release.outputs.tag` 消费（release job 的 `gh release upload` 与 Docker 推送、desktop job 的 checkout 与上传均用同一 tag），单一事实来源，无重复解析。
 
 ## 3. desktop job 步骤
 
 1. 解析 tag（同款 `^v[0-9]+\.[0-9]+\.[0-9]+$` 校验）。
-2. `actions/checkout@v4`（at tag）。
+2. `actions/checkout@v4`（at tag = needs.create-release.outputs.tag）。
 3. `actions/setup-go@v5`（go-version-file: go.mod，cache: false，与现 job 一致）。
 4. `actions/setup-node@v4`（node 20，npm 缓存按 web/admin/package-lock.json）→ `npm ci && npm run build`——admin SPA 是 go:embed 输入（internal/admin/dist 不入库），必须先建。
 5. `go install github.com/egoist/mygo/cmd/mygo@v0.9.2`（精确钉版，与本机 mygo 二进制 provenance 一致）。
