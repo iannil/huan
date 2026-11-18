@@ -5,7 +5,10 @@
 # a prebuilt binary from release tarballs + separately-built plugins always
 # drift (2026-09-04: "plugin was built with a different version of package
 # internal/goarch").
-FROM golang:1.26-bookworm AS builder
+# 1.27 floor: go.mod requires >= 1.27.3 (plugin-submodule GOTOOLCHAIN
+# alignment, c392564) and the golang image ships GOTOOLCHAIN=local, so the
+# builder tag must satisfy the floor itself — 1.26 images fail the build.
+FROM golang:1.27-bookworm AS builder
 
 # CGO_ENABLED=1 needs a C toolchain; git for module downloads.
 RUN apt-get update && \
