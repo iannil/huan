@@ -76,7 +76,7 @@ func BuildAppMenu(c Controller, adminAuthRequired bool) *mygo.Menu {
 		{Label: "一键构建站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
 	}
 	if adminAuthRequired {
-		siteItems = append(siteItems, &mygo.MenuItem{Label: "复制管理 Token", Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }})
+		siteItems = append(siteItems, &mygo.MenuItem{Label: "复制管理 Token", ID: itemCopyToken, Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }})
 	}
 	siteItems = append(siteItems,
 		&mygo.MenuItem{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
@@ -155,13 +155,20 @@ func (m *MenuSet) SetDiagCount(n int) {
 	}
 }
 
-// RefreshRecents rebuilds the tray menu (recent list changed). The
+// RefreshRecents rebuilds both live menus (recent list changed). The
 // adminAuthRequired flag re-applies the copy-token visibility rule on every
-// rebuild (admin.requireToken can only change with a serve restart, but each
-// rebuild re-decides it so the menu never drifts).
+// rebuild (admin.requireToken can only change with a serve restart, and the
+// app menu is built once in onReady before the first Start — when the flag
+// is still the true default — so it must be rebuilt here to actually lose
+// or regain the copy-token item).
 func (m *MenuSet) RefreshRecents(c Controller, recents []string, adminAuthRequired bool) error {
 	menu := BuildTrayMenu(c, recents, adminAuthRequired)
 	m.TrayMenu = menu
 	m.Tray.SetMenu(menu)
+	appMenu := BuildAppMenu(c, adminAuthRequired)
+	m.AppMenu = appMenu
+	// New menus carry itemDiag/itemCopyToken IDs, so SetDiagCount lookups
+	// keep working after the swap.
+	mygo.App.SetMenu(appMenu)
 	return nil
 }
