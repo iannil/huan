@@ -1,25 +1,25 @@
-// Command gen-desktop-assets writes placeholder tray and app icons for the
-// huan desktop shell. Run once: go run ./scripts/gen-desktop-assets
+// Command gen-desktop-assets writes the huan desktop tray icon from the
+// brand geometry (web/admin/public/brand/huan-primary.svg): three cream
+// parallelograms on a red square, reduced to a black template glyph that
+// macOS tints adaptively in the menu bar. Run once from the repo root:
+//
+//	go run ./scripts/gen-desktop-assets
 package main
 
 import (
 	"image"
 	"image/color"
-	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
 )
 
-func circle(m *image.NRGBA, cx, cy, r int, c color.Color) {
-	for y := cy - r; y <= cy+r; y++ {
-		for x := cx - r; x <= cx+r; x++ {
-			dx, dy := x-cx, y-cy
-			if dx*dx+dy*dy <= r*r {
-				m.Set(x, y, c)
-			}
-		}
-	}
+// glyph holds the three brand parallelograms in huan-primary.svg coordinates
+// (viewBox 0 0 1000 1000).
+var glyph = [3][4][2]float64{
+	{{240, 295}, {570, 205}, {760, 315}, {430, 405}},
+	{{240, 470}, {570, 380}, {760, 490}, {430, 580}},
+	{{240, 645}, {570, 555}, {760, 665}, {430, 755}},
 }
 
 func main() {
@@ -27,37 +27,96 @@ func main() {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		panic(err)
 	}
-
-	// 18x18 template tray icon: solid disc, black+alpha (macOS renders it adaptively).
-	tray := image.NewNRGBA(image.Rect(0, 0, 18, 18))
-	draw.Draw(tray, tray.Bounds(), image.Transparent, image.Point{}, draw.Src)
-	circle(tray, 9, 9, 6, color.NRGBA{R: 0, G: 0, B: 0, A: 255})
-	f, err := os.Create(filepath.Join(outDir, "tray.png"))
-	if err != nil {
+	if err := writeTray(filepath.Join(outDir, "tray.png")); err != nil {
 		panic(err)
 	}
-	if err := png.Encode(f, tray); err != nil {
-		panic(err)
-	}
-	f.Close()
+}
 
-	// 512x512 app icon: dark rounded square with a light disc.
-	const size = 512
-	app := image.NewNRGBA(image.Rect(0, 0, size, size))
-	draw.Draw(app, app.Bounds(), image.Transparent, image.Point{}, draw.Src)
-	dark := color.NRGBA{R: 30, G: 41, B: 59, A: 255}
-	for y := 64; y < size-64; y++ {
-		for x := 64; x < size-64; x++ {
-			app.Set(x, y, dark)
+// writeTray renders the glyph into an 18x18 black+alpha template PNG,
+// supersampled 8x with box downsampling for smooth edges. The glyph fills
+// ~78% of the canvas, the macOS menu-bar convention (Template images stay
+// black+alpha; macOS recolors for light/dark menus).
+func writeTray(path string) error {
+	const (
+		size      = 18.0
+		ss        = 8
+		fillRatio = 0.78
+	)
+	minX, minY := glyph[0][0][0], glyph[0][0][1]
+	maxX, maxY := minX, minY
+	for _, poly := range glyph {
+		for _, p := range poly {
+			if p[0] < minX {
+				minX = p[0]
+			}
+			if p[0] > maxX {
+				maxX = p[0]
+			}
+			if p[1] < minY {
+				minY = p[1]
+			}
+			if p[1] > maxY {
+				maxY = p[1]
+			}
 		}
 	}
-	circle(app, size/2, size/2, 110, color.NRGBA{R: 148, G: 163, B: 184, A: 255})
-	f2, err := os.Create(filepath.Join(outDir, "icon.png"))
+	gw, gh := maxX-minX, maxY-minY
+	scale := size * fillRatio / gw
+	if size*fillRatio/gh < scale {
+		scale = size * fillRatio / gh
+	}
+	ox := (size - gw*scale) / 2
+	oy := (size - gh*scale) / 2
+
+	// contains reports whether the canvas point (x, y) maps into any brand
+	// parallelogram (convex quads: consistent cross-product sign test).
+	contains := func(x, y float64) bool {
+		bx := (x-ox)/scale + minX
+		by := (y-oy)/scale + minY
+		for _, poly := range glyph {
+			sign := 0.0
+			inside := true
+			for i := 0; i < 4; i++ {
+				a := poly[i]
+				b := poly[(i+1)%4]
+				cross := (b[0]-a[0])*(by-a[1]) - (b[1]-a[1])*(bx-a[0])
+				if sign == 0 {
+					sign = cross
+				} else if (cross > 0) != (sign > 0) {
+					inside = false
+					break
+				}
+			}
+			if inside {
+				return true
+			}
+		}
+		return false
+	}
+
+	img := image.NewNRGBA(image.Rect(0, 0, int(size), int(size)))
+	for y := 0; y < int(size); y++ {
+		for x := 0; x < int(size); x++ {
+			count := 0
+			for sy := 0; sy < ss; sy++ {
+				for sx := 0; sx < ss; sx++ {
+					px := float64(x) + (float64(sx)+0.5)/float64(ss)
+					py := float64(y) + (float64(sy)+0.5)/float64(ss)
+					if contains(px, py) {
+						count++
+					}
+				}
+			}
+			if count > 0 {
+				a := uint8(count * 255 / (ss * ss))
+				img.SetNRGBA(x, y, color.NRGBA{R: 0, G: 0, B: 0, A: a})
+			}
+		}
+	}
+	f, err := os.Create(path)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	if err := png.Encode(f2, app); err != nil {
-		panic(err)
-	}
-	f2.Close()
+	defer f.Close()
+	return png.Encode(f, img)
 }
