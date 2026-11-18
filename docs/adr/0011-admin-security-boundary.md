@@ -188,6 +188,15 @@ tail -10 memory/daily/$(date +%Y-%m-%d).md
 
 `go test -race ./internal/admin/...` 必 PASS。
 
+## 2026-11-18 修订：`admin.requireToken` 开关
+
+新增配置 `admin.requireToken`（缺省 true，行为与本 ADR 原决策逐字节一致）：
+
+- `false` 时 L2 token 门禁不挂载、自动生成 token 与 stderr 打印跳过（改为单行 disabled 提示）；仅限回环 bind——L1 扩展为：非回环 + `requireToken: false` **拒绝启动**（专属报错），LAN 暴露面不因该开关扩大。
+- `false` 与 `HUAN_ADMIN_TOKEN` 并存时开关赢（env 忽略）。
+- 原「否决 warn-and-continue」结论不变：本修订不引入任何「警告但继续暴露」路径。
+- 设计与验收：`docs/superpowers/specs/2026-11-18-admin-auth-switch-design.md`。
+
 ## 不在范围（YAGNI）
 
 - L3 CSRF SameSite cookie—— v1.x 多用户场景
