@@ -14,9 +14,11 @@ import (
 // the same pipeline as `huan build` defaults (full build + image pipeline,
 // no dev-only caches since a one-shot build has no incremental reuse).
 // onPluginWarnings receives plugins that failed the static registry scan
-// (empty slices are never delivered); nil drops them. Fired synchronously
-// before the build starts, on the caller's goroutine.
-func BuildSiteTo(sourceDir, outputDir string, logf func(format string, a ...any), onPluginWarnings func([]plugin.LoadWarning)) error {
+// (empty slices are never delivered); nil drops them. onConfigWarnings
+// receives config-level plugin warnings (yaml-declared plugins with no .so)
+// the same way. Both fire synchronously before the build starts, on the
+// caller's goroutine.
+func BuildSiteTo(sourceDir, outputDir string, logf func(format string, a ...any), onPluginWarnings func([]plugin.LoadWarning), onConfigWarnings func([]string)) error {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -30,6 +32,9 @@ func BuildSiteTo(sourceDir, outputDir string, logf func(format string, a ...any)
 	}
 	if len(reg.Warnings) > 0 && onPluginWarnings != nil {
 		onPluginWarnings(reg.Warnings)
+	}
+	if len(reg.ConfigWarnings) > 0 && onConfigWarnings != nil {
+		onConfigWarnings(reg.ConfigWarnings)
 	}
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {

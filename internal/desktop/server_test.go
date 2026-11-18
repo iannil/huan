@@ -145,6 +145,52 @@ func writeSiteWithBrokenPlugin(t *testing.T) string {
 	return src
 }
 
+// writeSiteWithMissingPlugin extends writeSite's site with a yaml-declared
+// static plugin whose .so exists nowhere — the canonical config-warning
+// fixture (Registry.ConfigWarnings; no plugins/ dir, so no load warnings).
+func writeSiteWithMissingPlugin(t *testing.T) string {
+	t.Helper()
+	src := writeSite(t)
+	cfgPath := filepath.Join(src, "huan.yaml")
+	body, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, append(body, []byte("plugins:\n  ghost:\n    category: static\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return src
+}
+
+func TestServeRuntimeReportsConfigWarnings(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
+	src := writeSiteWithMissingPlugin(t)
+	var mu sync.Mutex
+	var seen []string
+	rt := NewServeRuntime(ServeOptions{
+		SourceDir: src,
+		OnConfigWarnings: func(ws []string) {
+			mu.Lock()
+			defer mu.Unlock()
+			seen = append(seen, ws...)
+		},
+	})
+	url, err := rt.Start()
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer rt.Stop(5 * time.Second)
+	if url == "" {
+		t.Fatal("empty admin url")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := `plugin "ghost": declared in yaml but no .so found in $HUAN_HOME or plugins/`
+	if len(seen) != 1 || seen[0] != want {
+		t.Fatalf("config warnings = %#v, want [%q]", seen, want)
+	}
+}
+
 func TestServeRuntimeReportsPluginWarnings(t *testing.T) {
 	src := writeSiteWithBrokenPlugin(t)
 	var mu sync.Mutex

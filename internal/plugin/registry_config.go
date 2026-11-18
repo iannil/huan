@@ -16,8 +16,9 @@ import (
 // Plugins with category "dynamic" are excluded — they are loaded at runtime
 // by the daemon's LifecycleManager.
 //
-// Unknown plugins declared in yaml (not found as .so files) are silently
-// skipped at compile time.
+// Unknown plugins declared in yaml (not found as .so files) produce a
+// ConfigWarning on the returned registry; printing is the caller's job
+// (internal/plugin.PrintConfigWarnings).
 func NewRegistryFromConfig(cfg *config.Config, sourceDir string, pluginDirOverride string) (*Registry, error) {
 	r := NewRegistry()
 	pluginDir := DirFromSource(sourceDir)
@@ -50,9 +51,9 @@ func NewRegistryFromConfig(cfg *config.Config, sourceDir string, pluginDirOverri
 	// missing .so.
 	soExists := func(name string) bool { return loader.Resolve(SoFileName(name)) != "" }
 	if errs, warns := ValidateRawConfigs(r, cfg.Plugins, soExists); len(errs) > 0 || len(warns) > 0 {
-		for _, w := range warns {
-			fmt.Fprintf(os.Stderr, "huan: plugin config warning: %s\n", w)
-		}
+		// Transfer config warnings onto the registry; printing is the caller's
+		// job (same pattern as load warnings above).
+		r.ConfigWarnings = append(r.ConfigWarnings, warns...)
 		if len(errs) > 0 {
 			return nil, fmt.Errorf("plugin config errors:\n  - %s", strings.Join(errs, "\n  - "))
 		}

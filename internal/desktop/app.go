@@ -243,6 +243,13 @@ func (a *App) startAndServe(site string) {
 			}
 			a.refreshDiagMenu()
 		},
+		OnConfigWarnings: func(ws []string) {
+			for _, w := range ws {
+				a.diag.Add(LevelWarn, "plugin", w)
+				a.log.Log("diag", observability.EventPoint, map[string]any{"component": "plugin", "msg": w})
+			}
+			a.refreshDiagMenu()
+		},
 	})
 	this := rt
 	rt.OnServeExited = func(err error) {
@@ -486,6 +493,12 @@ func (a *App) Rebuild() {
 				msg := fmt.Sprintf("%s: %v", w.Name, w.Err)
 				a.diag.Add(LevelWarn, "build", msg)
 				a.log.Log("diag", observability.EventPoint, map[string]any{"component": "build", "msg": msg})
+			}
+			a.refreshDiagMenu()
+		}, func(ws []string) {
+			for _, w := range ws {
+				a.diag.Add(LevelWarn, "build", w)
+				a.log.Log("diag", observability.EventPoint, map[string]any{"component": "build", "msg": w})
 			}
 			a.refreshDiagMenu()
 		})

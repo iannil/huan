@@ -72,6 +72,50 @@ func TestNewPluginRegistryPrintsWarnings(t *testing.T) {
 	}
 }
 
+func TestNewPluginRegistryPrintsConfigWarningsBeforeLoadWarnings(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
+	dir := t.TempDir()
+	pluginsDir := filepath.Join(dir, "plugins")
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, "broken.so"), []byte("not a plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Plugins: map[string]config.PluginConfig{
+		"broken": {Category: "static"},
+		"ghost":  {Category: "static"}, // declared but no .so anywhere
+	}}
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	reg, err := newPluginRegistry(cfg, dir, pluginsDir)
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("newPluginRegistry: %v", err)
+	}
+	if reg == nil {
+		t.Fatal("registry is nil")
+	}
+	stderr := string(out)
+	wantConfig := "huan: plugin config warning: plugin \"ghost\": declared in yaml but no .so found in $HUAN_HOME or plugins/\n"
+	if !strings.Contains(stderr, wantConfig) {
+		t.Errorf("stderr missing canonical config-warning line, got: %q", stderr)
+	}
+	configIdx := strings.Index(stderr, wantConfig)
+	loadIdx := strings.Index(stderr, "huan: plugin load warning: broken.so: ")
+	if loadIdx == -1 {
+		t.Errorf("stderr missing load-warning line, got: %q", stderr)
+	} else if configIdx > loadIdx {
+		t.Errorf("config warning must print before load warning (config at %d, load at %d):\n%s", configIdx, loadIdx, stderr)
+	}
+}
+
 func TestNewPluginRegistry_UnknownPluginSilentlySkipped(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: map[string]config.PluginConfig{

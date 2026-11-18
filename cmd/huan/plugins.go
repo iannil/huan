@@ -28,6 +28,9 @@ func newPluginRegistry(cfg *config.Config, sourceDir string, pluginDirOverride s
 	if err != nil {
 		return nil, err
 	}
+	// Config warnings first, load warnings second — preserves the stderr
+	// line order NewRegistryFromConfig produced when it printed inline.
+	plugin.PrintConfigWarnings(os.Stderr, reg.ConfigWarnings)
 	plugin.PrintWarnings(os.Stderr, reg.Warnings)
 	return reg, nil
 }

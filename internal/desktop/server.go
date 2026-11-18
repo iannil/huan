@@ -39,6 +39,11 @@ type ServeOptions struct {
 	// dynamic lifecycle scan each fire it once (empty slices are never
 	// delivered). Nil drops warnings. Invoked from the serve goroutine.
 	OnPluginWarnings func([]plugin.LoadWarning)
+	// OnConfigWarnings is invoked with config-level plugin warnings (plugins
+	// declared in huan.yaml whose .so file is missing) found while building
+	// this serve session's static registry (empty slices are never
+	// delivered). Nil drops warnings. Invoked from the serve goroutine.
+	OnConfigWarnings func([]string)
 }
 
 // ServeRuntime owns one in-process serve session: initial build, file
@@ -214,6 +219,11 @@ func (r *ServeRuntime) Start() (string, error) {
 	// the dynamic lifecycle scan reports through adminPluginMgr.OnWarnings.
 	if len(reg.Warnings) > 0 && r.opts.OnPluginWarnings != nil {
 		r.opts.OnPluginWarnings(reg.Warnings)
+	}
+	// Config-level warnings (yaml-declared plugins with no .so) dispatch the
+	// same way; nil opts drop them.
+	if len(reg.ConfigWarnings) > 0 && r.opts.OnConfigWarnings != nil {
+		r.opts.OnConfigWarnings(reg.ConfigWarnings)
 	}
 	buildOpts.PluginRegistry = reg
 	themeMgr := theme.NewManager(reg)

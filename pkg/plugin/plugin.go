@@ -44,6 +44,12 @@ type Registry struct {
 	// registry. Empty after a clean scan. Callers decide how to surface
 	// them (see LoadWarning).
 	Warnings []LoadWarning
+	// ConfigWarnings lists config-level plugin problems found while
+	// validating huan.yaml plugin configs against schemas — e.g. a plugin
+	// declared in yaml whose .so file is missing. Raw human-readable warn
+	// text, one entry per warning; empty after a clean validation. Printing
+	// is the caller's job, so a Finder-launched .app never loses them.
+	ConfigWarnings []string
 }
 
 // NewRegistry returns an empty Registry.
