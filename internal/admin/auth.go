@@ -18,13 +18,22 @@ import (
 // returns an error and the server refuses to start.
 const AdminTokenEnvVar = "HUAN_ADMIN_TOKEN"
 
-// CheckBindSafety enforces ADR 0011 L1: a non-loopback bind requires
-// HUAN_ADMIN_TOKEN to be set, otherwise the admin panel would expose
-// unrestricted file write to the LAN. Loopback binds are safe by default
-// (CSRF + local privilege already implied by local access).
-func CheckBindSafety(bindAddr, token string) error {
+// CheckBindSafety enforces ADR 0011 L1: a non-loopback bind requires token
+// auth. With requireToken=true the bind needs a token (env or generated
+// upstream); with requireToken=false (admin.requireToken: false, the 2026-11-18
+// revision of ADR 0011) the bind must still be loopback — admin API grants
+// arbitrary content/ writes, so a LAN-exposed bind may never run unauthenticated.
+// Loopback binds are safe by default (CSRF + local privilege already implied
+// by local access).
+func CheckBindSafety(bindAddr, token string, requireToken bool) error {
 	if isLoopback(bindAddr) {
 		return nil
+	}
+	if !requireToken {
+		return fmt.Errorf(
+			"huan: admin.requireToken: false cannot be combined with a non-loopback bind (%s);\n"+
+				"disabled auth is loopback-only — bind to 127.0.0.1 / localhost, or remove admin.requireToken from huan.yaml",
+			bindAddr)
 	}
 	if token == "" {
 		return fmt.Errorf(
@@ -122,4 +131,11 @@ func extractToken(r *http.Request) string {
 		return strings.TrimSpace(t)
 	}
 	return ""
+}
+
+// PrintAuthDisabledNotice tells the operator token auth is off. Called once
+// at startup by each CLI serve path (dev/daemon) in place of the auto-generated
+// token print; the desktop runtime stays silent (no stderr surface in a GUI).
+func PrintAuthDisabledNotice() {
+	fmt.Fprintln(os.Stderr, "huan: admin auth disabled (admin.requireToken: false) — loopback only")
 }

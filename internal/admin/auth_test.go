@@ -1,8 +1,11 @@
 package admin
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -14,7 +17,7 @@ func TestCheckBindSafety_LoopbackVariants_Allow(t *testing.T) {
 	cases := []string{"127.0.0.1", "::1", "localhost", ""}
 	for _, bind := range cases {
 		t.Run(bind, func(t *testing.T) {
-			if err := CheckBindSafety(bind, ""); err != nil {
+			if err := CheckBindSafety(bind, "", true); err != nil {
 				t.Errorf("CheckBindSafety(%q, %q) = %v, want nil", bind, "", err)
 			}
 		})
@@ -29,7 +32,7 @@ func TestCheckBindSafety_NonLoopbackNoToken_FailFast(t *testing.T) {
 	cases := []string{"0.0.0.0", "::", "192.168.1.1", "10.0.0.1"}
 	for _, bind := range cases {
 		t.Run(bind, func(t *testing.T) {
-			err := CheckBindSafety(bind, "")
+			err := CheckBindSafety(bind, "", true)
 			if err == nil {
 				t.Fatalf("CheckBindSafety(%q, %q) = nil, want error", bind, "")
 			}
@@ -48,7 +51,7 @@ func TestCheckBindSafety_NonLoopbackNoToken_FailFast(t *testing.T) {
 // escape hatch: operators who explicitly set HUAN_ADMIN_TOKEN can bind to
 // any address (e.g., behind a reverse proxy on a private LAN).
 func TestCheckBindSafety_NonLoopbackWithToken_Allow(t *testing.T) {
-	if err := CheckBindSafety("0.0.0.0", "some-token"); err != nil {
+	if err := CheckBindSafety("0.0.0.0", "some-token", true); err != nil {
 		t.Errorf("CheckBindSafety(0.0.0.0, some-token) = %v, want nil", err)
 	}
 }
@@ -237,4 +240,46 @@ func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+func TestCheckBindSafety_Loopback_DisabledAuth_Allow(t *testing.T) {
+	for _, bind := range []string{"", "localhost", "127.0.0.1", "::1"} {
+		if err := CheckBindSafety(bind, "", false); err != nil {
+			t.Fatalf("loopback bind %q with auth disabled must allow: %v", bind, err)
+		}
+	}
+}
+
+func TestCheckBindSafety_NonLoopback_DisabledAuth_FailFast(t *testing.T) {
+	err := CheckBindSafety("0.0.0.0", "sometoken", false)
+	if err == nil {
+		t.Fatal("non-loopback bind with auth disabled must refuse")
+	}
+	const want = "admin.requireToken: false"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error must name the config switch %q, got: %v", want, err)
+	}
+	if strings.Contains(err.Error(), "HUAN_ADMIN_TOKEN env when binding") {
+		t.Fatal("disabled-auth error must be the dedicated message, not the legacy token message")
+	}
+}
+
+func TestPrintAuthDisabledNotice_ExactLine(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	PrintAuthDisabledNotice()
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	_ = r.Close()
+	got := buf.String()
+	want := "huan: admin auth disabled (admin.requireToken: false) — loopback only\n"
+	if got != want {
+		t.Fatalf("stderr line mismatch:\n got: %q\nwant: %q", got, want)
+	}
 }

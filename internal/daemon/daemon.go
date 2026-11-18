@@ -355,7 +355,7 @@ func Run(opts Options) error {
 // non-loopback binds without env fail fast (ADR 0011 L1).
 func resolveAdminToken(bind string) (string, bool, error) {
 	token, fromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token); err != nil {
+	if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
 		return "", false, err
 	}
 	if !fromEnv {

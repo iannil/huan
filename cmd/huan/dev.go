@@ -70,7 +70,7 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 	}
 
 	token, tokenFromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token); err != nil {
+	if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
 		return err
 	}
 	if !tokenFromEnv {

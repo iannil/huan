@@ -172,7 +172,7 @@ func (r *ServeRuntime) Start() (string, error) {
 
 	// Admin token: generate silently (no stdout printing in a GUI app).
 	token, fromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety("127.0.0.1", token); err != nil {
+	if err := admin.CheckBindSafety("127.0.0.1", token, true); err != nil { // literal keep-green; config wiring lands in Task 5
 		return "", err
 	}
 	if !fromEnv {
