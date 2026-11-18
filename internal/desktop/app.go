@@ -528,5 +528,11 @@ func (a *App) Quit() {
 	}()
 }
 
+// ShowDiagnostics opens the startup-diagnostics dialog (wired in full in the
+// app-integration task).
+func (a *App) ShowDiagnostics() { a.showDiagnostics() }
+
+func (a *App) showDiagnostics() {}
+
 // Compile-time check: App satisfies the Controller contract the menus use.
 var _ Controller = (*App)(nil)

@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo"
 )
 
@@ -18,6 +20,7 @@ type Controller interface {
 	OpenLogs()   // reveal log directory in Finder
 	ShowWindow() // create/focus the admin window
 	Quit()
+	ShowDiagnostics() // open the startup-diagnostics dialog
 }
 
 // Menu item IDs used for dynamic updates.
@@ -25,6 +28,7 @@ const (
 	itemToggleServe = "toggle-serve"
 	itemRebuild     = "rebuild"
 	itemCopyToken   = "copy-token"
+	itemDiag        = "startup-diag"
 )
 
 // BuildTrayMenu assembles the tray menu; recents are the recent site paths.
@@ -34,6 +38,7 @@ func BuildTrayMenu(c Controller, recents []string) *mygo.Menu {
 		{Label: "启动/停止预览服务", ID: itemToggleServe, Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
 		{Label: "一键构建站点", ID: itemRebuild, Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
 		{Label: "复制管理 Token", ID: itemCopyToken, Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }},
+		{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
 		mygo.Separator(),
 		{Label: "打开站点目录", ID: "open-folder", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
 		{Label: "在浏览器打开站点", ID: "open-browser", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
@@ -64,6 +69,7 @@ func BuildAppMenu(c Controller) *mygo.Menu {
 			{Label: "启动/停止预览服务", Click: func(*mygo.MenuItem, *mygo.Window) { c.ToggleServe() }},
 			{Label: "一键构建站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.Rebuild() }},
 			{Label: "复制管理 Token", Click: func(*mygo.MenuItem, *mygo.Window) { c.CopyAdminToken() }},
+			{Label: diagMenuLabel(0), ID: itemDiag, Click: func(*mygo.MenuItem, *mygo.Window) { c.ShowDiagnostics() }},
 			mygo.Separator(),
 			{Label: "打开站点目录", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteFolder() }},
 			{Label: "在浏览器打开站点", Click: func(*mygo.MenuItem, *mygo.Window) { c.OpenSiteInBrowser() }},
@@ -114,6 +120,25 @@ func (m *MenuSet) SetServing(serving bool) {
 func (m *MenuSet) SetBuilding(building bool) {
 	if item := m.TrayMenu.ItemByID(itemRebuild); item != nil {
 		item.SetEnabled(!building)
+	}
+}
+
+// diagMenuLabel renders the startup-diagnostics menu title for n items.
+func diagMenuLabel(n int) string {
+	if n <= 0 {
+		return "启动诊断…"
+	}
+	return fmt.Sprintf("启动诊断（%d 个问题）…", n)
+}
+
+// SetDiagCount updates the startup-diagnostics item label in both menus.
+func (m *MenuSet) SetDiagCount(n int) {
+	label := diagMenuLabel(n)
+	if item := m.TrayMenu.ItemByID(itemDiag); item != nil {
+		item.SetLabel(label)
+	}
+	if item := m.AppMenu.ItemByID(itemDiag); item != nil {
+		item.SetLabel(label)
 	}
 }
 
