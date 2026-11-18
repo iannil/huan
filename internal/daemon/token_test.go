@@ -26,7 +26,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestResolveAdminToken(t *testing.T) {
 	t.Run("env set wins", func(t *testing.T) {
 		t.Setenv("HUAN_ADMIN_TOKEN", "from-env")
-		tok, fromEnv, err := resolveAdminToken("127.0.0.1")
+		tok, fromEnv, err := resolveAdminToken("127.0.0.1", true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -36,7 +36,7 @@ func TestResolveAdminToken(t *testing.T) {
 	})
 	t.Run("loopback no env generates", func(t *testing.T) {
 		t.Setenv("HUAN_ADMIN_TOKEN", "")
-		tok, fromEnv, err := resolveAdminToken("127.0.0.1")
+		tok, fromEnv, err := resolveAdminToken("127.0.0.1", true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -46,8 +46,34 @@ func TestResolveAdminToken(t *testing.T) {
 	})
 	t.Run("non-loopback no env errors", func(t *testing.T) {
 		t.Setenv("HUAN_ADMIN_TOKEN", "")
-		if _, _, err := resolveAdminToken("0.0.0.0"); err == nil {
+		if _, _, err := resolveAdminToken("0.0.0.0", true); err == nil {
 			t.Fatal("want error for non-loopback without env token")
+		}
+	})
+	t.Run("requireToken false loopback skips generation", func(t *testing.T) {
+		t.Setenv("HUAN_ADMIN_TOKEN", "")
+		tok, fromEnv, err := resolveAdminToken("127.0.0.1", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if fromEnv || tok != "" {
+			t.Fatalf("token=%q fromEnv=%v, want empty env-less token without generation", tok, fromEnv)
+		}
+	})
+	t.Run("requireToken false env token passes through", func(t *testing.T) {
+		t.Setenv("HUAN_ADMIN_TOKEN", "from-env")
+		tok, fromEnv, err := resolveAdminToken("127.0.0.1", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !fromEnv || tok != "from-env" {
+			t.Fatalf("token=%q fromEnv=%v, want from-env", tok, fromEnv)
+		}
+	})
+	t.Run("requireToken false still rejects non-loopback", func(t *testing.T) {
+		t.Setenv("HUAN_ADMIN_TOKEN", "")
+		if _, _, err := resolveAdminToken("0.0.0.0", false); err == nil {
+			t.Fatal("want error for non-loopback even with requireToken=false")
 		}
 	})
 }

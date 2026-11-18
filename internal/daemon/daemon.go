@@ -221,7 +221,7 @@ func Run(opts Options) error {
 	}
 
 	// 8. Initialize Serving
-	adminToken, _, err := resolveAdminToken(opts.Bind)
+	adminToken, _, err := resolveAdminToken(opts.Bind, cfg.Admin.RequireTokenEnabled())
 	if err != nil {
 		return err
 	}
@@ -232,7 +232,7 @@ func Run(opts Options) error {
 		ServeURL:      fmt.Sprintf("http://%s:%s/", opts.Bind, opts.Port),
 		BindAddr:      opts.Bind,
 		Token:         adminToken,
-		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
+		RequireToken:  cfg.Admin.RequireTokenEnabled(),
 		MemoryDir:     filepath.Join(opts.SourceDir, "memory", "daily"),
 		PluginManager: d.pluginManager,
 		ThemeManager:  d.themeManager,
@@ -354,10 +354,16 @@ func Run(opts Options) error {
 // resolveAdminToken mirrors dev.go's token flow for the daemon: env token
 // wins; loopback binds auto-generate (printed to stderr by the caller);
 // non-loopback binds without env fail fast (ADR 0011 L1).
-func resolveAdminToken(bind string) (string, bool, error) {
+// requireToken=false (admin.requireToken: false) skips generation and prints
+// the disabled notice; loopback-only is enforced by CheckBindSafety.
+func resolveAdminToken(bind string, requireToken bool) (string, bool, error) {
 	token, fromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
+	if err := admin.CheckBindSafety(bind, token, requireToken); err != nil {
 		return "", false, err
+	}
+	if !requireToken {
+		admin.PrintAuthDisabledNotice()
+		return token, fromEnv, nil
 	}
 	if !fromEnv {
 		var err error

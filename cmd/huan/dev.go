@@ -69,11 +69,16 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	requireToken := cfg.Admin.RequireTokenEnabled()
 	token, tokenFromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
+	if err := admin.CheckBindSafety(bind, token, requireToken); err != nil {
 		return err
 	}
-	if !tokenFromEnv {
+	if !requireToken {
+		// admin.requireToken: false (loopback-only, enforced above) — no token
+		// to generate or print; the API mounts unauthenticated downstream.
+		admin.PrintAuthDisabledNotice()
+	} else if !tokenFromEnv {
 		var err error
 		if token, err = admin.GenerateToken(); err != nil {
 			return fmt.Errorf("generate admin token: %w", err)
@@ -265,7 +270,7 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 		ServeURL:      serveURL,
 		BindAddr:      bind,
 		Token:         token,
-		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
+		RequireToken:  requireToken,
 		MemoryDir:     filepath.Join(sourceDir, "memory", "daily"),
 		PluginManager: adminPluginMgr,
 		ThemeManager:  themeMgr,
