@@ -107,6 +107,11 @@ func (a *App) notify(title, body string) {
 // notifyID shows a best-effort system notification with a routing ID; denial
 // is not fatal. A non-empty ID lets OnNotificationClick route the click.
 func (a *App) notifyID(id, title, body string) {
+	if !mygo.NotificationsSupported() {
+		// Bare-binary dev runs have no notification center; stay silent
+		// instead of logging ErrUnsupported on every startup notification.
+		return
+	}
 	n := mygo.NewNotification(mygo.NotificationOptions{ID: id, Title: title, Body: body})
 	if err := n.Show(); err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
 		a.log.LogError("notify", err, nil)
