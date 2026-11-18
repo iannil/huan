@@ -1,7 +1,7 @@
 # 桌面端启动诊断 + 品牌图标接入 设计
 
 - 日期：2026-11-18
-- 状态：已批准（对话内确认），待实现
+- 状态：已实现（见验收报告 [docs/reports/2026-11-18-desktop-startup-diagnostics-acceptance.md](../../reports/2026-11-18-desktop-startup-diagnostics-acceptance.md)）
 - 关联：[2026-11-17 huan desktop MyGo 设计](2026-11-17-huan-desktop-mygo-design.md) · Phase 1 验收报告 `docs/reports/2026-11-17-desktop-phase1-acceptance.md`
 
 ## 背景与问题
