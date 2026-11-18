@@ -1,6 +1,6 @@
 module github.com/iannil/huan-plugin-sitemap-enhancer
 
-go 1.26.2
+go 1.27.3
 
 require github.com/iannil/huan v0.0.0
 
