@@ -18,6 +18,7 @@
 - ADR 0011 状态保持 Accepted，只追加带日期修订小节。
 - 代码注释英文；conventional commits；`go build ./... && go vet ./...` 每任务全绿；admin/config 包测试 `-race`。
 - 缺省行为回归底线：不写 `admin:` 段时，一切输出（含 stderr）与今天逐字节一致。
+- **每个提交点 `go build ./...` 必须全绿**（可 bisect 历史）：T2/T3 在改 admin 包签名/字段的同时，同提交内给三个调用方补**字面量保绿值**（`true`），T4/T5 再把字面量替换为 cfg 驱动——字面量注释注明「literal keep-green; config wiring lands in Task 4/5」。
 
 ---
 
@@ -143,6 +144,7 @@ git commit -m "feat(config): admin.requireToken switch (default true)"
 
 **Files:**
 - Modify: `internal/admin/auth.go:21-37`（CheckBindSafety）、文件尾部（TokenMiddleware 之后新增 PrintAuthDisabledNotice）
+- Modify: `cmd/huan/dev.go:73`、`internal/daemon/daemon.go:358`、`internal/desktop/server.go:175`（Step 3b 保绿字面量）
 - Test: `internal/admin/auth_test.go:13-55`（既有三测试加参）、文件尾部新增
 
 **Interfaces:**
@@ -256,15 +258,40 @@ func PrintAuthDisabledNotice() {
 
 （`os` 已在 auth.go import 列表中。）
 
+- [ ] **Step 3b: 保绿调用点更新（同提交）**
+
+签名变为三参后，三个调用方必须同提交更新，否则 `go build ./...` 破绿。各处字面量传 `true`（= 缺省语义，行为零变化）：
+
+```go
+// cmd/huan/dev.go:73
+if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
+	return err
+}
+```
+
+```go
+// internal/daemon/daemon.go:358（resolveAdminToken 内）
+if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
+	return "", false, err
+}
+```
+
+```go
+// internal/desktop/server.go:175
+if err := admin.CheckBindSafety("127.0.0.1", token, true); err != nil { // literal keep-green; config wiring lands in Task 5
+	return "", err
+}
+```
+
 - [ ] **Step 4: 运行确认通过**
 
-Run: `go build ./... && go test ./internal/admin/ -race -count=1`
-Expected: internal/admin 包外会因调用方仍传两参而编译失败——**本步仅要求 `go test ./internal/admin/` 编译通过且全绿**；`go build ./...` 留到 Task 4。如实记录：`go vet ./...` 此刻因 cmd/daemon 调用方未更新而失败属预期。
+Run: `go build ./... && go vet ./... && go test ./internal/admin/ -race -count=1`
+Expected: 全绿（调用方已同提交保绿，全仓可构建）。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add internal/admin/auth.go internal/admin/auth_test.go
+git add internal/admin/auth.go internal/admin/auth_test.go cmd/huan/dev.go internal/daemon/daemon.go internal/desktop/server.go
 git commit -m "feat(admin): CheckBindSafety requireToken param + auth-disabled notice"
 ```
 
@@ -274,6 +301,7 @@ git commit -m "feat(admin): CheckBindSafety requireToken param + auth-disabled n
 
 **Files:**
 - Modify: `internal/admin/handler.go:18-35`（HandlerOptions struct + 注释）、`:62`（apiWithAuth 挂载点）
+- Modify: `cmd/huan/dev.go`、`internal/daemon/daemon.go`、`internal/desktop/server.go` 各自 HandlerOptions（Step 3b 保绿字面量）
 - Test: `internal/admin/handler_test.go`（新建）
 
 **Interfaces:**
@@ -363,15 +391,25 @@ Expected: FAIL —— `HandlerOptions.RequireToken` 字段不存在（编译错�
 	}
 ```
 
+- [ ] **Step 3b: 保绿调用点更新（同提交，防静默关鉴权）**
+
+`RequireToken` 零值为 `false`——三处 `NewHandler` 调用点若不同提交显式置 true，中间提交会**静默关闭全部 admin 鉴权**（破坏缺省回归底线）。各处加字面量 true：
+
+```go
+// cmd/huan/dev.go HandlerOptions、internal/daemon/daemon.go HandlerOptions、
+// internal/desktop/server.go HandlerOptions —— Token: 字段之后各加：
+		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
+```
+
 - [ ] **Step 4: 运行确认通过**
 
-Run: `go test ./internal/admin/ -race -count=1`
-Expected: 全 PASS（含 Task 2 既有测试）。
+Run: `go build ./... && go vet ./... && go test ./internal/admin/ -race -count=1`
+Expected: 全 PASS（含 Task 2 既有测试；三调用方已保绿且行为不变）。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add internal/admin/handler.go internal/admin/handler_test.go
+git add internal/admin/handler.go internal/admin/handler_test.go cmd/huan/dev.go internal/daemon/daemon.go internal/desktop/server.go
 git commit -m "feat(admin): conditional token middleware via HandlerOptions.RequireToken"
 ```
 
@@ -390,11 +428,12 @@ git commit -m "feat(admin): conditional token middleware via HandlerOptions.Requ
 
 - [ ] **Step 1: dev.go token 流替换**
 
-`runDev` 中 `:72-82` 现文：
+`runDev` 中 `:72-82` 现文（Task 2/3 已插入保绿字面量）：
 
 ```go
+	requireToken := true // 已被 Task 2/3 字面量化，此处以实际文件为准
 	token, tokenFromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token); err != nil {
+	if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
 		return err
 	}
 	if !tokenFromEnv {
@@ -406,7 +445,7 @@ git commit -m "feat(admin): conditional token middleware via HandlerOptions.Requ
 	}
 ```
 
-替换为：
+替换为（字面量 → cfg 驱动）：
 
 ```go
 	requireToken := cfg.Admin.RequireTokenEnabled()
@@ -427,7 +466,7 @@ git commit -m "feat(admin): conditional token middleware via HandlerOptions.Requ
 	}
 ```
 
-`:261-272` 的 `HandlerOptions{...}` 在 `Token: token,` 之后加一行：
+`:261-272` 的 `HandlerOptions{...}` 中 `RequireToken: true, // literal keep-green...` 一行替换为：
 
 ```go
 		RequireToken:  requireToken,
@@ -435,12 +474,12 @@ git commit -m "feat(admin): conditional token middleware via HandlerOptions.Requ
 
 - [ ] **Step 2: daemon.go resolveAdminToken 签名与实现**
 
-`:353-372` 现文函数头与校验行：
+`:353-372` 现文函数头与校验行（Task 2 已插入保绿字面量）：
 
 ```go
 func resolveAdminToken(bind string) (string, bool, error) {
 	token, fromEnv := admin.ResolveToken()
-	if err := admin.CheckBindSafety(bind, token); err != nil {
+	if err := admin.CheckBindSafety(bind, token, true); err != nil { // literal keep-green; config wiring lands in Task 4
 		return "", false, err
 	}
 	if !fromEnv {
@@ -469,7 +508,7 @@ func resolveAdminToken(bind string, requireToken bool) (string, bool, error) {
 	adminToken, _, err := resolveAdminToken(opts.Bind, cfg.Admin.RequireTokenEnabled())
 ```
 
-`:228-240` 的 `HandlerOptions{...}` 在 `Token: adminToken,` 之后加：
+`:228-240` 的 `HandlerOptions{...}` 中 `RequireToken: true, // literal keep-green...` 一行替换为：
 
 ```go
 		RequireToken:  cfg.Admin.RequireTokenEnabled(),
@@ -478,7 +517,7 @@ func resolveAdminToken(bind string, requireToken bool) (string, bool, error) {
 - [ ] **Step 3: 全仓构建 + 全量验证**
 
 Run: `go build ./... && go vet ./... && go test ./internal/admin/... ./internal/daemon/... ./cmd/huan/... ./internal/config/... -race -count=1`
-Expected: 全绿（Task 2 遗留的两参调用点已全部消除；daemon/cmd 既有测试无回归）。
+Expected: 全绿（保绿字面量已全部替换为 cfg 驱动；daemon/cmd 既有测试无回归）。
 
 - [ ] **Step 4: 运行时冒烟（CLI 行为三态）**
 
@@ -595,7 +634,22 @@ func BuildTrayMenu(c Controller, recents []string, adminAuthRequired bool) *mygo
 
 - [ ] **Step 4: server.go 旗标 + HandlerOptions**
 
-`:172-181` token 流替换（桌面无 stderr 打印面——既不生成也不提示，保持静默）：
+`:172-181` token 流替换（桌面无 stderr 打印面——既不生成也不提示，保持静默）。现文（Task 2 已插入保绿字面量）：
+
+```go
+	// Admin token: generate silently (no stdout printing in a GUI app).
+	token, fromEnv := admin.ResolveToken()
+	if err := admin.CheckBindSafety("127.0.0.1", token, true); err != nil { // literal keep-green; config wiring lands in Task 5
+		return "", err
+	}
+	if !fromEnv {
+		if token, err = admin.GenerateToken(); err != nil {
+			return "", fmt.Errorf("generate admin token: %w", err)
+		}
+	}
+```
+
+替换为：
 
 ```go
 	// Admin auth: admin.requireToken=false (loopback-only, enforced below)
@@ -623,7 +677,7 @@ func (r *ServeRuntime) AdminAuthRequired() bool {
 }
 ```
 
-`:320-331` `HandlerOptions{...}` 在 `Token: token,` 之后加 `RequireToken: requireToken,`。
+`:320-331` `HandlerOptions{...}` 中 `RequireToken: true, // literal keep-green...` 一行替换为 `RequireToken: requireToken,`。
 
 - [ ] **Step 5: app.go 旗标同步 + 调用点**
 
