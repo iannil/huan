@@ -1,7 +1,9 @@
 // Command gen-brand-icons composes the macOS iconset PNGs and the runtime
 // Dock icon from the brand PNGs in web/admin/public/brand, adding the
 // macOS-standard transparent margin so huan matches neighboring app icons
-// in the Dock (Apple icon grid: content 824 / canvas 1024).
+// in the Dock (Apple icon grid: content 824 / canvas 1024). Stdlib only —
+// plugin sub-modules replace the root module and must not inherit any new
+// tool dependency.
 //
 // Usage (from the repo root, usually via gen-brand-icons.sh):
 //
@@ -10,11 +12,12 @@ package main
 
 import (
 	"image"
+	"image/color"
+	"image/draw"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
-
-	"golang.org/x/image/draw"
 )
 
 // contentRatio is the Apple icon grid ratio: 824px of artwork on a
@@ -63,17 +66,70 @@ func compose(srcPath string, canvas int, out string) error {
 	if err != nil {
 		return err
 	}
-	dst := image.NewRGBA(image.Rect(0, 0, canvas, canvas))
 	content := int(float64(canvas) * contentRatio)
+	scaled := areaScale(src, content, content)
+	dst := image.NewRGBA(image.Rect(0, 0, canvas, canvas))
 	off := (canvas - content) / 2
-	rect := image.Rect(off, off, off+content, off+content)
-	draw.CatmullRom.Scale(dst, rect, src, src.Bounds(), draw.Over, nil)
+	draw.Draw(dst, image.Rect(off, off, off+content, off+content), scaled, scaled.Bounds().Min, draw.Src)
 	f, err := os.Create(out)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	return png.Encode(f, dst)
+}
+
+// areaScale downscales src to w×h by averaging the source rectangle that
+// maps to each destination pixel (box filter, fractional edge coverage).
+// RGBA() returns alpha-premultiplied values and SetRGBA expects them, so
+// the average composites correctly onto the transparent canvas.
+func areaScale(src image.Image, w, h int) *image.RGBA {
+	sb := src.Bounds()
+	sx0, sy0 := float64(sb.Min.X), float64(sb.Min.Y)
+	sxf, syf := float64(sb.Dx())/float64(w), float64(sb.Dy())/float64(h)
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	for dy := 0; dy < h; dy++ {
+		y0 := sy0 + float64(dy)*syf
+		y1 := sy0 + float64(dy+1)*syf
+		for dx := 0; dx < w; dx++ {
+			x0 := sx0 + float64(dx)*sxf
+			x1 := sx0 + float64(dx+1)*sxf
+			var rs, gs, bs, as, area float64
+			for sy := int(y0); float64(sy) < y1; sy++ {
+				hf := overlap(y0, y1, float64(sy), float64(sy+1))
+				for sx := int(x0); float64(sx) < x1; sx++ {
+					wf := overlap(x0, x1, float64(sx), float64(sx+1))
+					r, g, b, a := src.At(sx, sy).RGBA()
+					wgt := hf * wf
+					rs += wgt * float64(r>>8)
+					gs += wgt * float64(g>>8)
+					bs += wgt * float64(b>>8)
+					as += wgt * float64(a>>8)
+					area += wgt
+				}
+			}
+			if area > 0 {
+				dst.SetRGBA(dx, dy, color.RGBA{
+					R: uint8(rs/area + 0.5),
+					G: uint8(gs/area + 0.5),
+					B: uint8(bs/area + 0.5),
+					A: uint8(as/area + 0.5),
+				})
+			}
+		}
+	}
+	return dst
+}
+
+// overlap returns the overlap length of the half-open ranges [a0,a1) and
+// [b0,b1).
+func overlap(a0, a1, b0, b1 float64) float64 {
+	lo := math.Max(a0, b0)
+	hi := math.Min(a1, b1)
+	if hi <= lo {
+		return 0
+	}
+	return hi - lo
 }
 
 func loadImage(path string) (image.Image, error) {

@@ -12,7 +12,6 @@ require (
 	github.com/tats-u/goldmark-cjk-friendly/v2 v2.0.2
 	github.com/tdewolff/minify/v2 v2.24.13
 	github.com/yuin/goldmark v1.8.2
-	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.43.0
