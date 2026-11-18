@@ -6,6 +6,7 @@
 - 计划：[docs/superpowers/plans/2026-11-18-desktop-startup-diagnostics-and-brand-icons.md](../superpowers/plans/2026-11-18-desktop-startup-diagnostics-and-brand-icons.md)（Task 1–11 + 用户裁决新增 Task 12）
 - 执行方式：superpowers:subagent-driven-development（每任务独立实现者 + 审查者 + 修复环），台账 `.superpowers/sdd/2026-11-18-desktop-startup-diagnostics-and-brand-icons/progress.md`
 - 状态：**自动化 + 运行时验证范围全部通过；交互式人工验收待办见 §6（未视为通过）**
+- 最终全分支评审（2026-11-18）：1 Important（托盘徽标重启丢失，已修）+ 2 Minor（1 修复 1 留档）+ /build/ gitignore 已补
 
 ## 1. 交付范围（spec §目标 ↔ 实现）
 
@@ -19,7 +20,7 @@
 | §6 版本与发布（0.13.1，.app/DMG + SHA256SUMS + README） | Task 9 | `86e461a` |
 | **新增**：config 级插件警告（yaml 已声明但 .so 缺失）进入启动诊断 | Task 12（用户裁决 2026-11-18「现在补齐」） | `92a3b2b` |
 
-Task 12 补齐了 spec 验收项 1 的缺口：「huan.yaml 已声明但 .so 缺失」原为 `registry_config.go` 内联 stderr 打印，桌面端不可见；现收集进 `Registry.ConfigWarnings`，经 `ServeOptions.OnConfigWarnings` / `BuildSiteTo` 第 5 参进入诊断收集器，CLI stderr 输出逐字节不变（config 行先、load 行后）。
+Task 12 补齐了 spec 验收项 1 的缺口：「huan.yaml 已声明但 .so 缺失」原为 `registry_config.go` 内联 stderr 打印，桌面端不可见；现收集进 `Registry.ConfigWarnings`，经 `ServeOptions.OnConfigWarnings` / `BuildSiteTo` 第 5 参进入诊断收集器，CLI stderr 行格式逐字节不变（config 行先、load 行后为 spec 不变量；改前内联顺序为 load 先）。
 
 ## 2. 自动化验收（spec「测试与验收」§自动化）
 
@@ -28,7 +29,7 @@ Task 12 补齐了 spec 验收项 1 的缺口：「huan.yaml 已声明但 .so 缺
 | `go vet ./...` | ✅ 无输出 | 2026-11-18 全量跑 |
 | `go test ./...` | ✅ 33 pkgs ok | 同上；`TestServeRuntime_StartServeStop` 在高并行负载下 5s Stop 超时为**既有 flake**（路径未被本分支触碰），隔离运行 `-count=1` 通过 |
 | gofmt 交集 | ✅ 无新增漂移 | 仓库级既有漂移（工具链格式化版本差）；本分支触碰的 3 个漂移文件（`cmd/huan/plugins_test.go`、`internal/daemon/daemon.go`、`internal/plugin/lifecycle.go`）在 merge-base 与 HEAD 的 gofmt diff 行数逐一相等（12/50/50）——漂移区未被改动 |
-| CLI stderr 字节不变 | ✅ | `cmd/huan` 测试断言 `huan: plugin load warning: …\n` 与 `huan: plugin config warning: …\n` 逐字节及顺序（config → load） |
+| CLI stderr 行格式不变 | ✅ | `cmd/huan` 测试断言 `huan: plugin config warning: …\n` 与 `huan: plugin load warning: …\n` 行格式与改前内联打印逐字节一致；config → load 的**顺序**为 spec 规定的不变量（分支前内联顺序为 load 先，本分支有意改为 config 先） |
 | 单测覆盖（spec 列表） | ✅ | Registry.Warnings/ConfigWarnings 收集（成功/失败混合目录，`HUAN_HOME` 隔离）；Diagnostics 并发 Add/Snapshot/Reset；菜单标题分支 0/n>0；通知触发条件；OnPluginWarnings/OnConfigWarnings 接线 |
 
 ## 3. 运行时验收（自动化可证部分）
@@ -67,6 +68,7 @@ Task 12 补齐了 spec 验收项 1 的缺口：「huan.yaml 已声明但 .so 缺
 6. **裸二进制 dev 运行通知噪声**：`notifyID` 每次记录 `ErrUnsupported`（3 行/次）；可用 `mygo.NotificationsSupported()` 门控，属锦上添花。
 7. **dev/serve 动态路径 OnWarnings 休眠**（Task 2 已裁决 park）：静态路径事件类已被 Task 1/5/12 覆盖。
 8. **macOS 通知权限**：首次弹窗待用户应答；拒绝后通知静默（菜单徽标仍工作）。
+9. **`NewRegistryFromConfig` 错误路径丢弃已收集警告（最终评审 F2，裁决 STAY-PARKED）**：当其返回 error（plugins 目录不可读 / 致命配置错误）时返回 nil，已收集的 `Warnings`/`ConfigWarnings` 一并丢弃，调用方在致命错误前不打印任何警告；改前内联打印会在致命错误前输出这些警告。维持现状理由：场景罕见、致命错误本就阻断启动，为此改 API 不值得。
 
 ## 6. 待人工验收（不视为通过）
 

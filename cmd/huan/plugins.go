@@ -28,8 +28,11 @@ func newPluginRegistry(cfg *config.Config, sourceDir string, pluginDirOverride s
 	if err != nil {
 		return nil, err
 	}
-	// Config warnings first, load warnings second — preserves the stderr
-	// line order NewRegistryFromConfig produced when it printed inline.
+	// Config warnings first, load warnings second — the ORDER is a spec
+	// invariant (TestNewPluginRegistryPrintsConfigWarningsBeforeLoadWarnings
+	// enforces it), not a preservation of the historical inline order (which
+	// was load-first); only the line FORMATS are byte-identical to the old
+	// inline prints.
 	plugin.PrintConfigWarnings(os.Stderr, reg.ConfigWarnings)
 	plugin.PrintWarnings(os.Stderr, reg.Warnings)
 	return reg, nil
