@@ -1,6 +1,6 @@
-# GitHub Desktop DMG 发布：release.yml 三 job 改造与实弹验证交接
+# GitHub Desktop DMG 发布：release.yml 三 job 改造与实弹验证
 
-> 状态：代码与本地验证完成，**实弹验证 PENDING** · 起始：2026-11-18 · 计划：[docs/superpowers/plans/2026-11-18-github-desktop-dmg-release.md](../superpowers/plans/2026-11-18-github-desktop-dmg-release.md) · 规格：[docs/superpowers/specs/2026-11-18-github-desktop-dmg-release-design.md](../superpowers/specs/2026-11-18-github-desktop-dmg-release-design.md)
+> 状态：**已完成，实弹验证三点全过（PASS）** · 起始：2026-11-18 · 计划：[docs/superpowers/plans/2026-11-18-github-desktop-dmg-release.md](../superpowers/plans/2026-11-18-github-desktop-dmg-release.md) · 规格：[docs/superpowers/specs/2026-11-18-github-desktop-dmg-release-design.md](../superpowers/specs/2026-11-18-github-desktop-dmg-release-design.md)
 
 ## 背景
 
@@ -50,14 +50,26 @@ tag 必须同时等于 `internal/version/VERSION`（去空白后）与 `mygo.jso
 
    阴性用例（tag == VERSION == mygo.json）无 DRIFT 行；阳性用例（tag 漂移至 v0.13.5）两处均报 `DRIFT-DETECTED`。逐字证据见 `.superpowers/sdd/2026-11-18-github-desktop-dmg-release/task-1-report.md`。
 
-## PENDING：实弹验证（待 master 推送后执行）
+## 实弹验证（2026-11-18 已执行，三点全过 PASS）
 
-本地只能证明语法与门禁逻辑；`actions` 上游行为、GitHub Release 并行上传、GHCR 不回归必须在真实 run 中确认。以下为交接给下一次会话的完整待办。
+执行序列：push master（d93f7ab..ff8efa0，74 提交）→ 推 v0.13.4 tag（指向 ff8efa0）→ run 44322438051：create-release ✅ / **desktop ✅（DMG 首跑即成）** / release ❌（Docker 步骤，见下）→ 修复 Dockerfile 基础镜像（`golang:1.26-bookworm` → `1.27-bookworm`，go.mod 门槛 ≥1.27.3 而镜像自带 GOTOOLCHAIN=local；本地 arm64 目标构建绿 + 容器内 `huan 0.13.4` 复验）→ 提交 af0d13c 推送 → **tag 移至 af0d13c 重触发** → run 44324468799 **三 job 全绿**。
+
+### 结果
+
+1. **Release v0.13.4 恰好 9 附件**：7 CLI（与 v0.12.7 集合一致，版本名 0.13.4：5 平台归档 + checksums + manifest）+ `huan-v0.13.4-darwin-arm64.dmg` + `.dmg.sha256`；无缺失、无意外附件。
+2. **GHCR 双 tag 实证**：`ghcr.io/iannil/huan:v0.13.4` 与 `latest` manifest 均为 linux/amd64（与历届单架构一致；arm64 Mac 本地运行不了属预期）。
+3. **漂移专项**（v0.13.5 tag → run 44325875722）：`create-release` 红，`##[error]Version drift: tag=v0.13.5 but internal/version/VERSION=0.13.4` 与 `mygo.json=0.13.4` 两行注解值全部正确展开；desktop/release 双 skip；无 Release 产生（`release not found` 实证）；tag 已清理（远端 0 残留）。
+
+### 过程发现（已处理）
+
+- **Docker 构建失败为既有问题**：go.mod 升至 ≥1.27.3 后任何 tag 的 Docker 步骤都会失败（v0.12.7 之后无人打 tag，故未暴露）；非三 job 改造引入。修复 af0d13c。
+- **本地 docker build 的 amd64 陷阱**：`ARG TARGETARCH=amd64` 显式默认值覆盖 buildkit 平台注入——arm64 Mac 上本地验证必须显式 `--build-arg TARGETARCH=arm64`（CI amd64 runner 不受影响）。
+- **tag 移动**：修复提交晚于 tag 指向时，dispatch/tag 重推跑的仍是旧 Dockerfile——删除远端/本地 tag 后重指到修复提交再推，workflow 幂等（--clobber）覆盖全部附件。
 
 ### 前置状态（2026-11-18 21:49 +0800 实测）
 
 - **master 未推送**：本地 master 领先 `origin/master` **70 个提交**（计划时估算 ~41，期间 desktop/admin 文档与功能提交继续累积），`origin/master` tip 为 `d93f7ab`（2026-11-13）。**禁止以 origin 为基准 reset**（SDD ledger 规则：origin/master 过期，只以本地 master 为准）。
-- **Task 1 提交在 worktree 分支上**：`worktree-gh-dmg-release` = master + `e211d05`（本文档提交后为 +2），需先 fast-forward 并回 master 再推送，否则线上没有新 workflow。
+- **Task 1 提交在 worktree 分支上**：`worktree-gh-dmg-release` = master + `e211d05` + `32d091c` + `ff8efa0`（修复环后共 3 个提交），需先 fast-forward 并回 master 再推送，否则线上没有新 workflow。
 - **v0.13.4 tag 尚不存在**：本地与远端最高 tag 均为 `v0.12.7`；`internal/version/VERSION` = `0.13.4`、`mygo.json` = `0.13.4`，与门禁期待的三方一致就绪。v0.13.0–v0.13.3 桌面版本均为本地构建，未打 tag。
 
 ### 验证步骤
@@ -102,3 +114,6 @@ gh release view v0.13.4
 
 - 2026-11-18 21:49 — Task 2：创建本文档；核实前置状态（master 领先 origin/master 70 提交未推送、e211d05 在 worktree 分支待并回、v0.13.4 tag 不存在、VERSION/mygo.json 均为 0.13.4）。实弹验证交接就绪。
 - 2026-11-18（晚间）— Task 1：`e211d05` 完成 release.yml 三 job 重写；yaml-ok + 门禁干跑两用例通过；评审 Spec ✅ / Quality Approved（1 个 deferred minor：GITHUB_PATH 同 step 限制，见上文已知遗留）。
+- 2026-11-18 22:0x — 修复环 1/5：评审 2 Important（验收点 2 误述 CLI 资产集、验收点 3 漂移流程不可达）→ `ff8efa0` 重写两点，复审 2/2 ADDRESSED（含驳回协调者指令的 tag 名 bug：`v0.13.5-drift` 过不了格式门禁）。
+- 2026-11-18 22:0x — 最终评审 CLEAN（opus）；「合并回 master（本地）」快进 6a4ce73..ff8efa0，1207/39 全绿；worktree/分支清理。
+- 2026-11-18 22:1x — 实弹：push master + tag v0.13.4 → 首跑 desktop/create-release 绿、Docker 步骤红（既有 go.mod 门槛 vs 基础镜像问题）→ af0d13c 修复 + tag 重指 → run 44324468799 全绿 → 三点验收全过 + GHCR 实证 → 漂移专项过 + tag 清理 → 本文档移入 completed。
