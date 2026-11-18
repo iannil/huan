@@ -85,8 +85,11 @@ gh release view v0.13.4
 ### 验收三点（全部通过才算实弹验证完成）
 
 1. **Release 出现 DMG + sha256 附件**：`gh release view v0.13.4` 可见 `huan-v0.13.4-darwin-arm64.dmg` 与 `huan-v0.13.4-darwin-arm64.dmg.sha256`；desktop job 日志中 `cat "$out.sha256"` 输出校验值，本地 `shasum -a 256 -c` 可复验。
-2. **CLI 产物不受影响**：同一 Release 中 CLI 产物照常上传（`release/<version>/` 下全量产物 + 七插件 `.so`），GHCR `ghcr.io/iannil/huan:v0.13.4` 与 `latest` 照常推送（`docker manifest inspect` 或 `ghcr` 页面确认）；对比改造前 v0.12.7 的 Release 附件清单，除新增 DMG 两件外无缺失。
-3. **人为漂移时门禁红**：构造漂移用例（如 dispatch `-f tag=v0.13.5`，tag 与 VERSION/mygo.json=0.13.4 不一致）→ `create-release` 失败，日志含 `::error::Version drift`，无 Release、无任何附件产生；两 artifact job 因 `needs` 未满足而 skip。验证后删除该临时用例（`gh run delete` 可选，不留漂移 tag）。
+2. **CLI 产物不受影响**：同一 Release 中 CLI 产物照常上传——工作流上传的只有 `release/<version>/` 产物（对照 v0.12.7 记录：5 平台归档 + `huan_0.12.7_checksums.txt` + manifest，共 7 个附件）；七插件 `.so` 只进 `docker-plugins/` 供 GHCR 镜像使用，**不作为 Release 附件**。GHCR `ghcr.io/iannil/huan:v0.13.4` 与 `latest` 照常推送（`docker manifest inspect` 或 `ghcr` 页面确认）。对比改造前 v0.12.7 的 Release 附件清单：恰好 9 个附件 = 原 7 件 + 新增 DMG 两件（`huan-v0.13.4-darwin-arm64.dmg` + `.sha256`），除新增两件外无缺失、无意外附件。
+3. **人为漂移时门禁红**：真实漂移用例（tag 与 VERSION/mygo.json=0.13.4 不一致，且 tag 必须匹配格式门禁 `^v[0-9]+\.[0-9]+\.[0-9]+$`——不能用 `v0.13.5-drift` 这类后缀名，否则先挂在格式校验而到不了版本门禁）：
+   1. `git tag v0.13.5 && git push origin v0.13.5`（漂移 tag 指向当前提交，VERSION/mygo.json 仍为 0.13.4）；push v* tag 即自动触发 workflow，无需 dispatch（dispatch 路径同理，但要求该 tag 已在远端，否则 checkout at tag 先失败、到不了门禁）。
+   2. 观测 run：`create-release` 失败，日志含 `::error::Version drift` 并列出实际值（tag=v0.13.5 vs internal/version/VERSION=0.13.4 与 mygo.json=0.13.4）；gate 先于 `gh release create` 执行，因此无 Release、无任何附件产生；两 artifact job 因 `needs` 未满足而 skip。
+   3. 清理：`gh release delete v0.13.5 --yes 2>/dev/null; git push origin :refs/tags/v0.13.5; git tag -d v0.13.5`（正常情况无 Release 可删，命令防御性保留）。
 
 ## 完成标准
 
