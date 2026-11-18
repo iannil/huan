@@ -149,7 +149,7 @@ Hugo is excellent, but for a single site's needs it carries a lot of surface are
 
 - HTTP static file server with custom 404
 - **Admin panel at `/admin`**: live content management UI (read/write markdown files, edit settings, manage media)
-- On a trusted loopback setup you can disable the admin token prompt with `admin.requireToken: false` in huan.yaml (loopback binds only; LAN-exposed binds still refuse to start).
+- Admin token auth is off by default for loopback binds (`admin.requireToken`, default `false`) — a LAN-exposed bind refuses to start unless you set `admin.requireToken: true` and a token (`HUAN_ADMIN_TOKEN`).
 - Recursive fsnotify watcher with configurable debounce
 - LiveReload WebSocket hub with per-client broadcast channels (slow clients don't block)
 - Atomic rebuild: writes to a sibling staging directory, then `rename(2)` swaps it in — old content stays served during multi-second rebuilds, no 404s

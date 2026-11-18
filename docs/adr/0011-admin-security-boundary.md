@@ -197,6 +197,16 @@ tail -10 memory/daily/$(date +%Y-%m-%d).md
 - 原「否决 warn-and-continue」结论不变：本修订不引入任何「警告但继续暴露」路径。
 - 设计与验收：`docs/superpowers/specs/2026-11-18-admin-auth-switch-design.md`。
 
+## 2026-11-18 第二次修订：缺省值翻转（回环信任，暴露须显式）
+
+用户实测裁决（桌面端每次启动都要复制 Token，摩擦大于收益）：`admin.requireToken` **缺省从 true 翻转为 false**。
+
+- `RequireTokenEnabled()`：仅显式 `true` 开启鉴权；键缺省/nil = 关闭。显式 true/false 语义不变；「false 与 `HUAN_ADMIN_TOKEN` 并存时开关赢（env 忽略）」不变。
+- 安全姿态由缺省值承担变为由 L1 承担：回环 bind（127.0.0.1/localhost，含桌面/dev/daemon 全部默认绑定）免 token；**非回环 bind 在鉴权关闭时仍拒绝启动**（含「未配置键 = 缺省关闭」的情况），LAN 暴露必须显式 `requireToken: true` + token。LAN 暴露面不扩大。
+- 专属报错文案随缺省翻转修正：不再建议「移除 admin.requireToken」（缺省关闭下该建议无效），改为指引 `admin.requireToken: true` + token；显式 `requireToken: true` + 空 token 的旧报错保持逐字节不变。
+- 行为变化（相对上一修订）：`huan serve` / daemon / 桌面端在缺省配置下不再自动生成 token、不再打印 token 行（改单行 disabled 提示）、admin SPA 不再弹认证框；桌面端「复制管理 Token」菜单项缺省隐藏。
+- 原「否决 warn-and-continue」结论不变。
+
 ## 不在范围（YAGNI）
 
 - L3 CSRF SameSite cookie—— v1.x 多用户场景
