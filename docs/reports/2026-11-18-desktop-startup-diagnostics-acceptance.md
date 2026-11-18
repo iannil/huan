@@ -64,7 +64,7 @@ Task 12 补齐了 spec 验收项 1 的缺口：「huan.yaml 已声明但 .so 缺
 2. **registry_config.go:39/:43 两处 error 级 stderr 打印未上移**（name-conflict / register-error）：罕见、非警告级，Task 12 裁决范围外。
 3. **托盘 @2x 图标**：18×18 单尺寸在 Retina 下可接受但非最优，spec 范围外留待后续。
 4. **`TestServeRuntime_StartServeStop` 5s Stop 超时 flake**：既有，高并行下复现、隔离必过；建议后续放宽超时或注入假时钟。
-5. **`.gitignore` 缺 `/build/` 规则**：mygo build 产物（27MB+）现为 untracked，未来 `git add -A` 有误提交风险。
+5. ~~**`.gitignore` 缺 `/build/` 规则**~~：已于最终评审修复环补上（commit c7339b8，根锚定 `/build/`，不影响 `internal/build` 源码包）；此条仅留追溯。
 6. **裸二进制 dev 运行通知噪声**：`notifyID` 每次记录 `ErrUnsupported`（3 行/次）；可用 `mygo.NotificationsSupported()` 门控，属锦上添花。
 7. **dev/serve 动态路径 OnWarnings 休眠**（Task 2 已裁决 park）：静态路径事件类已被 Task 1/5/12 覆盖。
 8. **macOS 通知权限**：首次弹窗待用户应答；拒绝后通知静默（菜单徽标仍工作）。
@@ -78,4 +78,4 @@ Task 12 补齐了 spec 验收项 1 的缺口：「huan.yaml 已声明但 .so 缺
 
 ## 7. 提交清单（81cfd7c..HEAD）
 
-`3aafe10` 警告显式化 · `b59bbb0` daemon/dev 接线 · `0e7910e` Diagnostics 收集器 · `4e9007f` 菜单徽标 · `40f5473` 桌面端警告接线 · `bab3256` 通知/对话框/Dock/托盘 · `0c40078` 托盘程序化绘制 · `e916561` 图标 margin 合成 · `e1806f5` stdlib 缩放核 · `dfd4c91` iconset 脚本 · `86e461a` v0.13.1 发布配置 · `c392564` 插件子模块工具链对齐 · `92a3b2b` config 级警告进诊断
+`3aafe10` 警告显式化 · `b59bbb0` daemon/dev 接线 · `0e7910e` Diagnostics 收集器 · `4e9007f` 菜单徽标 · `40f5473` 桌面端警告接线 · `bab3256` 通知/对话框/Dock/托盘 · `0c40078` 托盘程序化绘制 · `e916561` 图标 margin 合成 · `e1806f5` stdlib 缩放核 · `dfd4c91` iconset 脚本 · `86e461a` v0.13.1 发布配置 · `c392564` 插件子模块工具链对齐 · `92a3b2b` config 级警告进诊断 · `0a7ef2b` 验收报告 · 修复环：`5d268ee` 托盘徽标重启保持 · `90fcc4a` stderr 行序文档纠正 + F2 留档 · `c7339b8` /build/ 忽略规则
