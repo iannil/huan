@@ -34,6 +34,11 @@ type ServeOptions struct {
 	// Nil falls back to a stderr-only logger (standalone/test usage); the
 	// desktop app injects its file-backed logger so spans land in desktop.log.
 	Logger *observability.Logger
+	// OnPluginWarnings is invoked with plugins that failed to load while
+	// starting this serve session — the static registry scan and the
+	// dynamic lifecycle scan each fire it once (empty slices are never
+	// delivered). Nil drops warnings. Invoked from the serve goroutine.
+	OnPluginWarnings func([]plugin.LoadWarning)
 }
 
 // ServeRuntime owns one in-process serve session: initial build, file
@@ -205,6 +210,11 @@ func (r *ServeRuntime) Start() (string, error) {
 		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("plugin registry: %w", err)
 	}
+	// Static-scan warnings (broken/garbage .so files) go to the caller now;
+	// the dynamic lifecycle scan reports through adminPluginMgr.OnWarnings.
+	if len(reg.Warnings) > 0 && r.opts.OnPluginWarnings != nil {
+		r.opts.OnPluginWarnings(reg.Warnings)
+	}
 	buildOpts.PluginRegistry = reg
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {
@@ -294,6 +304,9 @@ func (r *ServeRuntime) Start() (string, error) {
 	// Admin handler: same wiring as `huan dev` (rebuild via queue submit).
 	pluginLoader := plugin.NewLoader(plugin.DirFromSource(r.opts.SourceDir))
 	adminPluginMgr := plugin.NewLifecycleManager(reg, pluginLoader, eventbus.NewChannelBus())
+	// Route dynamic-scan warnings (LifecycleManager.Start's directory scan)
+	// to the same callback; nil-safe — LifecycleManager guards a nil field.
+	adminPluginMgr.OnWarnings = r.opts.OnPluginWarnings
 	adminHandler := admin.NewHandler(admin.HandlerOptions{
 		Cfg:           cfg,
 		SourceDir:     r.opts.SourceDir,

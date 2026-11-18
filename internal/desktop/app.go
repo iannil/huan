@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/iannil/huan/internal/observability"
+	"github.com/iannil/huan/internal/plugin"
 )
 
 // App wires the MyGo lifecycle, the serve runtime, menus, and persistence
@@ -31,14 +32,18 @@ type App struct {
 	startMu sync.Mutex
 	win     *mygo.Window
 	menus   *MenuSet
-	log     *observability.Logger
-	logDir  string
+	// diag collects startup problems (plugin load warnings, build issues);
+	// created in Run before any goroutine can Add into it.
+	diag   *Diagnostics
+	log    *observability.Logger
+	logDir string
 }
 
 // Run starts the desktop app and blocks until it quits.
 func Run() error {
 	app := &App{}
 	app.sm = NewMachine()
+	app.diag = NewDiagnostics()
 
 	// Structured JSON log file (Full-Lifecycle Observability).
 	dir, err := DefaultConfigDir()
@@ -435,6 +440,13 @@ func (a *App) Rebuild() {
 		outDir := filepath.Join(rt.SourceDir(), cfg.PublishDir)
 		err := BuildSiteTo(rt.SourceDir(), outDir, func(format string, args ...any) {
 			a.log.Log("build", observability.EventPoint, map[string]any{"msg": fmt.Sprintf(format, args...)})
+		}, func(ws []plugin.LoadWarning) {
+			for _, w := range ws {
+				msg := fmt.Sprintf("%s: %v", w.Name, w.Err)
+				a.diag.Add(LevelWarn, "build", msg)
+				a.log.Log("diag", observability.EventPoint, map[string]any{"component": "build", "msg": msg})
+			}
+			a.refreshDiagMenu()
 		})
 		// Back to serving only if the machine still says building; if the
 		// serve exited mid-build or a restart claimed the machine meanwhile
@@ -533,6 +545,19 @@ func (a *App) Quit() {
 func (a *App) ShowDiagnostics() { a.showDiagnostics() }
 
 func (a *App) showDiagnostics() {}
+
+// refreshDiagMenu updates the startup-diagnostics badge in both menus from
+// the current snapshot size. Safe to call from any goroutine (Add callbacks,
+// build workers); a no-op before the menus exist or during early startup.
+func (a *App) refreshDiagMenu() {
+	a.mu.Lock()
+	menus := a.menus
+	a.mu.Unlock()
+	if menus == nil || a.diag == nil {
+		return
+	}
+	menus.SetDiagCount(len(a.diag.Snapshot()))
+}
 
 // Compile-time check: App satisfies the Controller contract the menus use.
 var _ Controller = (*App)(nil)

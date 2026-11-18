@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/iannil/huan/internal/plugin"
 )
 
 // writeSite creates a minimal but complete site: huan.yaml + two layouts +
@@ -116,5 +119,61 @@ func TestServeRuntime_StartRejectsInvalidSite(t *testing.T) {
 	}
 	if rt.Running() {
 		t.Fatal("runtime must not be running after failed Start")
+	}
+}
+
+// writeSiteWithBrokenPlugin extends writeSite's site with a declared static
+// plugin whose .so is garbage — the canonical startup-warning fixture.
+func writeSiteWithBrokenPlugin(t *testing.T) string {
+	t.Helper()
+	src := writeSite(t)
+	pluginsDir := filepath.Join(src, "plugins")
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, "broken.so"), []byte("garbage"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(src, "huan.yaml")
+	body, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, append(body, []byte("plugins:\n  broken:\n    category: static\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return src
+}
+
+func TestServeRuntimeReportsPluginWarnings(t *testing.T) {
+	src := writeSiteWithBrokenPlugin(t)
+	var mu sync.Mutex
+	var seen []plugin.LoadWarning
+	rt := NewServeRuntime(ServeOptions{
+		SourceDir: src,
+		OnPluginWarnings: func(ws []plugin.LoadWarning) {
+			mu.Lock()
+			defer mu.Unlock()
+			seen = append(seen, ws...)
+		},
+	})
+	url, err := rt.Start()
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer rt.Stop(5 * time.Second)
+	if url == "" {
+		t.Fatal("empty admin url")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, w := range seen {
+		if w.Name == "broken.so" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("broken.so not among warnings: %+v", seen)
 	}
 }

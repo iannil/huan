@@ -13,7 +13,10 @@ import (
 // BuildSiteTo runs the production build for sourceDir into outputDir —
 // the same pipeline as `huan build` defaults (full build + image pipeline,
 // no dev-only caches since a one-shot build has no incremental reuse).
-func BuildSiteTo(sourceDir, outputDir string, logf func(format string, a ...any)) error {
+// onPluginWarnings receives plugins that failed the static registry scan
+// (empty slices are never delivered); nil drops them. Fired synchronously
+// before the build starts, on the caller's goroutine.
+func BuildSiteTo(sourceDir, outputDir string, logf func(format string, a ...any), onPluginWarnings func([]plugin.LoadWarning)) error {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -24,6 +27,9 @@ func BuildSiteTo(sourceDir, outputDir string, logf func(format string, a ...any)
 	reg, err := plugin.NewRegistryFromConfig(cfg, sourceDir, "")
 	if err != nil {
 		return fmt.Errorf("plugin registry: %w", err)
+	}
+	if len(reg.Warnings) > 0 && onPluginWarnings != nil {
+		onPluginWarnings(reg.Warnings)
 	}
 	themeMgr := theme.NewManager(reg)
 	if cfg.Theme != "" {
