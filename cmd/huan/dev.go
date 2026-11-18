@@ -255,6 +255,9 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 		pluginLoader = plugin.NewLoader(pluginsDir)
 	}
 	adminPluginMgr := plugin.NewLifecycleManager(reg, pluginLoader, eventbus.NewChannelBus())
+	adminPluginMgr.OnWarnings = func(ws []plugin.LoadWarning) {
+		plugin.PrintWarnings(os.Stderr, ws)
+	}
 	adminHandler := admin.NewHandler(admin.HandlerOptions{
 		Cfg:           cfg,
 		SourceDir:     sourceDir,

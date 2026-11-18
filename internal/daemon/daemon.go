@@ -160,6 +160,9 @@ func Run(opts Options) error {
 			pluginLoader,
 			d.bus,
 		)
+		d.pluginManager.OnWarnings = func(ws []plugin.LoadWarning) {
+			plugin.PrintWarnings(os.Stderr, ws)
+		}
 
 		// Register capability detector for Admin API plugin listing
 		d.pluginManager.SetCapabilityDetector(func(p plugin.Plugin) string {

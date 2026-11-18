@@ -2,6 +2,8 @@ package plugin
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -220,4 +222,29 @@ func TestLifecycleManager_EventSubscriber_EmptyEvents(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	lm.Stop()
+}
+
+func TestLifecycleManagerOnWarningsFiresOnBrokenSo(t *testing.T) {
+	t.Setenv("HUAN_HOME", t.TempDir()) // isolate from the real ~/.huan
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "broken.so"), []byte("garbage"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := NewRegistry()
+	mgr := NewLifecycleManager(reg, NewLoader(dir), eventbus.NewChannelBus())
+	var got []LoadWarning
+	mgr.OnWarnings = func(ws []LoadWarning) { got = ws }
+	if err := mgr.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer mgr.Stop()
+	if len(got) != 1 {
+		t.Fatalf("want 1 warning from OnWarnings, got %d", len(got))
+	}
+	if got[0].Name != "broken.so" {
+		t.Errorf("warning name = %q, want broken.so", got[0].Name)
+	}
+	if len(reg.Warnings) != 1 {
+		t.Errorf("registry warnings = %d, want 1 (merged)", len(reg.Warnings))
+	}
 }

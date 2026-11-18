@@ -49,6 +49,12 @@ type LifecycleManager struct {
 	bus       eventbus.EventBus
 	pluginDir string // plugin directory for path validation
 
+	// OnWarnings fires with .so files that failed to load during Start's
+	// directory scan. Nil drops them — warnings still merge onto the
+	// registry. Printing is the caller's job; invoked from the Start
+	// goroutine.
+	OnWarnings func([]LoadWarning)
+
 	mu          sync.Mutex
 	loaded      map[string]*loadedPlugin // tracks all plugins (compiled + loaded)
 	watcher     *PluginWatcher
@@ -128,6 +134,15 @@ func (m *LifecycleManager) Start(ctx context.Context) error {
 		})
 		return fmt.Errorf("lifecycle: scan plugins: %w", err)
 	}
+
+	// Merge scan warnings onto the registry and hand them to the caller.
+	if len(m.loader.Warnings) > 0 {
+		m.registry.Warnings = append(m.registry.Warnings, m.loader.Warnings...)
+		if m.OnWarnings != nil {
+			m.OnWarnings(m.loader.Warnings)
+		}
+	}
+
 	for _, result := range results {
 		name := result.Plugin.Name()
 		if _, exists := m.registry.Get(name); exists {
