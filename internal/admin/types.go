@@ -38,6 +38,7 @@ type StatusResponse struct {
 	Title            string            `json:"title"`
 	BaseURL          string            `json:"baseURL"`
 	ServeURL         string            `json:"serveURL"`
+	Version          string            `json:"version"`
 	Total            int               `json:"total"`
 	Published        int               `json:"published"`
 	Drafts           int               `json:"drafts"`

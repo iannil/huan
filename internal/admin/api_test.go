@@ -12,6 +12,7 @@ import (
 
 	"github.com/iannil/huan/internal/daemon/eventbus"
 	"github.com/iannil/huan/internal/plugin"
+	"github.com/iannil/huan/internal/version"
 )
 
 // newTestAPIHandler builds an apiHandler with temp dirs for content/,
@@ -124,6 +125,26 @@ func TestAPI_Status_ReturnsCounts(t *testing.T) {
 	}
 	if resp.Title != "Test" {
 		t.Errorf("Title = %q, want Test", resp.Title)
+	}
+}
+
+// TestAPI_Status_ReportsVersion pins the single-version-line policy: the
+// admin SPA header renders this field, so it must carry the embedded engine
+// version (aligned with the desktop bundle version since 2026-11-18), not a
+// stale hardcoded value.
+func TestAPI_Status_ReportsVersion(t *testing.T) {
+	h, _ := newTestAPIHandler(t)
+	rec := doJSON(t, h, http.MethodGet, "/admin/api/status", nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var resp StatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Version != version.String() {
+		t.Errorf("Version = %q, want embedded engine version %q", resp.Version, version.String())
 	}
 }
 

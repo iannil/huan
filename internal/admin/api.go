@@ -11,6 +11,7 @@ import (
 
 	"github.com/iannil/huan/internal/plugin"
 	"github.com/iannil/huan/internal/theme"
+	"github.com/iannil/huan/internal/version"
 )
 
 // apiHandlerConfig holds the constructor inputs for apiHandler. Split into
@@ -296,6 +297,7 @@ func (h *apiHandler) getStatus(w http.ResponseWriter, r *http.Request) {
 		Title:            title,
 		BaseURL:          h.baseURL,
 		ServeURL:         h.serveURL,
+		Version:          version.String(),
 		Total:            total,
 		Published:        published,
 		Drafts:           drafts,

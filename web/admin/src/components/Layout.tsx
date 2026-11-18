@@ -24,6 +24,7 @@ export default function Layout() {
   const [buildMsg, setBuildMsg] = useState('')
   const [serveURL, setServeURL] = useState('')
   const [siteTitle, setSiteTitle] = useState('')
+  const [version, setVersion] = useState('')
 
   useEffect(() => {
     apiFetch('/admin/api/status')
@@ -31,6 +32,7 @@ export default function Layout() {
       .then((d) => {
         if (d?.serveURL) setServeURL(d.serveURL)
         if (d?.title) setSiteTitle(d.title)
+        if (d?.version) setVersion(d.version)
       })
       .catch(() => {})
   }, [])
@@ -67,17 +69,13 @@ export default function Layout() {
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           {/* Left: Site title */}
           <a href="/admin/" className="flex items-center gap-2 mr-8">
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className="text-foreground shrink-0"
-            >
-              <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.5" />
-              <circle cx="12" cy="12" r="5.5" fill="currentColor" />
-            </svg>
+            <img
+              src={`${import.meta.env.BASE_URL}brand/huan-primary.svg`}
+              alt=""
+              width={22}
+              height={22}
+              className="rounded-md shrink-0"
+            />
             <span className="text-base font-semibold text-foreground tracking-tight">
               {siteTitle || 'huan'}
             </span>
@@ -124,7 +122,7 @@ export default function Layout() {
               </a>
             )}
 
-            <span className="text-xs text-muted-foreground">huan v0.3.0</span>
+            <span className="text-xs text-muted-foreground">huan{version ? ` v${version}` : ''}</span>
           </div>
         </div>
       </header>
