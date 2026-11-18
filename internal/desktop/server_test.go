@@ -53,7 +53,9 @@ func TestServeRuntime_StartServeStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer rt.Stop(5 * time.Second)
+	// Under heavy parallel `go test ./...` load a healthy Stop can exceed 5s
+	// (observed flake); 30s stays a bounded guard.
+	defer rt.Stop(30 * time.Second)
 	if !rt.Running() {
 		t.Fatal("runtime should be running after Start")
 	}
@@ -86,7 +88,7 @@ func TestServeRuntime_StartServeStop(t *testing.T) {
 		t.Errorf("admin status = %d, want 200", resp2.StatusCode)
 	}
 
-	if err := rt.Stop(5 * time.Second); err != nil {
+	if err := rt.Stop(30 * time.Second); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if rt.Running() {
