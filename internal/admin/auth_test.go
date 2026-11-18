@@ -255,9 +255,18 @@ func TestCheckBindSafety_NonLoopback_DisabledAuth_FailFast(t *testing.T) {
 	if err == nil {
 		t.Fatal("non-loopback bind with auth disabled must refuse")
 	}
-	const want = "admin.requireToken: false"
-	if !strings.Contains(err.Error(), want) {
-		t.Fatalf("error must name the config switch %q, got: %v", want, err)
+	const wantSwitch = "admin.requireToken: false"
+	if !strings.Contains(err.Error(), wantSwitch) {
+		t.Fatalf("error must name the config switch %q, got: %v", wantSwitch, err)
+	}
+	// Default-off revision: the refusal fires both for explicit false and for
+	// the absent-key default, so the hint must say how to enable explicitly.
+	const wantHint = "admin.requireToken: true"
+	if !strings.Contains(err.Error(), wantHint) {
+		t.Fatalf("error must tell the user how to enable auth (%q), got: %v", wantHint, err)
+	}
+	if strings.Contains(err.Error(), "remove admin.requireToken from huan.yaml") {
+		t.Fatal("removing the key no longer helps (default is off) — stale advice must be gone")
 	}
 	if strings.Contains(err.Error(), "HUAN_ADMIN_TOKEN env when binding") {
 		t.Fatal("disabled-auth error must be the dedicated message, not the legacy token message")

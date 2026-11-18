@@ -8,13 +8,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestRequireTokenEnabled_DefaultIsTrue(t *testing.T) {
+func TestRequireTokenEnabled_DefaultIsFalse(t *testing.T) {
 	var c Config
 	if err := yaml.Unmarshal([]byte("title: t\n"), &c); err != nil {
 		t.Fatal(err)
 	}
-	if !c.Admin.RequireTokenEnabled() {
-		t.Fatal("absent admin section must default to requireToken=true")
+	if c.Admin.RequireTokenEnabled() {
+		t.Fatal("absent admin section must default to requireToken=false (2026-11-18 second revision: loopback trust, network exposure must be explicit)")
 	}
 }
 

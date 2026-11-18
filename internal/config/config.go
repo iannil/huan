@@ -87,9 +87,12 @@ type AdminConfig struct {
 }
 
 // RequireTokenEnabled reports the effective requireToken setting: only an
-// explicit false disables auth; absent/nil keeps the token requirement.
+// explicit true enables auth; absent/nil keeps auth off (2026-11-18 second
+// revision of ADR 0011: loopback binds are trusted, network exposure must be
+// explicit — a non-loopback bind is refused while auth is off, see admin.
+// CheckBindSafety).
 func (a *AdminConfig) RequireTokenEnabled() bool {
-	return a.RequireToken == nil || *a.RequireToken
+	return a.RequireToken != nil && *a.RequireToken
 }
 
 type ParamsConfig struct {
