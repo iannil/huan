@@ -265,6 +265,7 @@ func runDev(cmd *cobra.Command, args []string) (devErr error) {
 		ServeURL:      serveURL,
 		BindAddr:      bind,
 		Token:         token,
+		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
 		MemoryDir:     filepath.Join(sourceDir, "memory", "daily"),
 		PluginManager: adminPluginMgr,
 		ThemeManager:  themeMgr,

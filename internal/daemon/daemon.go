@@ -232,6 +232,7 @@ func Run(opts Options) error {
 		ServeURL:      fmt.Sprintf("http://%s:%s/", opts.Bind, opts.Port),
 		BindAddr:      opts.Bind,
 		Token:         adminToken,
+		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
 		MemoryDir:     filepath.Join(opts.SourceDir, "memory", "daily"),
 		PluginManager: d.pluginManager,
 		ThemeManager:  d.themeManager,

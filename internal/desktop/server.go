@@ -324,6 +324,7 @@ func (r *ServeRuntime) Start() (string, error) {
 		ServeURL:      devBaseURL,
 		BindAddr:      "127.0.0.1",
 		Token:         token,
+		RequireToken:  true, // literal keep-green; config wiring lands in Task 4/5
 		MemoryDir:     filepath.Join(r.opts.SourceDir, "memory", "daily"),
 		PluginManager: adminPluginMgr,
 		ThemeManager:  themeMgr,

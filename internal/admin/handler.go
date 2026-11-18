@@ -23,13 +23,20 @@ var adminDist embed.FS
 // caller via ResolveToken); non-loopback binds must set HUAN_ADMIN_TOKEN
 // (enforced by CheckBindSafety before this struct is built).
 type HandlerOptions struct {
-	Cfg        *config.Config
-	SourceDir  string
-	Rebuild    func()
-	ServeURL   string
-	BindAddr   string // informational; used for nothing currently but kept for future allow-listing
-	Token      string // required; gates all /admin/api/* requests (L2)
-	MemoryDir  string // optional; if empty, audit log is disabled
+	Cfg       *config.Config
+	SourceDir string
+	Rebuild   func()
+	ServeURL  string
+	BindAddr  string // informational; used for nothing currently but kept for future allow-listing
+	Token     string // required; gates all /admin/api/* requests (L2)
+	// RequireToken mounts TokenMiddleware over /admin/api/* when true
+	// (the default via cfg.Admin.RequireTokenEnabled()). When false, the API
+	// mounts bare — auth is disabled by config and the bind is guaranteed
+	// loopback by CheckBindSafety (ADR 0011 L1). This is an explicit flag:
+	// never infer it from Token=="" (an empty expected token would let an
+	// empty provided token pass ConstantTimeCompare).
+	RequireToken  bool
+	MemoryDir     string // optional; if empty, audit log is disabled
 	PluginManager *plugin.LifecycleManager
 	ThemeManager  *theme.Manager
 }
@@ -39,8 +46,9 @@ type HandlerOptions struct {
 // JSON endpoints. API endpoints are wrapped in TokenMiddleware (L2);
 // write operations are recorded via AuditLogger to memoryDir/daily-{date}.md (L4).
 //
-// Callers MUST run CheckBindSafety(bindAddr, token) BEFORE constructing
-// the handler to enforce L1 (fail-fast on non-loopback bind without token).
+// Callers MUST run CheckBindSafety(bindAddr, token, requireToken) BEFORE
+// constructing the handler to enforce L1 (fail-fast on non-loopback bind
+// without token, and on auth-disabled binds that are not loopback).
 func NewHandler(opts HandlerOptions) http.Handler {
 	mux := http.NewServeMux()
 
@@ -59,7 +67,12 @@ func NewHandler(opts HandlerOptions) http.Handler {
 		pluginManager: opts.PluginManager,
 		themeManager:  opts.ThemeManager,
 	})
-	apiWithAuth := TokenMiddleware(api, opts.Token)
+	// L2 token gate is config-conditional (admin.requireToken). Disabled auth
+	// mounts the API bare; CheckBindSafety already confined that to loopback.
+	var apiWithAuth http.Handler = api
+	if opts.RequireToken {
+		apiWithAuth = TokenMiddleware(api, opts.Token)
+	}
 	mux.Handle("/admin/api/", apiWithAuth)
 
 	// Static SPA files from embedded dist/ — intentionally NOT gated by
