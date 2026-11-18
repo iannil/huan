@@ -65,6 +65,7 @@ tag 必须同时等于 `internal/version/VERSION`（去空白后）与 `mygo.jso
 - **Docker 构建失败为既有问题**：go.mod 升至 ≥1.27.3 后任何 tag 的 Docker 步骤都会失败（v0.12.7 之后无人打 tag，故未暴露）；非三 job 改造引入。修复 af0d13c。
 - **本地 docker build 的 amd64 陷阱**：`ARG TARGETARCH=amd64` 显式默认值覆盖 buildkit 平台注入——arm64 Mac 上本地验证必须显式 `--build-arg TARGETARCH=arm64`（CI amd64 runner 不受影响）。
 - **tag 移动**：修复提交晚于 tag 指向时，dispatch/tag 重推跑的仍是旧 Dockerfile——删除远端/本地 tag 后重指到修复提交再推，workflow 幂等（--clobber）覆盖全部附件。
+- **tag 移动的副作用：Release 自动转 draft**——删除远端 tag ref 后，GitHub 会把指向它的 Release 自动转为 draft；重跑时 create-release 见「已存在」向该 draft 上传，最终需 `gh release edit v0.13.4 --draft=false --latest` 手动发布（22:39 已执行，draft=false、9 附件实证）。正常打 tag（不移动）不会触发此路径。
 
 ### 前置状态（2026-11-18 21:49 +0800 实测）
 
