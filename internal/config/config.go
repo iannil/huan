@@ -53,7 +53,9 @@ type Config struct {
 	Outputs OutputsConfig           `yaml:"outputs"`
 	AI      AIConfig                `yaml:"ai"`
 	Plugins map[string]PluginConfig `yaml:"plugins"`
-	Theme   string                  `yaml:"theme"`
+	// Admin gates the local admin panel; see docs/adr/0011-admin-security-boundary.md.
+	Admin AdminConfig `yaml:"admin"`
+	Theme string      `yaml:"theme"`
 
 	// Computed (not from YAML)
 	BaseURLTemplate template.URL
@@ -73,6 +75,21 @@ type DisqusConfig struct {
 
 type AuthorConfig struct {
 	Name string `yaml:"name"`
+}
+
+// AdminConfig configures the admin panel (ADR 0011). RequireToken follows
+// the CleanPublishDir *bool convention: nil means "use the safe default".
+type AdminConfig struct {
+	// RequireToken gates every /admin/api/* request behind a bearer token.
+	// Default true. false is honored on loopback binds only — CheckBindSafety
+	// refuses a non-loopback bind with auth disabled.
+	RequireToken *bool `yaml:"requireToken"`
+}
+
+// RequireTokenEnabled reports the effective requireToken setting: only an
+// explicit false disables auth; absent/nil keeps the token requirement.
+func (a *AdminConfig) RequireTokenEnabled() bool {
+	return a.RequireToken == nil || *a.RequireToken
 }
 
 type ParamsConfig struct {
