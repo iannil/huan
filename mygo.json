@@ -2,7 +2,8 @@
   "name": "huan",
   "slug": "huan",
   "identifier": "io.github.iannil.huan.desktop",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "main": "github.com/iannil/huan/cmd/huan-desktop",
-  "out": "build/desktop"
+  "out": "build/desktop",
+  "macos": { "icon": "internal/desktop/assets/app.icns" }
 }
