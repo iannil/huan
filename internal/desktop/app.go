@@ -47,7 +47,7 @@ type App struct {
 func Run() error {
 	// adminAuthRequired defaults to true (缺省语义): the first-built menus
 	// include the copy-token item; startAndServe re-syncs it from the runtime
-	// after each successful Start and RefreshRecents rebuilds the tray menu.
+	// after each successful Start and RefreshRecents rebuilds both menus.
 	app := &App{adminAuthRequired: true}
 	app.sm = NewMachine()
 	app.diag = NewDiagnostics()
@@ -329,7 +329,7 @@ func (a *App) startAndServe(site string) {
 	a.mu.Lock()
 	a.rt = rt
 	// Sync the auth flag from the live session before any menu rebuild uses
-	// it (RefreshRecents below); the tray menu then drops/keeps the
+	// it (RefreshRecents below); the menus then drop/keep the
 	// copy-token item per admin.requireToken.
 	a.adminAuthRequired = rt.AdminAuthRequired()
 	a.cfg.AddRecentSite(site)
@@ -341,7 +341,7 @@ func (a *App) startAndServe(site string) {
 		a.menus.SetServing(true)
 		a.menus.RefreshRecents(a, a.cfg.RecentSites, a.adminAuthRequired)
 	}
-	// RefreshRecents rebuilt the tray menu with a hardcoded diagMenuLabel(0),
+	// RefreshRecents rebuilt both menus with a hardcoded diagMenuLabel(0),
 	// erasing the diag count the synchronous rt.Start warning handlers just
 	// set; re-apply the live count. Menu label only — startup notifications
 	// must not re-fire here (the onReady path owns them).

@@ -145,7 +145,7 @@ Hugo 很优秀，但对于单一站点的需求而言，它携带了大量用不
 
 - 带自定义 404 的 HTTP 静态文件服务器
 - **`/admin` 管理后台**：在线内容管理 UI（读写 Markdown 文件、编辑设置、管理媒体）
-- 受信回环环境可在 huan.yaml 配置 admin.requireToken: false 关闭管理面板 token 提示（仅限回环 bind；非回环 bind 仍拒绝启动）。
+- 受信回环环境可在 huan.yaml 配置 `admin.requireToken: false` 关闭管理面板 token 提示（仅限回环 bind；非回环 bind 仍拒绝启动）。
 - 递归 fsnotify 监听器，可配置防抖
 - LiveReload WebSocket hub，每客户端独立广播通道（慢客户端不阻塞）
 - 原子重建：先写入同级 staging 目录，再用 `rename(2)` 换入——重建期间继续服务旧内容，无 404

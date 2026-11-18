@@ -51,3 +51,10 @@ func TestBuildAppMenu_OmitsTokenItem_WhenAuthDisabled(t *testing.T) {
 		t.Fatal("app menu must omit 复制管理 Token when admin auth is disabled")
 	}
 }
+
+func TestBuildAppMenu_IncludesTokenItem_WhenAuthEnabled(t *testing.T) {
+	menu := BuildAppMenu(stubController{}, true)
+	if item := menu.ItemByID(itemCopyToken); item == nil {
+		t.Fatal("app menu must keep 复制管理 Token when admin auth is enabled")
+	}
+}
